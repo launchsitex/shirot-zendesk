@@ -340,13 +340,37 @@ export function AgentsTeams() {
   return (
     <PageState data={data} error={error}>
       {(dashboard) => {
-        const available = dashboard.agents.filter(
-          (agent) => agent.state === "available",
+        const connected = dashboard.agents.filter(
+          (agent) => agent.state !== "unavailable",
         ).length;
         const busy = dashboard.agents.filter((agent) =>
           ["ringing", "on_call", "wrap_up"].includes(agent.state),
         ).length;
-        const unavailable = dashboard.agents.length - available - busy;
+        const unavailable = dashboard.agents.filter(
+          (agent) => agent.state === "unavailable",
+        ).length;
+        const unassignedAgents = dashboard.agents.filter(
+          (agent) => !agent.departmentId,
+        );
+        const departmentSections = [
+          ...dashboard.departments.map((department) => ({
+            id: department.id,
+            name: department.name,
+            agents: dashboard.agents.filter(
+              (agent) => agent.departmentId === department.id,
+            ),
+          })),
+          ...(unassignedAgents.length
+            ? [
+                {
+                  id: "unassigned",
+                  name: "ללא מחלקה",
+                  agents: unassignedAgents,
+                },
+              ]
+            : []),
+        ].filter((section) => section.agents.length > 0);
+
         return (
           <>
             <PageHeader
@@ -356,8 +380,8 @@ export function AgentsTeams() {
             />
             <section className="mb-5 grid gap-3 sm:grid-cols-3">
               <SummaryCard
-                label="זמינים כעת"
-                value={available}
+                label="נציגים מחוברים"
+                value={connected}
                 icon={<UserCheck />}
                 tone="green"
               />
@@ -375,30 +399,25 @@ export function AgentsTeams() {
               />
             </section>
             <div className="grid gap-5 xl:grid-cols-2">
-              {dashboard.departments.map((department) => {
-                const agents = dashboard.agents.filter(
-                  (agent) => agent.departmentId === department.id,
-                );
+              {departmentSections.map((section) => {
+                const connectedInTeam = section.agents.filter(
+                  (agent) => agent.state !== "unavailable",
+                ).length;
                 return (
-                  <section key={department.id} className="card overflow-hidden">
+                  <section key={section.id} className="card overflow-hidden">
                     <div className="flex items-center justify-between border-b border-[#e5ebee] p-5">
                       <div>
-                        <h2 className="font-bold">{department.name}</h2>
+                        <h2 className="font-bold">{section.name}</h2>
                         <p className="mt-1 text-xs text-[#7e8c93]">
-                          {agents.length} נציגים בצוות
+                          {section.agents.length} נציגים בצוות
                         </p>
                       </div>
                       <span className="rounded-full bg-[#eef3f5] px-3 py-1 text-xs font-bold">
-                        {
-                          agents.filter(
-                            (agent) => agent.state !== "unavailable",
-                          ).length
-                        }{" "}
-                        מחוברים
+                        {connectedInTeam} מחוברים
                       </span>
                     </div>
                     <div className="grid gap-3 p-4 sm:grid-cols-2">
-                      {agents.map((agent) => (
+                      {section.agents.map((agent) => (
                         <article
                           key={agent.id}
                           className="rounded-2xl border border-[#e5ebee] p-4"
@@ -412,7 +431,7 @@ export function AgentsTeams() {
                                 {agent.name}
                               </strong>
                               <span className="text-[11px] text-[#829097]">
-                                {department.name}
+                                {section.name}
                               </span>
                             </div>
                           </div>
