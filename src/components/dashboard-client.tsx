@@ -460,8 +460,8 @@ export function DashboardClient() {
         )}
       </section>
 
-      <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_290px]">
-        <div id="calls" className="card min-w-0 overflow-hidden">
+      <section className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_290px]">
+        <div id="calls" className="card min-w-0 w-full overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6ecef] p-4">
             <div>
               <h2 className="font-bold">שיחות אחרונות</h2>
@@ -479,7 +479,7 @@ export function DashboardClient() {
               />
             </label>
           </div>
-          <div className="scrollbar-thin max-h-[510px] overflow-auto">
+          <div className="scrollbar-thin max-h-[min(510px,70vh)] overflow-auto">
             <table className="w-full border-collapse text-right text-xs">
               <thead className="sticky top-0 z-10 bg-[#f8fafb] text-[11px] text-[#75838a]">
                 <tr>
