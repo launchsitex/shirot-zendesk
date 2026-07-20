@@ -420,9 +420,18 @@ function mapAvailability(user: UnknownRecord) {
 
 function inferDepartment(teams: UnknownRecord[]) {
   const names = teams
-    .map((team) => String(team.name ?? "").replace(/\s/g, "").toLowerCase())
+    .map((team) =>
+      String(team.name ?? "")
+        .replace(/\s/g, "")
+        .toLowerCase()
+        .replaceAll("שרות", "שירות"),
+    )
     .join(" ");
-  if (names.includes("שירותלקוחות") || names.includes("customerservice")) {
+  if (
+    names.includes("שירותלקוחות") ||
+    names.includes("שירות") ||
+    names.includes("customerservice")
+  ) {
     return "customer-service";
   }
   if (names.includes("אספק") || names.includes("deliver")) {

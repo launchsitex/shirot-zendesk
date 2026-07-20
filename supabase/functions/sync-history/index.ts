@@ -222,8 +222,15 @@ async function autoMapDepartments(
 ) {
   const mappings: Array<{ department_id: string; group_id: string }> = [];
   for (const group of groups) {
-    const name = String(group.name ?? "").replace(/\s/g, "").toLowerCase();
-    if (name.includes("שירותלקוחות") || name.includes("customerservice")) {
+    const name = String(group.name ?? "")
+      .replace(/\s/g, "")
+      .toLowerCase()
+      .replaceAll("שרות", "שירות");
+    if (
+      name.includes("שירותלקוחות") ||
+      name.includes("שירות") ||
+      name.includes("customerservice")
+    ) {
       mappings.push({ department_id: "customer-service", group_id: String(group.id) });
     }
     if (name.includes("אספק") || name.includes("deliver")) {
