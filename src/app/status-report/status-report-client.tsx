@@ -21,6 +21,7 @@ type StatusSegment = {
   id: string;
   state: string;
   stateLabel: string;
+  nextStateLabel: string | null;
   startedAtIsrael: string;
   endedAtIsrael: string | null;
   durationLabel: string;
@@ -259,6 +260,9 @@ export function StatusReportClient() {
                                   סטטוס
                                 </th>
                                 <th className="px-3 py-2 text-right font-medium">
+                                  סטטוס הבא
+                                </th>
+                                <th className="px-3 py-2 text-right font-medium">
                                   התחלה (ישראל)
                                 </th>
                                 <th className="px-3 py-2 text-right font-medium">
@@ -277,6 +281,9 @@ export function StatusReportClient() {
                                 >
                                   <td className="px-3 py-2 font-semibold">
                                     {segment.stateLabel}
+                                  </td>
+                                  <td className="px-3 py-2 font-semibold text-[#35515c]">
+                                    {segment.nextStateLabel ?? "—"}
                                   </td>
                                   <td className="px-3 py-2 font-mono" dir="ltr">
                                     {segment.startedAtIsrael}

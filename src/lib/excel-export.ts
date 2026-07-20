@@ -300,11 +300,6 @@ function buildSummarySheet(
     ["סה״כ שיחות", input.kpis.total, "נכנסות + יוצאות שהסתיימו"],
     ["זמן שיחה ממוצע", formatDuration(input.kpis.averageTalkSeconds), "ממוצע זמן דיבור"],
     [
-      "זמן מענה ממוצע (ASA)",
-      formatSecondsLabel(input.kpis.averageAsaSeconds),
-      "ממוצע המתנה עד מענה בשיחות שנענו",
-    ],
-    [
       "זמן המתנה ממוצע",
       formatSecondsLabel(input.kpis.averageWaitSeconds),
       "ממוצע המתנה עד מענה או ניתוק",

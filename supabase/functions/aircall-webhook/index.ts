@@ -274,14 +274,16 @@ async function processCallEvent(
   if (callError) throw callError;
 
   if (eventUser?.id) {
+    const wrapUpSeconds = Number(eventUser.wrap_up_time ?? 0);
     const state =
       eventType === "call.ringing_on_agent"
         ? "ringing"
         : eventType === "call.answered"
           ? "on_call"
-          : eventType === "call.hungup" &&
-              Number(eventUser.wrap_up_time ?? 0) === 0
-            ? mapAvailability(eventUser)
+          : eventType === "call.hungup"
+            ? wrapUpSeconds > 0
+              ? "wrap_up"
+              : mapAvailability(eventUser)
             : null;
     if (state) {
       await updateAgentState(
@@ -289,7 +291,7 @@ async function processCallEvent(
         String(eventUser.id),
         state,
         state === "on_call" ? answeredAt ?? new Date().toISOString() : null,
-        eventType,
+        state === "wrap_up" ? "after_call_work" : eventType,
       );
     }
   }
@@ -310,20 +312,39 @@ async function processUserEvent(
   await Promise.all(numbers.map((number) => upsertNumber(supabase, number)));
   await upsertAgent(supabase, user);
   const normalized = eventType.replace(/\.v2$/, "");
-  const state =
-    normalized === "user.wut_start"
-      ? "wrap_up"
-      : normalized === "user.deleted" ||
-          (normalized === "user.disconnected" &&
-            !String(user.substatus ?? "").trim())
-        ? "unavailable"
-        : mapAvailability(user);
+  let state: string;
+  let sourceState: string;
+
+  if (normalized === "user.wut_start") {
+    // After Call Work / Wrap-up — automatic post-call status in Aircall.
+    state = "wrap_up";
+    sourceState = "after_call_work";
+  } else if (normalized === "user.wut_end") {
+    // Wrap-up ended — move to the real next availability (Next status).
+    state = mapAvailability(user);
+    sourceState = String(
+      user.substatus ?? user.availability_status ?? eventType,
+    );
+  } else if (
+    normalized === "user.deleted" ||
+    (normalized === "user.disconnected" &&
+      !String(user.substatus ?? "").trim())
+  ) {
+    state = "unavailable";
+    sourceState = String(user.substatus ?? user.availability_status ?? eventType);
+  } else {
+    state = mapAvailability(user);
+    sourceState = String(
+      user.substatus ?? user.availability_status ?? eventType,
+    );
+  }
+
   await updateAgentState(
     supabase,
     String(user.id),
     state,
     null,
-    String(user.substatus ?? user.availability_status ?? eventType),
+    sourceState,
   );
 }
 

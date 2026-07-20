@@ -933,16 +933,10 @@ export function AnalyticsReports() {
                 tone="gray"
               />
               <SummaryCard
-                label="זמן מענה ממוצע (ASA)"
-                value={formatSecondsLabel(kpis.averageAsaSeconds)}
-                icon={<Timer />}
-                tone="green"
-              />
-              <SummaryCard
                 label="זמן המתנה ממוצע"
                 value={formatSecondsLabel(kpis.averageWaitSeconds)}
-                icon={<Clock3 />}
-                tone="gray"
+                icon={<Timer />}
+                tone="green"
               />
             </section>
             <section className="card mb-5 p-5">

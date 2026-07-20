@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDepartmentScope } from "@/lib/auth/department-scope";
 import {
-  AGENT_STATE_LABELS,
+  formatAgentStateLabel,
   formatDurationSeconds,
   formatIsraelDateTime,
   jerusalemDayBounds,
@@ -110,6 +110,7 @@ export async function GET(request: NextRequest) {
       id: string;
       state: string;
       stateLabel: string;
+      nextStateLabel: string | null;
       startedAt: string;
       startedAtIsrael: string;
       endedAt: string | null;
@@ -159,7 +160,8 @@ export async function GET(request: NextRequest) {
     bucket.segments.push({
       id: row.id,
       state: row.state,
-      stateLabel: AGENT_STATE_LABELS[row.state] ?? row.state,
+      stateLabel: formatAgentStateLabel(row.state, row.source_event),
+      nextStateLabel: null,
       startedAt: row.started_at,
       startedAtIsrael: formatIsraelDateTime(row.started_at),
       endedAt: row.ended_at,
@@ -200,20 +202,26 @@ export async function GET(request: NextRequest) {
         name: agent.departmentName,
         agents: [],
       };
+    const segments = agent.segments
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+      .map((segment, index, all) => ({
+        ...segment,
+        // Same as Aircall "Next status": the status that followed this segment.
+        nextStateLabel: all[index + 1]?.stateLabel ?? null,
+      }));
+
     department.agents.push({
       agentId: agent.agentId,
       agentName: agent.agentName,
       totals: [...agent.totals.entries()]
         .map(([state, durationSeconds]) => ({
           state,
-          stateLabel: AGENT_STATE_LABELS[state] ?? state,
+          stateLabel: formatAgentStateLabel(state),
           durationSeconds,
           durationLabel: formatDurationSeconds(durationSeconds),
         }))
         .sort((a, b) => b.durationSeconds - a.durationSeconds),
-      segments: agent.segments.sort((a, b) =>
-        a.startedAt.localeCompare(b.startedAt),
-      ),
+      segments,
     });
     byDepartment.set(agent.departmentId, department);
   }
