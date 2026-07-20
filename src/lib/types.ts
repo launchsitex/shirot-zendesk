@@ -45,6 +45,7 @@ export interface CallRecord {
   endedAt: string | null;
   durationSeconds: number;
   talkTimeSeconds: number;
+  waitTimeSeconds: number;
 }
 
 export interface CallRecording {
@@ -69,6 +70,10 @@ export interface Kpis {
   answerRate: number;
   totalTalkSeconds: number;
   averageTalkSeconds: number;
+  /** Average speed of answer — wait until pickup on answered inbound calls. */
+  averageAsaSeconds: number;
+  /** Average wait until answer or abandon on completed inbound calls. */
+  averageWaitSeconds: number;
 }
 
 export interface DashboardData {

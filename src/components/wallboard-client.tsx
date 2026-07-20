@@ -17,7 +17,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
 import { getHomeHref, type AppProfile } from "@/lib/app-pages";
+import { splitCallsByBusinessHours } from "@/lib/business-hours";
 import { calculateKpis, formatDuration } from "@/lib/metrics";
 import { formatPhoneDisplay } from "@/lib/phone";
 import {
@@ -68,6 +70,7 @@ function elapsed(iso: string) {
 
 export function WallboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
+  const { config: businessHours } = useBusinessHoursConfig();
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -150,14 +153,16 @@ export function WallboardClient() {
     window.location.href = "/login";
   }
 
-  const kpis = useMemo(
-    () => calculateKpis(data?.calls ?? []),
-    [data?.calls],
+  const businessCalls = useMemo(
+    () => splitCallsByBusinessHours(data?.calls ?? [], businessHours).business,
+    [data?.calls, businessHours],
   );
+
+  const kpis = useMemo(() => calculateKpis(businessCalls), [businessCalls]);
 
   const waitingCalls = useMemo(
     () =>
-      (data?.calls ?? [])
+      businessCalls
         .filter(
           (call) =>
             call.direction === "inbound" &&
@@ -168,15 +173,15 @@ export function WallboardClient() {
           (a, b) =>
             new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime(),
         ),
-    [data?.calls],
+    [businessCalls],
   );
 
   const liveCalls = useMemo(
     () =>
-      (data?.calls ?? []).filter(
+      businessCalls.filter(
         (call) => call.status === "in_progress" && Boolean(call.agentId),
       ),
-    [data?.calls],
+    [businessCalls],
   );
 
   const connected = useMemo(

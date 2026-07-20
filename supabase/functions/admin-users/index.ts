@@ -11,6 +11,7 @@ const ALL_PAGES = [
   "dashboard",
   "wallboard",
   "calls",
+  "after-hours",
   "recordings",
   "agents",
   "analytics",
@@ -385,6 +386,8 @@ function pageLabel(id: PageKey) {
       return "מסך מוקד (TV)";
     case "calls":
       return "היסטוריית שיחות";
+    case "after-hours":
+      return "שיחות אחרי שעות הפעילות";
     case "recordings":
       return "הקלטות שיחות";
     case "agents":

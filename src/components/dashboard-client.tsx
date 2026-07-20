@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
+import { splitCallsByBusinessHours } from "@/lib/business-hours";
 import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
@@ -122,6 +124,7 @@ export function DashboardClient() {
   const [error, setError] = useState("");
   const [, setTick] = useState(0);
   const latestRequest = useRef(0);
+  const { config: businessHours } = useBusinessHoursConfig();
 
   const loadData = useCallback(async (quiet = false) => {
     const requestId = ++latestRequest.current;
@@ -198,13 +201,16 @@ export function DashboardClient() {
   }, [loadData]);
 
   const visibleCalls = useMemo(() => {
-    const calls = filterCalls(
-      data?.calls ?? [],
-      filters.from,
-      filters.to,
-      filters.departmentId,
-      filters.agentId,
-    );
+    const calls = splitCallsByBusinessHours(
+      filterCalls(
+        data?.calls ?? [],
+        filters.from,
+        filters.to,
+        filters.departmentId,
+        filters.agentId,
+      ),
+      businessHours,
+    ).business;
     if (!search.trim()) return calls;
     const needle = search.trim().toLowerCase();
     return calls.filter(
@@ -215,7 +221,7 @@ export function DashboardClient() {
         ) ||
         call.departmentName?.includes(needle),
     );
-  }, [data, filters, search]);
+  }, [data, filters, search, businessHours]);
 
   const visibleAgents = useMemo(
     () =>
@@ -238,15 +244,18 @@ export function DashboardClient() {
   );
   const waitingCalls = useMemo(
     () =>
-      (data?.calls ?? []).filter(
-        (call) =>
-          call.direction === "inbound" &&
-          call.status === "in_progress" &&
-          !call.agentId &&
-          (!filters.departmentId ||
-            call.departmentId === filters.departmentId),
-      ),
-    [data, filters.departmentId],
+      splitCallsByBusinessHours(
+        (data?.calls ?? []).filter(
+          (call) =>
+            call.direction === "inbound" &&
+            call.status === "in_progress" &&
+            !call.agentId &&
+            (!filters.departmentId ||
+              call.departmentId === filters.departmentId),
+        ),
+        businessHours,
+      ).business,
+    [data, filters.departmentId, businessHours],
   );
   const kpis = calculateKpis(visibleCalls);
 
@@ -565,7 +574,16 @@ export function DashboardClient() {
                       </span>
                     </td>
                     <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-bold">
-                      {call.agentName ?? "—"}
+                      {call.agentName ? (
+                        call.agentName
+                      ) : call.status === "in_progress" &&
+                        call.direction === "inbound" ? (
+                        <span className="font-bold text-[#c34850]">
+                          לקוח ממתין
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="w-0 whitespace-nowrap px-2.5 py-2.5 text-[#69777e]">
                       {call.departmentName ?? "ללא שיוך"}

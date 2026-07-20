@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
   let callsQuery = supabase
     .from("calls")
     .select(
-      "id,direction,status,agent_id,transferred_by_agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,department_id,agents!agent_id(name),transferred_by_agent:agents!transferred_by_agent_id(name),departments(name)",
+      "id,direction,status,agent_id,transferred_by_agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,wait_time_seconds,department_id,agents!agent_id(name),transferred_by_agent:agents!transferred_by_agent_id(name),departments(name)",
     )
     .gte("started_at", jerusalemBoundary(from))
     .lte("started_at", jerusalemBoundary(to, true))
@@ -135,6 +135,7 @@ export async function GET(request: NextRequest) {
       endedAt: row.ended_at,
       durationSeconds: row.duration_seconds,
       talkTimeSeconds: row.talk_time_seconds,
+      waitTimeSeconds: row.wait_time_seconds ?? 0,
     };
   });
   const agents: Agent[] = (agentsResult.data ?? []).map((row) => {

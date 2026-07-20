@@ -80,6 +80,12 @@ export function getMockDashboardData(): DashboardData {
           : new Date(started.getTime() + duration * 1000).toISOString(),
       durationSeconds: status === "in_progress" ? 0 : duration,
       talkTimeSeconds: status === "missed" ? 0 : Math.max(duration - 22, 0),
+      waitTimeSeconds:
+        status === "missed"
+          ? duration
+          : status === "in_progress"
+            ? 8 + (index % 5)
+            : 12 + (index % 18),
     };
   });
 

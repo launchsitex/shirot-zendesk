@@ -242,7 +242,9 @@ async function processCallEvent(
             1000,
         ),
       )
-    : 0;
+    : status === "missed"
+      ? Math.max(0, duration)
+      : 0;
 
   const { error: callError } = await supabase.from("calls").upsert(
     {

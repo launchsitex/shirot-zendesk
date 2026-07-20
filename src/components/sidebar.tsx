@@ -11,6 +11,7 @@ import {
   Menu,
   Mic2,
   Monitor,
+  Moon,
   PhoneCall,
   PanelRightClose,
   ScrollText,
@@ -50,6 +51,12 @@ const items: {
     icon: Monitor,
   },
   { href: "/calls", label: "היסטוריית שיחות", pageId: "calls", icon: PhoneCall },
+  {
+    href: "/after-hours",
+    label: "שיחות אחרי שעות הפעילות",
+    pageId: "after-hours",
+    icon: Moon,
+  },
   {
     href: "/recordings",
     label: "הקלטות שיחות",

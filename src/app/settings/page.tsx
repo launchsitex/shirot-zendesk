@@ -1,4 +1,5 @@
 import { AircallSettingsClient } from "@/components/aircall-settings-client";
+import { BusinessHoursSettingsClient } from "@/components/business-hours-settings";
 import { AppShell } from "@/components/sidebar";
 import { requirePageAccess } from "@/lib/auth/access";
 
@@ -7,7 +8,10 @@ export default async function SettingsPage() {
 
   return (
     <AppShell>
-      <AircallSettingsClient />
+      <div className="space-y-5">
+        <BusinessHoursSettingsClient />
+        <AircallSettingsClient />
+      </div>
     </AppShell>
   );
 }

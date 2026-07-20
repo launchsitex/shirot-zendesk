@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateKpis,
+  comparisonPeriods,
+  earliestFetchFrom,
   filterCalls,
   formatDuration,
+  groupCallsByHour,
+  inboundWaitSeconds,
   isCallInRange,
+  previousEqualPeriod,
+  shiftCalendarDate,
 } from "@/lib/metrics";
 import type { CallRecord } from "@/lib/types";
 
@@ -23,6 +29,7 @@ const calls: CallRecord[] = [
     endedAt: "2026-07-19T07:02:00.000Z",
     durationSeconds: 120,
     talkTimeSeconds: 90,
+    waitTimeSeconds: 18,
   },
   {
     id: "2",
@@ -39,6 +46,7 @@ const calls: CallRecord[] = [
     endedAt: "2026-07-19T08:00:30.000Z",
     durationSeconds: 30,
     talkTimeSeconds: 0,
+    waitTimeSeconds: 0,
   },
   {
     id: "3",
@@ -55,6 +63,7 @@ const calls: CallRecord[] = [
     endedAt: "2026-07-18T22:32:00.000Z",
     durationSeconds: 120,
     talkTimeSeconds: 60,
+    waitTimeSeconds: 0,
   },
 ];
 
@@ -69,6 +78,8 @@ describe("calculateKpis", () => {
       answerRate: 50,
       totalTalkSeconds: 150,
       averageTalkSeconds: 75,
+      averageAsaSeconds: 18,
+      averageWaitSeconds: 24,
     });
   });
 
@@ -90,6 +101,7 @@ describe("calculateKpis", () => {
         endedAt: null,
         durationSeconds: 30,
         talkTimeSeconds: 0,
+        waitTimeSeconds: 12,
       },
     ];
     const kpis = calculateKpis(withLive);
@@ -99,6 +111,74 @@ describe("calculateKpis", () => {
 
   it("returns zero answer rate when there are no inbound calls", () => {
     expect(calculateKpis([calls[2]]).answerRate).toBe(0);
+  });
+});
+
+describe("wait metrics", () => {
+  it("uses duration as wait for missed calls without wait_time", () => {
+    expect(inboundWaitSeconds(calls[1])).toBe(30);
+  });
+});
+
+describe("period helpers", () => {
+  it("shifts calendar dates", () => {
+    expect(shiftCalendarDate("2026-07-20", -1)).toBe("2026-07-19");
+    expect(shiftCalendarDate("2026-07-01", -1)).toBe("2026-06-30");
+  });
+
+  it("builds an equal previous period", () => {
+    expect(previousEqualPeriod("2026-07-14", "2026-07-20")).toEqual({
+      from: "2026-07-07",
+      to: "2026-07-13",
+    });
+  });
+
+  it("returns yesterday and same weekday for today preset", () => {
+    expect(
+      comparisonPeriods({
+        preset: "today",
+        from: "2026-07-20",
+        to: "2026-07-20",
+      }),
+    ).toEqual([
+      {
+        key: "yesterday",
+        label: "מול אתמול",
+        from: "2026-07-19",
+        to: "2026-07-19",
+      },
+      {
+        key: "same-day-last-week",
+        label: "מול אותו יום בשבוע שעבר",
+        from: "2026-07-13",
+        to: "2026-07-13",
+      },
+    ]);
+  });
+
+  it("expands fetch from to cover comparisons", () => {
+    expect(
+      earliestFetchFrom({
+        preset: "today",
+        from: "2026-07-20",
+        to: "2026-07-20",
+      }),
+    ).toBe("2026-07-13");
+  });
+});
+
+describe("hourly grouping", () => {
+  it("groups inbound answer rate by Jerusalem hour", () => {
+    const hourly = groupCallsByHour(calls);
+    const answeredHour = Number(
+      new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Asia/Jerusalem",
+        hour: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date(calls[0].startedAt)),
+    );
+    expect(hourly[answeredHour].answered).toBe(1);
+    expect(hourly[answeredHour].inbound).toBeGreaterThanOrEqual(1);
   });
 });
 

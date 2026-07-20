@@ -1,26 +1,44 @@
 "use client";
 
 import {
+  ArrowDown,
   ArrowDownLeft,
   ArrowLeft,
+  ArrowUp,
   ArrowUpRight,
   BarChart3,
   CalendarDays,
   CheckCircle2,
   Clock3,
+  Download,
   Headphones,
   LoaderCircle,
   PhoneCall,
   PhoneMissed,
   PhoneOutgoing,
   Search,
+  Timer,
   TrendingUp,
   UserCheck,
   Users,
   UserX,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { calculateKpis, filterCalls, formatDuration } from "@/lib/metrics";
+import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
+import { splitCallsByBusinessHours } from "@/lib/business-hours";
+import { formatIsraelDateTime } from "@/lib/israel-time";
+import {
+  calculateKpis,
+  comparisonPeriods,
+  earliestFetchFrom,
+  filterCalls,
+  formatDuration,
+  formatSecondsLabel,
+  groupCallsByHour,
+  inboundWaitSeconds,
+  kpiDelta,
+  peakHoursForDisplay,
+} from "@/lib/metrics";
 import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import {
   createSupabaseBrowserClient,
@@ -31,6 +49,7 @@ import type {
   CallRecord,
   DashboardData,
   DashboardFilters,
+  Kpis,
 } from "@/lib/types";
 
 const stateLabels: Record<AgentState, string> = {
@@ -177,6 +196,7 @@ function PageState({
 
 export function CallsHistory() {
   const { data, error } = useDashboardData();
+  const { config: businessHours } = useBusinessHoursConfig();
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [direction, setDirection] = useState("");
@@ -193,7 +213,8 @@ export function CallsHistory() {
   return (
     <PageState data={data} error={error}>
       {(dashboard) => {
-        const calls = dashboard.calls.filter((call) => {
+        const calls = splitCallsByBusinessHours(dashboard.calls, businessHours)
+          .business.filter((call) => {
           const needle = search.trim().toLowerCase();
           return (
             (!needle ||
@@ -309,7 +330,16 @@ export function CallsHistory() {
                           </span>
                         </td>
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-bold">
-                          {call.agentName ?? "—"}
+                          {call.agentName ? (
+                            call.agentName
+                          ) : call.status === "in_progress" &&
+                            call.direction === "inbound" ? (
+                            <span className="font-bold text-[#c34850]">
+                              לקוח ממתין
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           {call.departmentName ?? "ללא שיוך"}
@@ -487,7 +517,9 @@ export function AnalyticsReports() {
     departmentId: "",
     agentId: "",
   });
-  const { data, error } = useDashboardData(filters.from, filters.to);
+  const fetchFrom = useMemo(() => earliestFetchFrom(filters), [filters]);
+  const { data, error } = useDashboardData(fetchFrom, filters.to);
+  const { config: businessHours } = useBusinessHoursConfig();
 
   useEffect(() => {
     if (!data?.scopedDepartmentId) return;
@@ -503,14 +535,17 @@ export function AnalyticsReports() {
 
   const departmentCalls = useMemo(
     () =>
-      filterCalls(
-        data?.calls ?? [],
-        filters.from,
-        filters.to,
-        filters.departmentId,
-        "",
-      ),
-    [data, filters.from, filters.to, filters.departmentId],
+      splitCallsByBusinessHours(
+        filterCalls(
+          data?.calls ?? [],
+          filters.from,
+          filters.to,
+          filters.departmentId,
+          "",
+        ),
+        businessHours,
+      ).business,
+    [data, filters.from, filters.to, filters.departmentId, businessHours],
   );
 
   const filteredCalls = useMemo(
@@ -542,11 +577,217 @@ export function AnalyticsReports() {
     <PageState data={data} error={error}>
       {(dashboard) => {
         const kpis = calculateKpis(filteredCalls);
+        const comparisons = comparisonPeriods(filters).map((period) => {
+          const periodCalls = splitCallsByBusinessHours(
+            filterCalls(
+              dashboard.calls,
+              period.from,
+              period.to,
+              filters.departmentId,
+              filters.agentId,
+            ),
+            businessHours,
+          ).business;
+          return {
+            ...period,
+            kpis: calculateKpis(periodCalls),
+          };
+        });
         const daily = groupCallsByDay(filteredCalls);
         const maxDaily = Math.max(...daily.map((day) => day.total), 1);
+        const hourly = peakHoursForDisplay(groupCallsByHour(filteredCalls));
+        const maxHourly = Math.max(...hourly.map((hour) => hour.inbound), 1);
+        const peakHour = hourly.reduce(
+          (best, hour) => (hour.inbound > best.inbound ? hour : best),
+          hourly[0] ?? {
+            hour: 0,
+            label: "",
+            total: 0,
+            inbound: 0,
+            answered: 0,
+            missed: 0,
+            answerRate: 0,
+          },
+        );
+        const weakestAnswerHour = hourly
+          .filter((hour) => hour.inbound >= 2)
+          .reduce(
+            (worst, hour) =>
+              hour.answerRate < worst.answerRate ? hour : worst,
+            hourly.find((hour) => hour.inbound >= 2) ?? peakHour,
+          );
         const agentStats = buildAgentStats(filteredCalls, departmentCalls).filter(
           (agent) => !filters.agentId || agent.agentId === filters.agentId,
         );
+
+        function exportReport() {
+          const departmentName = filters.departmentId
+            ? (dashboard.departments.find(
+                (department) => department.id === filters.departmentId,
+              )?.name ?? filters.departmentId)
+            : "כל המחלקות";
+          const agentName = filters.agentId
+            ? (selectableAgents.find((agent) => agent.id === filters.agentId)
+                ?.name ?? filters.agentId)
+            : "כל הנציגים";
+
+          const departmentsForExport = filters.departmentId
+            ? dashboard.departments.filter(
+                (department) => department.id === filters.departmentId,
+              )
+            : dashboard.departments;
+
+          const exportDepartments = departmentsForExport
+            .map((department) => {
+              const deptCalls = splitCallsByBusinessHours(
+                filterCalls(
+                  dashboard.calls,
+                  filters.from,
+                  filters.to,
+                  department.id,
+                  filters.agentId,
+                ),
+                businessHours,
+              ).business;
+              const deptTransferSource = splitCallsByBusinessHours(
+                filterCalls(
+                  dashboard.calls,
+                  filters.from,
+                  filters.to,
+                  department.id,
+                  "",
+                ),
+                businessHours,
+              ).business;
+              const deptHourly = peakHoursForDisplay(groupCallsByHour(deptCalls));
+              const deptPeak = deptHourly.reduce(
+                (best, hour) => (hour.inbound > best.inbound ? hour : best),
+                deptHourly[0] ?? {
+                  hour: 0,
+                  label: "",
+                  total: 0,
+                  inbound: 0,
+                  answered: 0,
+                  missed: 0,
+                  answerRate: 0,
+                },
+              );
+              const deptWeak = deptHourly
+                .filter((hour) => hour.inbound >= 2)
+                .reduce(
+                  (worst, hour) =>
+                    hour.answerRate < worst.answerRate ? hour : worst,
+                  deptHourly.find((hour) => hour.inbound >= 2) ?? deptPeak,
+                );
+              return {
+                id: department.id,
+                name: department.name,
+                kpis: calculateKpis(deptCalls),
+                agents: buildAgentStats(deptCalls, deptTransferSource),
+                daily: groupCallsByDay(deptCalls),
+                hourly: deptHourly,
+                peakHourLabel: deptHourly.length
+                  ? `${deptPeak.label} (${deptPeak.inbound} נכנסות)`
+                  : undefined,
+                weakHourLabel:
+                  deptWeak.inbound >= 2
+                    ? `${deptWeak.label} (${deptWeak.answerRate}%)`
+                    : undefined,
+              };
+            })
+            .filter(
+              (department) =>
+                department.kpis.total > 0 || department.agents.length > 0,
+            );
+
+          const unassignedCalls = filteredCalls.filter(
+            (call) =>
+              !call.departmentId ||
+              !dashboard.departments.some(
+                (department) => department.id === call.departmentId,
+              ),
+          );
+          if (unassignedCalls.length && !filters.departmentId) {
+            const unassignedHourly = peakHoursForDisplay(
+              groupCallsByHour(unassignedCalls),
+            );
+            exportDepartments.push({
+              id: "unassigned",
+              name: "ללא שיוך",
+              kpis: calculateKpis(unassignedCalls),
+              agents: buildAgentStats(unassignedCalls),
+              daily: groupCallsByDay(unassignedCalls),
+              hourly: unassignedHourly,
+              peakHourLabel: undefined,
+              weakHourLabel: undefined,
+            });
+          }
+
+          const exportCalls = filteredCalls
+            .filter((call) => call.status !== "in_progress")
+            .slice()
+            .sort(
+              (a, b) =>
+                (a.departmentName ?? "").localeCompare(
+                  b.departmentName ?? "",
+                  "he",
+                ) ||
+                new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime(),
+            )
+            .map((call) => {
+              const wait = inboundWaitSeconds(call);
+              return {
+                startedAt: call.startedAt,
+                startedAtIsrael: formatIsraelDateTime(call.startedAt),
+                direction: call.direction === "inbound" ? "נכנסת" : "יוצאת",
+                status:
+                  call.status === "answered"
+                    ? "נענתה"
+                    : call.status === "missed"
+                      ? "לא נענתה"
+                      : "בשיחה",
+                agentName: call.agentName ?? "—",
+                departmentName: call.departmentName ?? "ללא שיוך",
+                customerNumber: formatPhoneDisplay(call.customerNumber),
+                durationLabel: formatDuration(call.durationSeconds),
+                talkLabel: formatDuration(call.talkTimeSeconds),
+                waitLabel:
+                  wait == null ? "—" : formatSecondsLabel(wait),
+                transferredBy: call.transferredByAgentName ?? "",
+              };
+            });
+
+          void (async () => {
+            const { downloadAnalyticsExcel } = await import("@/lib/excel-export");
+            await downloadAnalyticsExcel({
+              meta: {
+                title: "דוח ביצועי מוקד",
+                generatedAt: new Date(),
+                rangeFrom: filters.from,
+                rangeTo: filters.to,
+                presetLabel: filters.preset,
+                departmentName,
+                agentName,
+                callsCompleted: kpis.total,
+              },
+              kpis,
+              comparisons,
+              agents: agentStats,
+              departments: exportDepartments,
+              daily,
+              hourly: peakHoursForDisplay(groupCallsByHour(filteredCalls)),
+              calls: exportCalls,
+              peakHourLabel: hourly.length
+                ? `${peakHour.label} (${peakHour.inbound} נכנסות)`
+                : undefined,
+              weakHourLabel:
+                weakestAnswerHour.inbound >= 2
+                  ? `${weakestAnswerHour.label} (${weakestAnswerHour.answerRate}%)`
+                  : undefined,
+            });
+          })();
+        }
+
         return (
           <>
             <PageHeader
@@ -641,12 +882,20 @@ export function AnalyticsReports() {
                     label: agent.name,
                   }))}
                 />
+                <button
+                  type="button"
+                  onClick={exportReport}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#d5dee3] bg-white px-3 py-2 text-xs font-bold text-[#2b3a43] transition hover:bg-[#f7fafb]"
+                >
+                  <Download size={14} />
+                  ייצוא Excel
+                </button>
                 <span className="mr-auto text-xs text-[#6f7d84]">
                   {kpis.total} שיחות שהסתיימו בטווח שנבחר
                 </span>
               </div>
             </section>
-            <section className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <section className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8">
               <SummaryCard
                 label="אחוז מענה"
                 value={`${kpis.answerRate}%`}
@@ -683,6 +932,41 @@ export function AnalyticsReports() {
                 icon={<Clock3 />}
                 tone="gray"
               />
+              <SummaryCard
+                label="זמן מענה ממוצע (ASA)"
+                value={formatSecondsLabel(kpis.averageAsaSeconds)}
+                icon={<Timer />}
+                tone="green"
+              />
+              <SummaryCard
+                label="זמן המתנה ממוצע"
+                value={formatSecondsLabel(kpis.averageWaitSeconds)}
+                icon={<Clock3 />}
+                tone="gray"
+              />
+            </section>
+            <section className="card mb-5 p-5">
+              <div className="mb-4">
+                <h2 className="font-bold">השוואה לתקופה קודמת</h2>
+                <p className="mt-1 text-xs text-[#7f8d94]">
+                  אחוז מענה, לא נענו וזמן שיחה ממוצע
+                </p>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-2">
+                {comparisons.map((comparison) => (
+                  <ComparisonCard
+                    key={comparison.key}
+                    label={comparison.label}
+                    rangeLabel={
+                      comparison.from === comparison.to
+                        ? comparison.from
+                        : `${comparison.from} עד ${comparison.to}`
+                    }
+                    current={kpis}
+                    previous={comparison.kpis}
+                  />
+                ))}
+              </div>
             </section>
             <section className="mb-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]">
               <div className="card p-5">
@@ -764,9 +1048,93 @@ export function AnalyticsReports() {
                 </div>
               </div>
             </section>
+            <section className="card mb-5 p-5">
+              <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h2 className="font-bold">שעות שיא</h2>
+                  <p className="mt-1 text-xs text-[#7f8d94]">
+                    נפח נכנסות ואחוז מענה לפי שעה (שעון ישראל)
+                  </p>
+                </div>
+                {hourly.length > 0 && (
+                  <div className="flex flex-wrap gap-3 text-xs text-[#66757d]">
+                    <span>
+                      עומס שיא:{" "}
+                      <strong className="text-[#17242d]">
+                        {peakHour.label} ({peakHour.inbound} נכנסות)
+                      </strong>
+                    </span>
+                    {weakestAnswerHour.inbound >= 2 && (
+                      <span>
+                        מענה נמוך:{" "}
+                        <strong className="text-[#c34850]">
+                          {weakestAnswerHour.label} ({weakestAnswerHour.answerRate}
+                          %)
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+              {hourly.length ? (
+                <>
+                  <div className="mt-4 flex h-56 items-end gap-1.5 border-b border-[#e5ebee] px-1">
+                    {hourly.map((hour) => (
+                      <div
+                        key={hour.hour}
+                        className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1"
+                        title={`${hour.label}: ${hour.inbound} נכנסות, מענה ${hour.answerRate}%`}
+                      >
+                        <span className="text-[10px] font-bold text-[#158f83]">
+                          {hour.inbound || ""}
+                        </span>
+                        <div
+                          className="w-full max-w-[28px] rounded-t-md bg-[#158f83]"
+                          style={{
+                            height: `${Math.max((hour.inbound / maxHourly) * 100, hour.inbound ? 6 : 0)}%`,
+                            opacity: hour.answerRate >= 80 || !hour.inbound ? 1 : 0.55,
+                          }}
+                        />
+                        <span
+                          className={`text-[10px] font-bold ${
+                            hour.inbound && hour.answerRate < 80
+                              ? "text-[#c34850]"
+                              : "text-[#7f8d94]"
+                          }`}
+                        >
+                          {hour.inbound ? `${hour.answerRate}%` : "—"}
+                        </span>
+                        <span className="truncate text-[10px] text-[#7f8d94]">
+                          {hour.hour.toString().padStart(2, "0")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex flex-wrap justify-center gap-4 text-xs text-[#7f8d94]">
+                    <span className="flex items-center gap-2">
+                      <i className="h-2.5 w-2.5 rounded-sm bg-[#158f83]" />
+                      נפח נכנסות
+                    </span>
+                    <span>אחוז מענה מתחת לעמודה · עמודה חלשה כשהמענה נמוך</span>
+                  </div>
+                </>
+              ) : (
+                <p className="py-12 text-center text-sm text-[#7d8a91]">
+                  אין נתונים לפי שעה בטווח שנבחר
+                </p>
+              )}
+            </section>
             <section className="card overflow-hidden">
-              <div className="border-b border-[#e5ebee] p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5ebee] p-5">
                 <h2 className="font-bold">ביצועים לפי נציג</h2>
+                <button
+                  type="button"
+                  onClick={exportReport}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#d5dee3] bg-white px-3 py-2 text-xs font-bold text-[#2b3a43] transition hover:bg-[#f7fafb]"
+                >
+                  <Download size={14} />
+                  ייצוא Excel מפורט
+                </button>
               </div>
               <div className="overflow-auto">
                 <table className="w-full border-collapse text-right text-xs">
@@ -833,6 +1201,99 @@ export function AnalyticsReports() {
         );
       }}
     </PageState>
+  );
+}
+
+function formatSignedDelta(value: number): string {
+  if (value > 0) return `+${value}`;
+  return String(value);
+}
+
+function ComparisonCard({
+  label,
+  rangeLabel,
+  current,
+  previous,
+}: {
+  label: string;
+  rangeLabel: string;
+  current: Kpis;
+  previous: Kpis;
+}) {
+  return (
+    <article className="rounded-2xl border border-[#e5ebee] bg-[#fbfcfd] p-4">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <h3 className="text-sm font-bold text-[#17242d]">{label}</h3>
+        <span className="text-[11px] text-[#7f8d94]">{rangeLabel}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <DeltaMetric
+          label="אחוז מענה"
+          current={`${current.answerRate}%`}
+          previous={`${previous.answerRate}%`}
+          delta={kpiDelta(current.answerRate, previous.answerRate)}
+          suffix="%"
+          higherIsBetter
+        />
+        <DeltaMetric
+          label="לא נענו"
+          current={current.missed}
+          previous={previous.missed}
+          delta={kpiDelta(current.missed, previous.missed)}
+          higherIsBetter={false}
+        />
+        <DeltaMetric
+          label="ממוצע שיחה"
+          current={formatDuration(current.averageTalkSeconds)}
+          previous={formatDuration(previous.averageTalkSeconds)}
+          delta={kpiDelta(current.averageTalkSeconds, previous.averageTalkSeconds)}
+          suffix=" שנ׳"
+          higherIsBetter={null}
+        />
+      </div>
+    </article>
+  );
+}
+
+function DeltaMetric({
+  label,
+  current,
+  previous,
+  delta,
+  suffix = "",
+  higherIsBetter,
+}: {
+  label: string;
+  current: string | number;
+  previous: string | number;
+  delta: number;
+  suffix?: string;
+  higherIsBetter: boolean | null;
+}) {
+  const positive = delta > 0;
+  const neutral = delta === 0 || higherIsBetter === null;
+  const good =
+    higherIsBetter === null ? null : higherIsBetter ? positive : !positive;
+  const tone = neutral
+    ? "text-[#66757d] bg-[#eef2f4]"
+    : good
+      ? "text-[#1f7a55] bg-[#e4f5ea]"
+      : "text-[#c34850] bg-[#fdebed]";
+
+  return (
+    <div className="rounded-xl bg-white p-3 shadow-[0_1px_0_rgba(16,45,56,0.04)]">
+      <p className="text-[11px] font-semibold text-[#7c8990]">{label}</p>
+      <strong className="mt-1 block text-lg text-[#17242d]">{current}</strong>
+      <p className="mt-1 text-[10px] text-[#8a969c]">קודם: {previous}</p>
+      <span
+        className={`mt-2 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold ${tone}`}
+      >
+        {!neutral &&
+          (positive ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+        {formatSignedDelta(delta)}
+        {suffix}
+      </span>
+    </div>
   );
 }
 
@@ -939,9 +1400,18 @@ function CallBadge({ status }: { status: CallRecord["status"] }) {
 function groupCallsByDay(calls: CallRecord[]) {
   const grouped = new Map<
     string,
-    { date: string; label: string; inbound: number; outbound: number; total: number }
+    {
+      date: string;
+      label: string;
+      inbound: number;
+      outbound: number;
+      total: number;
+      answered: number;
+      missed: number;
+    }
   >();
   calls.forEach((call) => {
+    if (call.status === "in_progress") return;
     const date = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Jerusalem",
     }).format(new Date(call.startedAt));
@@ -955,12 +1425,24 @@ function groupCallsByDay(calls: CallRecord[]) {
       inbound: 0,
       outbound: 0,
       total: 0,
+      answered: 0,
+      missed: 0,
     };
     current[call.direction] += 1;
     current.total += 1;
+    if (call.direction === "inbound") {
+      if (call.status === "answered") current.answered += 1;
+      if (call.status === "missed") current.missed += 1;
+    }
     grouped.set(date, current);
   });
   return [...grouped.values()]
+    .map((day) => ({
+      ...day,
+      answerRate: day.inbound
+        ? Math.round((day.answered / day.inbound) * 100)
+        : 0,
+    }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -974,45 +1456,86 @@ function buildAgentStats(
       key: string;
       agentId: string | null;
       name: string;
+      departmentName: string;
       total: number;
       answered: number;
       missed: number;
+      outbound: number;
       transfers: number;
       talkSeconds: number;
       talkCount: number;
+      asaTotal: number;
+      asaCount: number;
+      waitTotal: number;
+      waitCount: number;
     }
   >();
 
-  function ensureAgent(agentId: string | null, name: string) {
+  function ensureAgent(
+    agentId: string | null,
+    name: string,
+    departmentName?: string | null,
+  ) {
     const key = agentId ?? `name:${name}`;
     const current = grouped.get(key) ?? {
       key,
       agentId,
       name,
+      departmentName: departmentName?.trim() || "ללא שיוך",
       total: 0,
       answered: 0,
       missed: 0,
+      outbound: 0,
       transfers: 0,
       talkSeconds: 0,
       talkCount: 0,
+      asaTotal: 0,
+      asaCount: 0,
+      waitTotal: 0,
+      waitCount: 0,
     };
+    if (
+      departmentName?.trim() &&
+      (current.departmentName === "ללא שיוך" || !current.departmentName)
+    ) {
+      current.departmentName = departmentName.trim();
+    }
     grouped.set(key, current);
     return current;
   }
 
   calls.forEach((call) => {
     if (!call.agentName && !call.agentId) return;
+    if (call.status === "in_progress") return;
     const current = ensureAgent(
       call.agentId,
       call.agentName ?? call.agentId ?? "נציג",
+      call.departmentName,
     );
     current.total += 1;
+    if (call.direction === "outbound") current.outbound += 1;
     // Answer rate is based on inbound handled calls only.
     if (call.direction === "inbound") {
-      if (call.status === "answered") current.answered += 1;
-      if (call.status === "missed") current.missed += 1;
+      if (call.status === "answered") {
+        current.answered += 1;
+        const wait = inboundWaitSeconds(call);
+        if (wait != null) {
+          current.asaTotal += wait;
+          current.asaCount += 1;
+          current.waitTotal += wait;
+          current.waitCount += 1;
+        }
+      }
+      if (call.status === "missed") {
+        current.missed += 1;
+        const wait = inboundWaitSeconds(call);
+        if (wait != null) {
+          current.waitTotal += wait;
+          current.waitCount += 1;
+        }
+      }
     }
-    if (call.talkTimeSeconds > 0 && call.status !== "in_progress") {
+    if (call.talkTimeSeconds > 0) {
       current.talkSeconds += call.talkTimeSeconds;
       current.talkCount += 1;
     }
@@ -1025,6 +1548,7 @@ function buildAgentStats(
       call.transferredByAgentName ??
         call.transferredByAgentId ??
         "נציג",
+      call.departmentName,
     );
     current.transfers += 1;
   });
@@ -1035,13 +1559,21 @@ function buildAgentStats(
       return {
         agentId: agent.agentId,
         name: agent.name,
+        departmentName: agent.departmentName,
         total: agent.total,
         answered: agent.answered,
         missed: agent.missed,
+        outbound: agent.outbound,
         transfers: agent.transfers,
         talkSeconds: agent.talkSeconds,
         averageTalkSeconds: agent.talkCount
           ? Math.round(agent.talkSeconds / agent.talkCount)
+          : 0,
+        averageAsaSeconds: agent.asaCount
+          ? Math.round(agent.asaTotal / agent.asaCount)
+          : 0,
+        averageWaitSeconds: agent.waitCount
+          ? Math.round(agent.waitTotal / agent.waitCount)
           : 0,
         answerRate: completed
           ? Math.round((agent.answered / completed) * 100)
@@ -1049,7 +1581,12 @@ function buildAgentStats(
       };
     })
     .filter((agent) => agent.total > 0 || agent.transfers > 0)
-    .sort((a, b) => b.total - a.total || b.transfers - a.transfers);
+    .sort(
+      (a, b) =>
+        a.departmentName.localeCompare(b.departmentName, "he") ||
+        b.total - a.total ||
+        b.transfers - a.transfers,
+    );
 }
 
 function initials(name: string) {
