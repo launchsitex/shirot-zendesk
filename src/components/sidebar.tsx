@@ -14,24 +14,72 @@ import {
   PhoneCall,
   PanelRightClose,
   Settings,
+  UserRoundCog,
   UsersRound,
   X,
 } from "lucide-react";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import {
+  canAccessPage,
+  type AppPageId,
+  type AppProfile,
+} from "@/lib/app-pages";
 import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
 
-const items = [
-  { href: "/dashboard", label: "ניטור בזמן אמת", icon: LayoutDashboard },
-  { href: "/wallboard", label: "מסך מוקד (TV)", icon: Monitor },
-  { href: "/calls", label: "היסטוריית שיחות", icon: PhoneCall },
-  { href: "/recordings", label: "הקלטות שיחות", icon: Mic2 },
-  { href: "/agents", label: "נציגים וצוותים", icon: UsersRound },
-  { href: "/analytics", label: "דוחות וניתוח", icon: BarChart3 },
-  { href: "/settings", label: "הגדרות", icon: Settings },
+const items: {
+  href: string;
+  label: string;
+  pageId: AppPageId;
+  icon: typeof LayoutDashboard;
+}[] = [
+  {
+    href: "/dashboard",
+    label: "ניטור בזמן אמת",
+    pageId: "dashboard",
+    icon: LayoutDashboard,
+  },
+  {
+    href: "/wallboard",
+    label: "מסך מוקד (TV)",
+    pageId: "wallboard",
+    icon: Monitor,
+  },
+  { href: "/calls", label: "היסטוריית שיחות", pageId: "calls", icon: PhoneCall },
+  {
+    href: "/recordings",
+    label: "הקלטות שיחות",
+    pageId: "recordings",
+    icon: Mic2,
+  },
+  {
+    href: "/agents",
+    label: "נציגים וצוותים",
+    pageId: "agents",
+    icon: UsersRound,
+  },
+  {
+    href: "/analytics",
+    label: "דוחות וניתוח",
+    pageId: "analytics",
+    icon: BarChart3,
+  },
+  {
+    href: "/users",
+    label: "ניהול משתמשים",
+    pageId: "users",
+    icon: UserRoundCog,
+  },
+  { href: "/settings", label: "הגדרות", pageId: "settings", icon: Settings },
 ];
+
+const roleLabels = {
+  admin: "מנהל מערכת",
+  manager: "מנהל",
+  viewer: "צופה",
+} as const;
 
 function subscribeDesktop(onStoreChange: () => void) {
   const media = window.matchMedia("(min-width: 1024px)");
@@ -98,6 +146,23 @@ function Sidebar({
   isDesktop: boolean;
 }) {
   const pathname = usePathname();
+  const [profile, setProfile] = useState<AppProfile | null>(null);
+
+  useEffect(() => {
+    fetch("/api/me", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = await response.json();
+        setProfile(result.profile ?? null);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const visibleItems = profile
+    ? items.filter((item) => canAccessPage(profile, item.pageId))
+    : items.filter(
+        (item) => item.pageId !== "settings" && item.pageId !== "users",
+      );
 
   async function signOut() {
     if (isSupabaseBrowserConfigured()) {
@@ -105,6 +170,11 @@ function Sidebar({
     }
     window.location.href = "/login";
   }
+
+  const initials = (profile?.displayName ?? "רה")
+    .trim()
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <>
@@ -143,7 +213,7 @@ function Sidebar({
           <p className="mb-3 px-3 text-[11px] font-bold tracking-wider text-white/35">
             מרכז בקרה
           </p>
-          {items.map((item) => {
+          {visibleItems.map((item) => {
             const active = pathname === item.href;
             return (
               <Link
@@ -167,11 +237,15 @@ function Sidebar({
         <div className="m-3 rounded-2xl bg-white/8 p-4">
           <div className="mb-3 flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#e9b24a] font-bold text-[#102d38]">
-              רה
+              {initials}
             </span>
             <div className="min-w-0">
-              <strong className="block truncate text-sm">מנהל מערכת</strong>
-              <span className="text-xs text-white/45">גישה מלאה</span>
+              <strong className="block truncate text-sm">
+                {profile?.displayName || "משתמש"}
+              </strong>
+              <span className="text-xs text-white/45">
+                {profile ? roleLabels[profile.role] : "טוען..."}
+              </span>
             </div>
           </div>
           <button

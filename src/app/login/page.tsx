@@ -12,7 +12,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isSignup, setIsSignup] = useState(false);
   const configured = isSupabaseBrowserConfigured();
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -25,24 +24,14 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     const client = createSupabaseBrowserClient();
-    const result = isSignup
-      ? await client.auth.signUp({ email, password })
-      : await client.auth.signInWithPassword({ email, password });
+    const result = await client.auth.signInWithPassword({ email, password });
     setLoading(false);
 
     if (result.error) {
-      setError(
-        isSignup
-          ? "לא ניתן ליצור משתמש. ייתכן שההרשמה חסומה או שהמשתמש כבר קיים."
-          : "פרטי ההתחברות אינם נכונים",
-      );
+      setError("פרטי ההתחברות אינם נכונים");
       return;
     }
-    if (isSignup && !result.data.session) {
-      setError("המשתמש נוצר. יש לאשר את הקישור שנשלח לדואר האלקטרוני.");
-      return;
-    }
-    window.location.href = "/dashboard";
+    window.location.href = "/";
   }
 
   return (
@@ -92,26 +81,8 @@ export default function LoginPage() {
             disabled={loading}
           >
             {loading && <LoaderCircle className="animate-spin" size={18} />}
-            {configured
-              ? isSignup
-                ? "יצירת משתמש מנהל ראשון"
-                : "כניסה למערכת"
-              : "כניסה למצב הדגמה"}
+            {configured ? "כניסה למערכת" : "כניסה למצב הדגמה"}
           </button>
-          {configured && (
-            <button
-              type="button"
-              className="w-full text-sm font-semibold text-[#158f83]"
-              onClick={() => {
-                setError("");
-                setIsSignup((value) => !value);
-              }}
-            >
-              {isSignup
-                ? "כבר יש לי משתמש — מעבר לכניסה"
-                : "אין עדיין משתמש — יצירת מנהל ראשון"}
-            </button>
-          )}
         </form>
       </div>
     </main>

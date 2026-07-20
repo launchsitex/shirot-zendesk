@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getDepartmentScope } from "@/lib/auth/department-scope";
 import {
   createSupabaseServerClient,
   isSupabaseConfigured,
@@ -30,6 +31,25 @@ export async function GET(
   }
 
   const { id } = await context.params;
+
+  const departmentScope = await getDepartmentScope(supabase, user.id);
+  if (departmentScope) {
+    const { data: recording, error } = await supabase
+      .from("call_recordings")
+      .select("id, calls(department_id)")
+      .eq("id", id)
+      .maybeSingle();
+    if (error || !recording) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    const call = recording.calls as unknown as {
+      department_id: string | null;
+    } | null;
+    if (call?.department_id !== departmentScope) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
+  }
+
   const headers: HeadersInit = {
     Authorization: `Bearer ${session.access_token}`,
   };
@@ -39,8 +59,8 @@ export async function GET(
   const response = await fetch(
     `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stream-recording?id=${encodeURIComponent(id)}`,
     {
-    headers,
-    cache: "no-store",
+      headers,
+      cache: "no-store",
     },
   );
 

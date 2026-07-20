@@ -182,6 +182,12 @@ export function CallsHistory() {
   const [direction, setDirection] = useState("");
   const [status, setStatus] = useState("");
 
+  useEffect(() => {
+    if (data?.scopedDepartmentId) {
+      setDepartment(data.scopedDepartmentId);
+    }
+  }, [data?.scopedDepartmentId]);
+
   return (
     <PageState data={data} error={error}>
       {(dashboard) => {
@@ -216,15 +222,23 @@ export function CallsHistory() {
                   className="w-full bg-transparent text-sm outline-none"
                 />
               </label>
-              <FilterSelect
-                value={department}
-                onChange={setDepartment}
-                label="כל המחלקות"
-                options={dashboard.departments.map((item) => ({
-                  value: item.id,
-                  label: item.name,
-                }))}
-              />
+              {!dashboard.scopedDepartmentId ? (
+                <FilterSelect
+                  value={department}
+                  onChange={setDepartment}
+                  label="כל המחלקות"
+                  options={dashboard.departments.map((item) => ({
+                    value: item.id,
+                    label: item.name,
+                  }))}
+                />
+              ) : (
+                dashboard.departments[0] && (
+                  <span className="rounded-xl bg-[#e4f5f2] px-3 py-2 text-xs font-bold text-[#11786e]">
+                    {dashboard.departments[0].name}
+                  </span>
+                )
+              )}
               <FilterSelect
                 value={direction}
                 onChange={setDirection}
@@ -473,6 +487,15 @@ export function AnalyticsReports() {
   });
   const { data, error } = useDashboardData(filters.from, filters.to);
 
+  useEffect(() => {
+    if (!data?.scopedDepartmentId) return;
+    setFilters((current) =>
+      current.departmentId === data.scopedDepartmentId
+        ? current
+        : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
+    );
+  }, [data?.scopedDepartmentId]);
+
   const filteredCalls = useMemo(
     () =>
       filterCalls(
@@ -569,21 +592,29 @@ export function AnalyticsReports() {
                     />
                   </div>
                 )}
-                <FilterSelect
-                  value={filters.departmentId}
-                  onChange={(value) =>
-                    setFilters((current) => ({
-                      ...current,
-                      departmentId: value,
-                      agentId: "",
-                    }))
-                  }
-                  label="כל המחלקות"
-                  options={dashboard.departments.map((item) => ({
-                    value: item.id,
-                    label: item.name,
-                  }))}
-                />
+                {!dashboard.scopedDepartmentId ? (
+                  <FilterSelect
+                    value={filters.departmentId}
+                    onChange={(value) =>
+                      setFilters((current) => ({
+                        ...current,
+                        departmentId: value,
+                        agentId: "",
+                      }))
+                    }
+                    label="כל המחלקות"
+                    options={dashboard.departments.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                  />
+                ) : (
+                  dashboard.departments[0] && (
+                    <span className="rounded-xl bg-[#e4f5f2] px-3 py-2 text-xs font-bold text-[#11786e]">
+                      {dashboard.departments[0].name}
+                    </span>
+                  )
+                )}
                 <FilterSelect
                   value={filters.agentId}
                   onChange={(value) =>

@@ -1,5 +1,7 @@
 import { WallboardClient } from "@/components/wallboard-client";
+import { requirePageAccess } from "@/lib/auth/access";
 
-export default function WallboardPage() {
+export default async function WallboardPage() {
+  await requirePageAccess("wallboard");
   return <WallboardClient />;
 }

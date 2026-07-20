@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getDepartmentScope } from "@/lib/auth/department-scope";
 import { getMockDashboardData } from "@/lib/mock-data";
 import {
   createSupabaseServerClient,
@@ -60,34 +61,49 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const departmentScope = await getDepartmentScope(supabase, user.id);
+
   const from =
     request.nextUrl.searchParams.get("from") ??
     new Date(Date.now() - 31 * 86_400_000).toISOString().slice(0, 10);
   const to =
     request.nextUrl.searchParams.get("to") ??
     new Date().toISOString().slice(0, 10);
+
+  let callsQuery = supabase
+    .from("calls")
+    .select(
+      "id,direction,status,agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,department_id,agents(name),departments(name)",
+    )
+    .gte("started_at", jerusalemBoundary(from))
+    .lte("started_at", jerusalemBoundary(to, true))
+    .order("started_at", { ascending: false })
+    .limit(5000);
+
+  let agentsQuery = supabase
+    .from("agents")
+    .select(
+      "id,name,department_id,departments(name),agent_live_status(state,state_since,current_call_started_at)",
+    )
+    .eq("active", true)
+    .order("name");
+
+  let departmentsQuery = supabase
+    .from("departments")
+    .select("id,name")
+    .eq("active", true)
+    .order("name");
+
+  if (departmentScope) {
+    callsQuery = callsQuery.eq("department_id", departmentScope);
+    agentsQuery = agentsQuery.eq("department_id", departmentScope);
+    departmentsQuery = departmentsQuery.eq("id", departmentScope);
+  }
+
   const [callsResult, agentsResult, departmentsResult] = await Promise.all([
-    supabase
-      .from("calls")
-      .select(
-        "id,direction,status,agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,department_id,agents(name),departments(name)",
-      )
-      .gte("started_at", jerusalemBoundary(from))
-      .lte("started_at", jerusalemBoundary(to, true))
-      .order("started_at", { ascending: false })
-      .limit(5000),
-    supabase
-      .from("agents")
-      .select(
-        "id,name,department_id,departments(name),agent_live_status(state,state_since,current_call_started_at)",
-      )
-      .eq("active", true)
-      .order("name"),
-    supabase
-      .from("departments")
-      .select("id,name")
-      .eq("active", true)
-      .order("name"),
+    callsQuery,
+    agentsQuery,
+    departmentsQuery,
   ]);
 
   const error = callsResult.error ?? agentsResult.error ?? departmentsResult.error;
@@ -150,6 +166,7 @@ export async function GET(request: NextRequest) {
     departments: departmentsResult.data ?? [],
     generatedAt: new Date().toISOString(),
     source: "supabase",
+    scopedDepartmentId: departmentScope,
   };
   return NextResponse.json(payload);
 }

@@ -17,6 +17,7 @@ interface RecordingsPayload {
   recordings: CallRecording[];
   departments: Department[];
   source: "demo" | "supabase";
+  scopedDepartmentId?: string | null;
 }
 
 export function RecordingsPage() {
@@ -42,6 +43,12 @@ export function RecordingsPage() {
       });
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (data?.scopedDepartmentId) {
+      setDepartment(data.scopedDepartmentId);
+    }
+  }, [data?.scopedDepartmentId]);
 
   const recordings = useMemo(
     () =>
@@ -135,9 +142,10 @@ export function RecordingsPage() {
         <select
           value={department}
           onChange={(event) => setDepartment(event.target.value)}
-          className="h-11 min-w-40 rounded-xl border border-[#dfe6ea] bg-white px-3 text-xs font-bold outline-none"
+          disabled={Boolean(data.scopedDepartmentId)}
+          className="h-11 min-w-40 rounded-xl border border-[#dfe6ea] bg-white px-3 text-xs font-bold outline-none disabled:bg-[#f3f6f7]"
         >
-          <option value="">כל המחלקות</option>
+          {!data.scopedDepartmentId && <option value="">כל המחלקות</option>}
           {data.departments.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name}

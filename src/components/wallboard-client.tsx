@@ -5,6 +5,7 @@ import {
   Clock3,
   Headphones,
   LoaderCircle,
+  LogOut,
   Maximize2,
   Minimize2,
   PhoneCall,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getHomeHref, type AppProfile } from "@/lib/app-pages";
 import { calculateKpis, formatDuration } from "@/lib/metrics";
 import { formatPhoneDisplay } from "@/lib/phone";
 import {
@@ -69,6 +71,7 @@ export function WallboardClient() {
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [profile, setProfile] = useState<AppProfile | null>(null);
 
   const loadData = useCallback(async () => {
     const day = todayJerusalem();
@@ -84,6 +87,16 @@ export function WallboardClient() {
         loadError instanceof Error ? loadError.message : "אירעה שגיאה",
       );
     }
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/me", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = await response.json();
+        setProfile(result.profile ?? null);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -123,6 +136,19 @@ export function WallboardClient() {
       if (supabase && channel) void supabase.removeChannel(channel);
     };
   }, [loadData]);
+
+  const homeHref = getHomeHref(profile);
+  const wallboardOnly =
+    Boolean(profile) &&
+    profile!.allowedPages.length === 1 &&
+    profile!.allowedPages[0] === "wallboard";
+
+  async function signOut() {
+    if (isSupabaseBrowserConfigured()) {
+      await createSupabaseBrowserClient().auth.signOut();
+    }
+    window.location.href = "/login";
+  }
 
   const kpis = useMemo(
     () => calculateKpis(data?.calls ?? []),
@@ -240,14 +266,26 @@ export function WallboardClient() {
             >
               {isFullscreen ? <Minimize2 size={22} /> : <Maximize2 size={22} />}
             </button>
-            <Link
-              href="/dashboard"
-              className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-white/80 hover:bg-white/15"
-              aria-label="חזרה לדשבורד"
-              title="חזרה לדשבורד"
+            {!wallboardOnly && (
+              <Link
+                href={homeHref === "/wallboard" ? "/dashboard" : homeHref}
+                className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-white/80 hover:bg-white/15"
+                aria-label="חזרה למערכת"
+                title="חזרה למערכת"
+              >
+                <X size={22} />
+              </Link>
+            )}
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="inline-flex h-12 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-semibold text-white/90 hover:bg-white/15"
+              aria-label="התנתק"
+              title="התנתק"
             >
-              <X size={22} />
-            </Link>
+              <LogOut size={18} />
+              התנתק
+            </button>
           </div>
         </header>
 

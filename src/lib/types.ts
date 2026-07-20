@@ -76,6 +76,8 @@ export interface DashboardData {
   generatedAt: string;
   source: "demo" | "supabase";
   stale?: boolean;
+  /** When set, the current user may only view this department. */
+  scopedDepartmentId?: string | null;
 }
 
 export interface DashboardFilters {

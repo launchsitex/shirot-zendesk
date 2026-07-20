@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getDepartmentScope } from "@/lib/auth/department-scope";
 import { getMockDashboardData } from "@/lib/mock-data";
 import {
   createSupabaseServerClient,
@@ -33,6 +34,7 @@ export async function GET() {
       recordings,
       departments: dashboard.departments,
       source: "demo",
+      scopedDepartmentId: null,
     });
   }
 
@@ -44,6 +46,8 @@ export async function GET() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
+  const departmentScope = await getDepartmentScope(supabase, user.id);
+
   const [recordingsResult, departmentsResult] = await Promise.all([
     supabase
       .from("call_recordings")
@@ -52,19 +56,23 @@ export async function GET() {
       )
       .order("created_at", { ascending: false })
       .limit(1000),
-    supabase
-      .from("departments")
-      .select("id,name")
-      .eq("active", true)
-      .order("name"),
+    (() => {
+      let query = supabase
+        .from("departments")
+        .select("id,name")
+        .eq("active", true)
+        .order("name");
+      if (departmentScope) query = query.eq("id", departmentScope);
+      return query;
+    })(),
   ]);
   const error = recordingsResult.error ?? departmentsResult.error;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const recordings: CallRecording[] = (recordingsResult.data ?? []).map(
-    (row) => {
+  const recordings: CallRecording[] = (recordingsResult.data ?? [])
+    .map((row) => {
       const call = row.calls as unknown as {
         customer_number: string;
         department_id: string | null;
@@ -83,12 +91,16 @@ export async function GET() {
         departmentName: call?.departments?.name ?? null,
         customerNumber: call?.customer_number ?? "",
       };
-    },
-  );
+    })
+    .filter(
+      (recording) =>
+        !departmentScope || recording.departmentId === departmentScope,
+    );
 
   return NextResponse.json({
     recordings,
     departments: departmentsResult.data ?? [],
     source: "supabase",
+    scopedDepartmentId: departmentScope,
   });
 }

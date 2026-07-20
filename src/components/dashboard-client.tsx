@@ -146,6 +146,15 @@ export function DashboardClient() {
   }, [filters.from, filters.to]);
 
   useEffect(() => {
+    if (!data?.scopedDepartmentId) return;
+    setFilters((current) =>
+      current.departmentId === data.scopedDepartmentId
+        ? current
+        : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
+    );
+  }, [data?.scopedDepartmentId]);
+
+  useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadData(), 0);
     const polling = window.setInterval(() => loadData(true), 15_000);
     return () => {
@@ -349,21 +358,28 @@ export function DashboardClient() {
               />
             </div>
           )}
-          <SelectFilter
-            label="כל המחלקות"
-            value={filters.departmentId}
-            onChange={(value) =>
-              setFilters((current) => ({
-                ...current,
-                departmentId: value,
-                agentId: "",
-              }))
-            }
-            options={(data?.departments ?? []).map((department) => ({
-              value: department.id,
-              label: department.name,
-            }))}
-          />
+          {!data?.scopedDepartmentId && (
+            <SelectFilter
+              label="כל המחלקות"
+              value={filters.departmentId}
+              onChange={(value) =>
+                setFilters((current) => ({
+                  ...current,
+                  departmentId: value,
+                  agentId: "",
+                }))
+              }
+              options={(data?.departments ?? []).map((department) => ({
+                value: department.id,
+                label: department.name,
+              }))}
+            />
+          )}
+          {data?.scopedDepartmentId && data.departments[0] && (
+            <span className="rounded-xl bg-[#e4f5f2] px-3 py-2 text-xs font-bold text-[#11786e]">
+              {data.departments[0].name}
+            </span>
+          )}
           <SelectFilter
             label="כל הנציגים"
             value={filters.agentId}
