@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   Mic2,
+  Monitor,
   PhoneCall,
   PanelRightClose,
   Settings,
@@ -24,6 +25,7 @@ import {
 
 const items = [
   { href: "/dashboard", label: "ניטור בזמן אמת", icon: LayoutDashboard },
+  { href: "/wallboard", label: "מסך מוקד (TV)", icon: Monitor },
   { href: "/calls", label: "היסטוריית שיחות", icon: PhoneCall },
   { href: "/recordings", label: "הקלטות שיחות", icon: Mic2 },
   { href: "/agents", label: "נציגים וצוותים", icon: UsersRound },

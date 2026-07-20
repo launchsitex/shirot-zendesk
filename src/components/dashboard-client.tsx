@@ -11,6 +11,7 @@ import {
   Clock3,
   Headphones,
   LoaderCircle,
+  Maximize2,
   PhoneCall,
   PhoneIncoming,
   PhoneMissed,
@@ -20,6 +21,7 @@ import {
   Users,
   Wifi,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createSupabaseBrowserClient,
@@ -268,6 +270,13 @@ export function DashboardClient() {
               מצב הדגמה
             </span>
           )}
+          <Link
+            href="/wallboard"
+            className="flex h-10 items-center gap-2 rounded-xl border border-[#dbe3e7] bg-white px-4 text-sm font-semibold hover:bg-[#f8fafb]"
+          >
+            <Maximize2 size={16} />
+            מסך מוקד
+          </Link>
           <button
             onClick={() => loadData()}
             className="flex h-10 items-center gap-2 rounded-xl border border-[#dbe3e7] bg-white px-4 text-sm font-semibold hover:bg-[#f8fafb]"
