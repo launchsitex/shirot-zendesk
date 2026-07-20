@@ -253,7 +253,7 @@ export function CallsHistory() {
                 </span>
               </div>
               <div className="scrollbar-thin max-h-[650px] overflow-auto">
-                <table className="w-full min-w-[850px] text-right text-xs">
+                <table className="w-full border-collapse text-right text-xs">
                   <thead className="sticky top-0 bg-[#f8fafb] text-[#748188]">
                     <tr>
                       {[
@@ -265,7 +265,10 @@ export function CallsHistory() {
                         "תאריך ושעה",
                         "משך שיחה",
                       ].map((heading) => (
-                        <th key={heading} className="px-4 py-3 font-semibold">
+                        <th
+                          key={heading}
+                          className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold"
+                        >
                           {heading}
                         </th>
                       ))}
@@ -274,7 +277,7 @@ export function CallsHistory() {
                   <tbody className="divide-y divide-[#edf1f3]">
                     {calls.map((call) => (
                       <tr key={call.id} className="hover:bg-[#f9fbfb]">
-                        <td className="px-4 py-3">
+                        <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           <span
                             className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
                               call.direction === "inbound"
@@ -289,26 +292,29 @@ export function CallsHistory() {
                             )}
                           </span>
                         </td>
-                        <td className="px-4 py-3 font-bold">
+                        <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-bold">
                           {call.agentName ?? "—"}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           {call.departmentName ?? "ללא שיוך"}
                         </td>
-                        <td className="px-4 py-3 font-mono" dir="ltr">
+                        <td
+                          className="w-0 whitespace-nowrap px-2.5 py-2.5 font-mono"
+                          dir="ltr"
+                        >
                           {formatPhoneDisplay(call.customerNumber)}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           <CallBadge status={call.status} />
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           {new Date(call.startedAt).toLocaleString("he-IL", {
                             dateStyle: "short",
                             timeStyle: "medium",
                             timeZone: "Asia/Jerusalem",
                           })}
                         </td>
-                        <td className="px-4 py-3 font-bold">
+                        <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-bold">
                           {formatDuration(call.talkTimeSeconds)}
                         </td>
                       </tr>

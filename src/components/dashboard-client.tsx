@@ -480,25 +480,39 @@ export function DashboardClient() {
             </label>
           </div>
           <div className="scrollbar-thin max-h-[510px] overflow-auto">
-            <table className="w-full min-w-[780px] border-collapse text-right">
+            <table className="w-full border-collapse text-right text-xs">
               <thead className="sticky top-0 z-10 bg-[#f8fafb] text-[11px] text-[#75838a]">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">כיוון</th>
-                  <th className="px-4 py-3 font-semibold">נציג/ה</th>
-                  <th className="px-4 py-3 font-semibold">מחלקה</th>
-                  <th className="px-4 py-3 font-semibold">מספר לקוח</th>
-                  <th className="px-4 py-3 font-semibold">סטטוס</th>
-                  <th className="px-4 py-3 font-semibold">התחלה</th>
-                  <th className="px-4 py-3 font-semibold">משך שיחה</th>
+                  <th className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold">
+                    כיוון
+                  </th>
+                  <th className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold">
+                    נציג/ה
+                  </th>
+                  <th className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold">
+                    מחלקה
+                  </th>
+                  <th className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold">
+                    מספר לקוח
+                  </th>
+                  <th className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold">
+                    סטטוס
+                  </th>
+                  <th className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold">
+                    התחלה
+                  </th>
+                  <th className="w-0 whitespace-nowrap px-2.5 py-3 font-semibold">
+                    משך שיחה
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#edf1f3]">
                 {visibleCalls.map((call) => (
                   <tr
                     key={call.id}
-                    className="text-xs transition hover:bg-[#f9fbfb]"
+                    className="transition hover:bg-[#f9fbfb]"
                   >
-                    <td className="px-4 py-3">
+                    <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                       <span
                         className={`inline-flex h-8 w-8 items-center justify-center rounded-full ${
                           call.direction === "inbound"
@@ -513,19 +527,22 @@ export function DashboardClient() {
                         )}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-bold">
+                    <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-bold">
                       {call.agentName ?? "—"}
                     </td>
-                    <td className="px-4 py-3 text-[#69777e]">
+                    <td className="w-0 whitespace-nowrap px-2.5 py-2.5 text-[#69777e]">
                       {call.departmentName ?? "ללא שיוך"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-[#526169]" dir="ltr">
+                    <td
+                      className="w-0 whitespace-nowrap px-2.5 py-2.5 font-mono text-[#526169]"
+                      dir="ltr"
+                    >
                       {formatPhoneDisplay(call.customerNumber)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                       <CallStatus status={call.status} />
                     </td>
-                    <td className="px-4 py-3 text-[#526169]">
+                    <td className="w-0 whitespace-nowrap px-2.5 py-2.5 text-[#526169]">
                       {new Date(call.startedAt).toLocaleTimeString("he-IL", {
                         hour: "2-digit",
                         minute: "2-digit",
@@ -533,7 +550,7 @@ export function DashboardClient() {
                         timeZone: "Asia/Jerusalem",
                       })}
                     </td>
-                    <td className="px-4 py-3 font-semibold">
+                    <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-semibold">
                       {call.status === "in_progress"
                         ? elapsed(call.startedAt)
                         : formatDuration(call.talkTimeSeconds)}
@@ -542,7 +559,10 @@ export function DashboardClient() {
                 ))}
                 {!visibleCalls.length && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-16 text-center text-sm text-[#78868d]">
+                    <td
+                      colSpan={7}
+                      className="px-4 py-16 text-center text-sm text-[#78868d]"
+                    >
                       לא נמצאו שיחות התואמות לסינון
                     </td>
                   </tr>
