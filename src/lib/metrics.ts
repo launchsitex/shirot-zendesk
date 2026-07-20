@@ -1,12 +1,14 @@
 import type { CallRecord, Kpis } from "@/lib/types";
 
 export function calculateKpis(calls: CallRecord[]): Kpis {
-  const inbound = calls.filter((call) => call.direction === "inbound");
+  // Exclude live/in-progress calls so totals match answered + missed + outbound.
+  const completed = calls.filter((call) => call.status !== "in_progress");
+  const inbound = completed.filter((call) => call.direction === "inbound");
   const answered = inbound.filter((call) => call.status === "answered");
   const missed = inbound.filter((call) => call.status === "missed");
-  const completedInbound = answered.length + missed.length;
-  const completedWithTalk = calls.filter(
-    (call) => call.status !== "in_progress" && call.talkTimeSeconds > 0,
+  const outbound = completed.filter((call) => call.direction === "outbound");
+  const completedWithTalk = completed.filter(
+    (call) => call.talkTimeSeconds > 0,
   );
   const totalTalkSeconds = completedWithTalk.reduce(
     (sum, call) => sum + call.talkTimeSeconds,
@@ -14,13 +16,13 @@ export function calculateKpis(calls: CallRecord[]): Kpis {
   );
 
   return {
-    total: calls.length,
+    total: completed.length,
     inbound: inbound.length,
-    outbound: calls.filter((call) => call.direction === "outbound").length,
+    outbound: outbound.length,
     answered: answered.length,
     missed: missed.length,
-    answerRate: completedInbound
-      ? Math.round((answered.length / completedInbound) * 100)
+    answerRate: inbound.length
+      ? Math.round((answered.length / inbound.length) * 100)
       : 0,
     totalTalkSeconds,
     averageTalkSeconds: completedWithTalk.length

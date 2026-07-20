@@ -596,7 +596,7 @@ export function AnalyticsReports() {
                   }))}
                 />
                 <span className="mr-auto text-xs text-[#6f7d84]">
-                  {filteredCalls.length} שיחות בטווח שנבחר
+                  {kpis.total} שיחות שהסתיימו בטווח שנבחר
                 </span>
               </div>
             </section>
@@ -608,13 +608,13 @@ export function AnalyticsReports() {
                 tone="green"
               />
               <SummaryCard
-                label="שיחות שנענו"
+                label="נכנסות שנענו"
                 value={kpis.answered}
                 icon={<CheckCircle2 />}
                 tone="blue"
               />
               <SummaryCard
-                label="שיחות שלא נענו"
+                label="נכנסות שלא נענו"
                 value={kpis.missed}
                 icon={<PhoneMissed />}
                 tone="red"

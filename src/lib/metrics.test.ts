@@ -66,6 +66,29 @@ describe("calculateKpis", () => {
     });
   });
 
+  it("excludes in-progress calls from totals so cards add up", () => {
+    const withLive: CallRecord[] = [
+      ...calls,
+      {
+        id: "4",
+        direction: "inbound",
+        status: "in_progress",
+        agentId: "a1",
+        agentName: "נועה",
+        departmentId: "service",
+        departmentName: "שירות",
+        customerNumber: "053",
+        startedAt: "2026-07-19T09:00:00.000Z",
+        endedAt: null,
+        durationSeconds: 30,
+        talkTimeSeconds: 0,
+      },
+    ];
+    const kpis = calculateKpis(withLive);
+    expect(kpis.total).toBe(3);
+    expect(kpis.answered + kpis.missed + kpis.outbound).toBe(kpis.total);
+  });
+
   it("returns zero answer rate when there are no inbound calls", () => {
     expect(calculateKpis([calls[2]]).answerRate).toBe(0);
   });
