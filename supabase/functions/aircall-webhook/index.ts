@@ -174,12 +174,10 @@ async function processCallEvent(
     return;
   }
 
-  const answeredAgentId =
-    answeredAt || call.direction === "outbound"
-      ? eventUser?.id
-        ? String(eventUser.id)
-        : existing?.agent_id ?? null
-      : null;
+  // Prefer the agent on the current event. Never wipe a known agent_id when a
+  // later event omits user (common on inbound ringing / decline / hangup).
+  const eventAgentId = eventUser?.id ? String(eventUser.id) : null;
+  const answeredAgentId = eventAgentId ?? existing?.agent_id ?? null;
   const duration = Math.max(
     Number(call.duration ?? 0),
     endedAt
