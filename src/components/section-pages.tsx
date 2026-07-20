@@ -653,22 +653,31 @@ export function AnalyticsReports() {
                         key={day.date}
                         className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2"
                       >
-                        <span className="text-[10px] font-bold">{day.total}</span>
-                        <div className="flex h-[190px] w-full items-end justify-center gap-1">
-                          <div
-                            className="w-[38%] rounded-t-md bg-[#158f83]"
-                            style={{
-                              height: `${Math.max((day.inbound / maxDaily) * 100, day.inbound ? 5 : 0)}%`,
-                            }}
-                            title={`${day.inbound} נכנסות`}
-                          />
-                          <div
-                            className="w-[38%] rounded-t-md bg-[#587bd3]"
-                            style={{
-                              height: `${Math.max((day.outbound / maxDaily) * 100, day.outbound ? 5 : 0)}%`,
-                            }}
-                            title={`${day.outbound} יוצאות`}
-                          />
+                        <div className="flex h-[200px] w-full items-end justify-center gap-1">
+                          <div className="flex h-full w-[42%] flex-col items-center justify-end gap-1">
+                            <span className="text-[10px] font-bold text-[#158f83]">
+                              {day.inbound}
+                            </span>
+                            <div
+                              className="w-full rounded-t-md bg-[#158f83]"
+                              style={{
+                                height: `${Math.max((day.inbound / maxDaily) * 100, day.inbound ? 5 : 0)}%`,
+                              }}
+                              title={`${day.inbound} נכנסות`}
+                            />
+                          </div>
+                          <div className="flex h-full w-[42%] flex-col items-center justify-end gap-1">
+                            <span className="text-[10px] font-bold text-[#587bd3]">
+                              {day.outbound}
+                            </span>
+                            <div
+                              className="w-full rounded-t-md bg-[#587bd3]"
+                              style={{
+                                height: `${Math.max((day.outbound / maxDaily) * 100, day.outbound ? 5 : 0)}%`,
+                              }}
+                              title={`${day.outbound} יוצאות`}
+                            />
+                          </div>
                         </div>
                         <span className="truncate text-[10px] text-[#7f8d94]">
                           {day.label}
