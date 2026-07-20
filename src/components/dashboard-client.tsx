@@ -30,6 +30,7 @@ import {
   filterCalls,
   formatDuration,
 } from "@/lib/metrics";
+import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import type {
   Agent,
   AgentState,
@@ -195,7 +196,9 @@ export function DashboardClient() {
     return calls.filter(
       (call) =>
         call.agentName?.toLowerCase().includes(needle) ||
-        call.customerNumber.includes(needle) ||
+        phoneSearchText(call.customerNumber).includes(
+          needle.replace(/\D/g, "") || needle,
+        ) ||
         call.departmentName?.includes(needle),
     );
   }, [data, filters, search]);
@@ -442,7 +445,7 @@ export function DashboardClient() {
               >
                 <div>
                   <strong className="block font-mono text-sm" dir="ltr">
-                    {maskNumber(call.customerNumber)}
+                    {formatPhoneDisplay(call.customerNumber)}
                   </strong>
                   <span className="text-xs text-[#7c898f]">
                     {call.departmentName ?? "ממתין לשיוך"}
@@ -517,7 +520,7 @@ export function DashboardClient() {
                       {call.departmentName ?? "ללא שיוך"}
                     </td>
                     <td className="px-4 py-3 font-mono text-[#526169]" dir="ltr">
-                      {maskNumber(call.customerNumber)}
+                      {formatPhoneDisplay(call.customerNumber)}
                     </td>
                     <td className="px-4 py-3">
                       <CallStatus status={call.status} />
@@ -720,6 +723,3 @@ function AgentRow({ agent }: { agent: Agent }) {
   );
 }
 
-function maskNumber(number: string) {
-  return number || "מספר חסוי";
-}

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { formatDuration } from "@/lib/metrics";
+import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import type { CallRecording, Department } from "@/lib/types";
 
 interface RecordingsPayload {
@@ -49,7 +50,9 @@ export function RecordingsPage() {
         return (
           (!needle ||
             recording.agentName?.toLowerCase().includes(needle) ||
-            recording.customerNumber.includes(needle) ||
+            phoneSearchText(recording.customerNumber).includes(
+              needle.replace(/\D/g, "") || needle,
+            ) ||
             recording.ticketId.includes(needle)) &&
           (!department || recording.departmentId === department) &&
           (!type || recording.recordingType === type)
@@ -183,7 +186,7 @@ export function RecordingsPage() {
               </div>
               <div className="text-xs text-[#65747c]">
                 <span className="block font-mono" dir="ltr">
-                  {maskNumber(recording.customerNumber)}
+                  {formatPhoneDisplay(recording.customerNumber)}
                 </span>
                 <span className="mt-1 block">
                   {new Date(recording.createdAt).toLocaleString("he-IL", {
@@ -253,6 +256,3 @@ function Stat({
   );
 }
 
-function maskNumber(number: string) {
-  return number || "מספר חסוי";
-}

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { calculateKpis, formatDuration } from "@/lib/metrics";
+import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
@@ -143,7 +144,9 @@ export function CallsHistory() {
           return (
             (!needle ||
               call.agentName?.toLowerCase().includes(needle) ||
-              call.customerNumber.includes(needle)) &&
+              phoneSearchText(call.customerNumber).includes(
+                needle.replace(/\D/g, "") || needle,
+              )) &&
             (!department || call.departmentId === department) &&
             (!direction || call.direction === direction) &&
             (!status || call.status === status)
@@ -247,7 +250,7 @@ export function CallsHistory() {
                           {call.departmentName ?? "ללא שיוך"}
                         </td>
                         <td className="px-4 py-3 font-mono" dir="ltr">
-                          {maskNumber(call.customerNumber)}
+                          {formatPhoneDisplay(call.customerNumber)}
                         </td>
                         <td className="px-4 py-3">
                           <CallBadge status={call.status} />
@@ -704,6 +707,3 @@ function initials(name: string) {
     .join("");
 }
 
-function maskNumber(number: string) {
-  return number || "מספר חסוי";
-}
