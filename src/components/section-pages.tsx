@@ -2,8 +2,10 @@
 
 import {
   ArrowDownLeft,
+  ArrowLeft,
   ArrowUpRight,
   BarChart3,
+  CalendarDays,
   CheckCircle2,
   Clock3,
   Headphones,
@@ -16,14 +18,19 @@ import {
   Users,
   UserX,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { calculateKpis, formatDuration } from "@/lib/metrics";
+import { useEffect, useMemo, useState } from "react";
+import { calculateKpis, filterCalls, formatDuration } from "@/lib/metrics";
 import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
-import type { AgentState, CallRecord, DashboardData } from "@/lib/types";
+import type {
+  AgentState,
+  CallRecord,
+  DashboardData,
+  DashboardFilters,
+} from "@/lib/types";
 
 const stateLabels: Record<AgentState, string> = {
   available: "זמין",
@@ -53,14 +60,50 @@ const stateStyles: Record<AgentState, string> = {
   unavailable: "bg-[#f2f4f5] text-[#7b878d]",
 };
 
-function useDashboardData() {
+function toInputDate(date: Date): string {
+  return date.toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
+}
+
+function presetDates(preset: DashboardFilters["preset"]) {
+  const today = new Date();
+  const to = toInputDate(today);
+  if (preset === "today") return { from: to, to };
+  const from = new Date(today);
+  if (preset === "week") {
+    const weekday = Number(
+      new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        timeZone: "Asia/Jerusalem",
+      })
+        .format(today)
+        .replace(
+          /Sun|Mon|Tue|Wed|Thu|Fri|Sat/,
+          (value) =>
+            String(
+              ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(value),
+            ),
+        ),
+    );
+    from.setDate(from.getDate() - weekday);
+  } else {
+    from.setDate(1);
+  }
+  return { from: toInputDate(from), to };
+}
+
+function useDashboardData(range?: { from: string; to: string }) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
+    const params = range
+      ? `?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`
+      : "";
+    setData(null);
+    setError("");
     const loadData = () =>
-      fetch("/api/dashboard", {
+      fetch(`/api/dashboard${params}`, {
         cache: "no-store",
         signal: controller.signal,
       })
@@ -68,7 +111,10 @@ function useDashboardData() {
           if (!response.ok) throw new Error("טעינת הנתונים נכשלה");
           return response.json();
         })
-        .then(setData)
+        .then((payload) => {
+          setData(payload);
+          setError("");
+        })
         .catch((reason) => {
           if (reason.name !== "AbortError") setError(reason.message);
         });
@@ -79,7 +125,7 @@ function useDashboardData() {
       ? createSupabaseBrowserClient()
       : null;
     const channel = supabase
-      ?.channel("section-pages-live")
+      ?.channel(`section-pages-live-${range?.from ?? "all"}-${range?.to ?? "all"}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "calls" },
@@ -102,7 +148,7 @@ function useDashboardData() {
       window.clearInterval(polling);
       if (supabase && channel) void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [range?.from, range?.to]);
 
   return { data, error };
 }
@@ -393,14 +439,54 @@ export function AgentsTeams() {
 }
 
 export function AnalyticsReports() {
-  const { data, error } = useDashboardData();
+  const initialDates = presetDates("today");
+  const [filters, setFilters] = useState<DashboardFilters>({
+    preset: "today",
+    ...initialDates,
+    departmentId: "",
+    agentId: "",
+  });
+  const { data, error } = useDashboardData({
+    from: filters.from,
+    to: filters.to,
+  });
+
+  const filteredCalls = useMemo(
+    () =>
+      filterCalls(
+        data?.calls ?? [],
+        filters.from,
+        filters.to,
+        filters.departmentId,
+        filters.agentId,
+      ),
+    [data, filters],
+  );
+
+  const selectableAgents = useMemo(
+    () =>
+      (data?.agents ?? []).filter(
+        (agent) =>
+          !filters.departmentId || agent.departmentId === filters.departmentId,
+      ),
+    [data, filters.departmentId],
+  );
+
+  function setPreset(preset: DashboardFilters["preset"]) {
+    setFilters((current) => ({
+      ...current,
+      preset,
+      ...(preset === "custom" ? {} : presetDates(preset)),
+    }));
+  }
+
   return (
     <PageState data={data} error={error}>
       {(dashboard) => {
-        const kpis = calculateKpis(dashboard.calls);
-        const daily = groupCallsByDay(dashboard.calls);
+        const kpis = calculateKpis(filteredCalls);
+        const daily = groupCallsByDay(filteredCalls);
         const maxDaily = Math.max(...daily.map((day) => day.total), 1);
-        const agentStats = buildAgentStats(dashboard.calls);
+        const agentStats = buildAgentStats(filteredCalls);
         return (
           <>
             <PageHeader
@@ -408,6 +494,90 @@ export function AnalyticsReports() {
               subtitle="מגמות ביצועים ותפוקת המוקד"
               icon={<BarChart3 size={22} />}
             />
+            <section className="card mb-4 p-3 md:p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-xl bg-[#f1f4f6] p-1">
+                  {(
+                    [
+                      ["today", "היום"],
+                      ["week", "השבוע"],
+                      ["month", "החודש"],
+                      ["custom", "טווח מותאם"],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setPreset(value)}
+                      className={`rounded-lg px-3 py-2 text-xs font-bold transition ${
+                        filters.preset === value
+                          ? "bg-white text-[#17242d] shadow-sm"
+                          : "text-[#718087]"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {filters.preset === "custom" && (
+                  <div className="flex items-center gap-2 rounded-xl border border-[#dfe6ea] px-3">
+                    <CalendarDays size={16} className="text-[#78868e]" />
+                    <input
+                      type="date"
+                      value={filters.from}
+                      onChange={(event) =>
+                        setFilters((current) => ({
+                          ...current,
+                          from: event.target.value,
+                        }))
+                      }
+                      className="h-10 bg-transparent text-xs outline-none"
+                    />
+                    <ArrowLeft size={14} />
+                    <input
+                      type="date"
+                      value={filters.to}
+                      onChange={(event) =>
+                        setFilters((current) => ({
+                          ...current,
+                          to: event.target.value,
+                        }))
+                      }
+                      className="h-10 bg-transparent text-xs outline-none"
+                    />
+                  </div>
+                )}
+                <FilterSelect
+                  value={filters.departmentId}
+                  onChange={(value) =>
+                    setFilters((current) => ({
+                      ...current,
+                      departmentId: value,
+                      agentId: "",
+                    }))
+                  }
+                  label="כל המחלקות"
+                  options={dashboard.departments.map((item) => ({
+                    value: item.id,
+                    label: item.name,
+                  }))}
+                />
+                <FilterSelect
+                  value={filters.agentId}
+                  onChange={(value) =>
+                    setFilters((current) => ({ ...current, agentId: value }))
+                  }
+                  label="כל הנציגים"
+                  options={selectableAgents.map((agent) => ({
+                    value: agent.id,
+                    label: agent.name,
+                  }))}
+                />
+                <span className="mr-auto text-xs text-[#6f7d84]">
+                  {filteredCalls.length} שיחות בטווח שנבחר
+                </span>
+              </div>
+            </section>
             <section className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
               <SummaryCard
                 label="אחוז מענה"
@@ -439,38 +609,44 @@ export function AnalyticsReports() {
                 <div className="mb-6">
                   <h2 className="font-bold">נפח שיחות לפי יום</h2>
                   <p className="mt-1 text-xs text-[#7f8d94]">
-                    נכנסות ויוצאות בתקופה האחרונה
+                    נכנסות ויוצאות בטווח שנבחר
                   </p>
                 </div>
-                <div className="flex h-64 items-end gap-2 border-b border-[#e5ebee] px-1">
-                  {daily.map((day) => (
-                    <div
-                      key={day.date}
-                      className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2"
-                    >
-                      <span className="text-[10px] font-bold">{day.total}</span>
-                      <div className="flex h-[190px] w-full items-end justify-center gap-1">
-                        <div
-                          className="w-[38%] rounded-t-md bg-[#158f83]"
-                          style={{
-                            height: `${Math.max((day.inbound / maxDaily) * 100, day.inbound ? 5 : 0)}%`,
-                          }}
-                          title={`${day.inbound} נכנסות`}
-                        />
-                        <div
-                          className="w-[38%] rounded-t-md bg-[#587bd3]"
-                          style={{
-                            height: `${Math.max((day.outbound / maxDaily) * 100, day.outbound ? 5 : 0)}%`,
-                          }}
-                          title={`${day.outbound} יוצאות`}
-                        />
+                {daily.length ? (
+                  <div className="flex h-64 items-end gap-2 border-b border-[#e5ebee] px-1">
+                    {daily.map((day) => (
+                      <div
+                        key={day.date}
+                        className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2"
+                      >
+                        <span className="text-[10px] font-bold">{day.total}</span>
+                        <div className="flex h-[190px] w-full items-end justify-center gap-1">
+                          <div
+                            className="w-[38%] rounded-t-md bg-[#158f83]"
+                            style={{
+                              height: `${Math.max((day.inbound / maxDaily) * 100, day.inbound ? 5 : 0)}%`,
+                            }}
+                            title={`${day.inbound} נכנסות`}
+                          />
+                          <div
+                            className="w-[38%] rounded-t-md bg-[#587bd3]"
+                            style={{
+                              height: `${Math.max((day.outbound / maxDaily) * 100, day.outbound ? 5 : 0)}%`,
+                            }}
+                            title={`${day.outbound} יוצאות`}
+                          />
+                        </div>
+                        <span className="truncate text-[10px] text-[#7f8d94]">
+                          {day.label}
+                        </span>
                       </div>
-                      <span className="truncate text-[10px] text-[#7f8d94]">
-                        {day.label}
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-16 text-center text-sm text-[#7d8a91]">
+                    אין שיחות להצגה בטווח שנבחר
+                  </p>
+                )}
                 <div className="mt-4 flex justify-center gap-5 text-xs">
                   <span className="flex items-center gap-2">
                     <i className="h-2.5 w-2.5 rounded-sm bg-[#158f83]" />
@@ -538,6 +714,11 @@ export function AnalyticsReports() {
                     ))}
                   </tbody>
                 </table>
+                {!agentStats.length && (
+                  <p className="p-16 text-center text-sm text-[#7d8a91]">
+                    אין נתוני נציגים בטווח שנבחר
+                  </p>
+                )}
               </div>
             </section>
           </>
@@ -672,8 +853,7 @@ function groupCallsByDay(calls: CallRecord[]) {
     grouped.set(date, current);
   });
   return [...grouped.values()]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .slice(-10);
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function buildAgentStats(calls: CallRecord[]) {
