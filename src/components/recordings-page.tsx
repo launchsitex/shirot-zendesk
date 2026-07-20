@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Headphones,
   LoaderCircle,
@@ -8,9 +10,9 @@ import {
   Search,
   Voicemail,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatDuration } from "@/lib/metrics";
-import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
+import { formatPhoneDisplay } from "@/lib/phone";
 import type { CallRecording, Department } from "@/lib/types";
 
 interface RecordingsPayload {
@@ -18,31 +20,33 @@ interface RecordingsPayload {
   departments: Department[];
   source: "demo" | "supabase";
   scopedDepartmentId?: string | null;
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  totalDurationSeconds: number;
+  voicemailCount: number;
 }
+
+const PAGE_SIZE = 20;
 
 export function RecordingsPage() {
   const [data, setData] = useState<RecordingsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [type, setType] = useState("");
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/recordings", {
-      cache: "no-store",
-      signal: controller.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error("טעינת ההקלטות נכשלה");
-        return response.json();
-      })
-      .then(setData)
-      .catch((reason) => {
-        if (reason.name !== "AbortError") setError(reason.message);
-      });
-    return () => controller.abort();
-  }, []);
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   useEffect(() => {
     if (!data?.scopedDepartmentId) return;
@@ -52,32 +56,58 @@ export function RecordingsPage() {
     return () => window.clearTimeout(timer);
   }, [data?.scopedDepartmentId]);
 
-  const recordings = useMemo(
-    () =>
-      (data?.recordings ?? []).filter((recording) => {
-        const needle = search.trim().toLowerCase();
-        return (
-          (!needle ||
-            recording.agentName?.toLowerCase().includes(needle) ||
-            phoneSearchText(recording.customerNumber).includes(
-              needle.replace(/\D/g, "") || needle,
-            ) ||
-            recording.ticketId.includes(needle)) &&
-          (!department || recording.departmentId === department) &&
-          (!type || recording.recordingType === type)
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (search) params.set("search", search);
+      if (department) params.set("department", department);
+      if (type) params.set("type", type);
+
+      const response = await fetch(`/api/recordings?${params}`, {
+        cache: "no-store",
+        signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.error === "string"
+            ? payload.error
+            : "טעינת ההקלטות נכשלה",
         );
-      }),
-    [data, department, search, type],
-  );
-  const totalDuration = recordings.reduce(
-    (sum, recording) => sum + recording.durationSeconds,
-    0,
+      }
+      setData(payload as RecordingsPayload);
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === "AbortError") return;
+      setError(reason instanceof Error ? reason.message : "טעינת ההקלטות נכשלה");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search, department, type]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  const recordings = data?.recordings ?? [];
+  const totalPages = Math.max(1, data?.totalPages ?? 1);
+  const totalCount = data?.totalCount ?? 0;
+
+  const pageNumbers = useMemo(
+    () => buildPageNumbers(page, totalPages),
+    [page, totalPages],
   );
 
-  if (error) {
+  if (error && !data) {
     return <div className="card p-8 text-center text-red-600">{error}</div>;
   }
-  if (!data) {
+  if (!data && loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <LoaderCircle className="animate-spin text-[#158f83]" size={34} />
@@ -95,11 +125,11 @@ export function RecordingsPage() {
           <div>
             <h1 className="text-2xl font-bold md:text-[28px]">הקלטות שיחות</h1>
             <p className="mt-1 text-sm text-[#75838b]">
-              האזנה להקלטות Zendesk Talk לפי נציג ומחלקה
+              האזנה להקלטות לפי נציג ומחלקה · {PAGE_SIZE} בעמוד
             </p>
           </div>
         </div>
-        {data.source === "demo" && (
+        {data?.source === "demo" && (
           <span className="rounded-full bg-[#fff2cc] px-4 py-2 text-xs font-bold text-[#8a6515]">
             הנגינה תופעל לאחר חיבור Zendesk
           </span>
@@ -109,23 +139,19 @@ export function RecordingsPage() {
       <section className="mb-5 grid gap-3 sm:grid-cols-3">
         <Stat
           label="סה״כ הקלטות"
-          value={recordings.length}
+          value={totalCount.toLocaleString("he-IL")}
           icon={<Headphones />}
           tone="teal"
         />
         <Stat
           label="משך הקלטות כולל"
-          value={formatDuration(totalDuration)}
+          value={formatDuration(data?.totalDurationSeconds ?? 0)}
           icon={<Clock3 />}
           tone="blue"
         />
         <Stat
           label="הודעות קוליות"
-          value={
-            recordings.filter(
-              (recording) => recording.recordingType === "voicemail",
-            ).length
-          }
+          value={(data?.voicemailCount ?? 0).toLocaleString("he-IL")}
           icon={<Voicemail />}
           tone="purple"
         />
@@ -135,20 +161,23 @@ export function RecordingsPage() {
         <label className="flex h-11 min-w-64 flex-1 items-center gap-2 rounded-xl border border-[#dfe6ea] px-3">
           <Search size={17} className="text-[#849198]" />
           <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
             placeholder="חיפוש נציג, מספר או טיקט..."
             className="w-full bg-transparent text-sm outline-none"
           />
         </label>
         <select
           value={department}
-          onChange={(event) => setDepartment(event.target.value)}
-          disabled={Boolean(data.scopedDepartmentId)}
+          onChange={(event) => {
+            setDepartment(event.target.value);
+            setPage(1);
+          }}
+          disabled={Boolean(data?.scopedDepartmentId)}
           className="h-11 min-w-40 rounded-xl border border-[#dfe6ea] bg-white px-3 text-xs font-bold outline-none disabled:bg-[#f3f6f7]"
         >
-          {!data.scopedDepartmentId && <option value="">כל המחלקות</option>}
-          {data.departments.map((item) => (
+          {!data?.scopedDepartmentId && <option value="">כל המחלקות</option>}
+          {(data?.departments ?? []).map((item) => (
             <option key={item.id} value={item.id}>
               {item.name}
             </option>
@@ -156,7 +185,10 @@ export function RecordingsPage() {
         </select>
         <select
           value={type}
-          onChange={(event) => setType(event.target.value)}
+          onChange={(event) => {
+            setType(event.target.value);
+            setPage(1);
+          }}
           className="h-11 min-w-40 rounded-xl border border-[#dfe6ea] bg-white px-3 text-xs font-bold outline-none"
         >
           <option value="">כל סוגי ההקלטות</option>
@@ -168,9 +200,13 @@ export function RecordingsPage() {
       <section className="card overflow-hidden">
         <div className="flex items-center justify-between border-b border-[#e5ebee] p-5">
           <strong>הקלטות זמינות</strong>
-          <span className="text-xs text-[#7e8b92]">{recordings.length} תוצאות</span>
+          <span className="text-xs text-[#7e8b92]">
+            {totalCount.toLocaleString("he-IL")} תוצאות · עמוד {page} מתוך{" "}
+            {totalPages.toLocaleString("he-IL")}
+            {loading ? " · טוען…" : ""}
+          </span>
         </div>
-        <div className="divide-y divide-[#edf1f3]">
+        <div className={`divide-y divide-[#edf1f3] ${loading ? "opacity-60" : ""}`}>
           {recordings.map((recording) => (
             <article
               key={recording.id}
@@ -207,7 +243,7 @@ export function RecordingsPage() {
                   · {formatDuration(recording.durationSeconds)}
                 </span>
               </div>
-              {data.source === "supabase" ? (
+              {data?.source === "supabase" ? (
                 <audio
                   controls
                   preload="none"
@@ -223,15 +259,108 @@ export function RecordingsPage() {
               )}
             </article>
           ))}
-          {!recordings.length && (
+          {!recordings.length && !loading && (
             <p className="p-16 text-center text-sm text-[#7d8a91]">
-              עדיין לא נמצאו הקלטות. הן יופיעו לאחר סנכרון Zendesk Talk.
+              לא נמצאו הקלטות לפי הסינון הנוכחי.
             </p>
           )}
         </div>
+
+        {totalCount > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#e5ebee] px-4 py-3">
+            <button
+              type="button"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              className="inline-flex items-center gap-1 rounded-xl border border-[#dfe6ea] px-3 py-2 text-xs font-bold disabled:opacity-40"
+            >
+              <ChevronRight size={14} />
+              הקודם
+            </button>
+
+            <div className="flex flex-wrap items-center justify-center gap-1">
+              {pageNumbers.map((item, index) =>
+                item === "…" ? (
+                  <span
+                    key={`ellipsis-${index}`}
+                    className="px-2 text-xs text-[#8a969c]"
+                  >
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setPage(item)}
+                    className={`min-w-9 rounded-xl px-2.5 py-2 text-xs font-bold ${
+                      item === page
+                        ? "bg-[#102d38] text-white"
+                        : "border border-[#dfe6ea] text-[#35515c] hover:bg-[#f5f8f9]"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ),
+              )}
+            </div>
+
+            <button
+              type="button"
+              disabled={page >= totalPages || loading}
+              onClick={() =>
+                setPage((current) => Math.min(totalPages, current + 1))
+              }
+              className="inline-flex items-center gap-1 rounded-xl border border-[#dfe6ea] px-3 py-2 text-xs font-bold disabled:opacity-40"
+            >
+              הבא
+              <ChevronLeft size={14} />
+            </button>
+          </div>
+        ) : null}
       </section>
+
+      {error ? (
+        <p className="mt-3 text-center text-sm text-[#c34850]">{error}</p>
+      ) : null}
     </>
   );
+}
+
+function buildPageNumbers(current: number, total: number): Array<number | "…"> {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, index) => index + 1);
+  }
+
+  const pages = new Set<number>([1, total, current]);
+  for (let offset = 1; offset <= 1; offset += 1) {
+    pages.add(current - offset);
+    pages.add(current + offset);
+  }
+  if (current <= 3) {
+    pages.add(2);
+    pages.add(3);
+    pages.add(4);
+  }
+  if (current >= total - 2) {
+    pages.add(total - 1);
+    pages.add(total - 2);
+    pages.add(total - 3);
+  }
+
+  const sorted = [...pages]
+    .filter((value) => value >= 1 && value <= total)
+    .sort((a, b) => a - b);
+
+  const result: Array<number | "…"> = [];
+  for (const value of sorted) {
+    const previous = result[result.length - 1];
+    if (typeof previous === "number" && value - previous > 1) {
+      result.push("…");
+    }
+    result.push(value);
+  }
+  return result;
 }
 
 const tones = {
@@ -265,4 +394,3 @@ function Stat({
     </article>
   );
 }
-

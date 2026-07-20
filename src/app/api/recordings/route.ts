@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getDepartmentScope } from "@/lib/auth/department-scope";
 import { getMockDashboardData } from "@/lib/mock-data";
 import {
@@ -9,20 +9,38 @@ import type { CallRecording } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const PAGE_SIZE = 20;
+
+type ListPageResult = {
+  recordings: CallRecording[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+  totalDurationSeconds: number;
+  voicemailCount: number;
+};
+
+export async function GET(request: NextRequest) {
+  const pageParam = Number(request.nextUrl.searchParams.get("page") ?? "1");
+  const page = Number.isFinite(pageParam) ? Math.max(1, Math.floor(pageParam)) : 1;
+  const search = request.nextUrl.searchParams.get("search")?.trim() ?? "";
+  const department =
+    request.nextUrl.searchParams.get("department")?.trim() || null;
+  const type = request.nextUrl.searchParams.get("type")?.trim() || null;
+
   if (
     !isSupabaseConfigured() ||
     process.env.NEXT_PUBLIC_DEMO_MODE === "true"
   ) {
     const dashboard = getMockDashboardData();
-    const recordings: CallRecording[] = dashboard.calls
+    let recordings: CallRecording[] = dashboard.calls
       .filter((call) => call.status === "answered")
-      .slice(0, 12)
       .map((call) => ({
         id: `demo-${call.id}`,
         callId: call.id,
         ticketId: `T-${call.id.replace("call-", "")}`,
-        recordingType: "call",
+        recordingType: "call" as const,
         durationSeconds: call.talkTimeSeconds,
         createdAt: call.startedAt,
         agentName: call.agentName,
@@ -30,11 +48,46 @@ export async function GET() {
         departmentName: call.departmentName,
         customerNumber: call.customerNumber,
       }));
+
+    if (department) {
+      recordings = recordings.filter((item) => item.departmentId === department);
+    }
+    if (type) {
+      recordings = recordings.filter((item) => item.recordingType === type);
+    }
+    if (search) {
+      const needle = search.toLowerCase();
+      const digits = search.replace(/\D/g, "");
+      recordings = recordings.filter(
+        (item) =>
+          item.agentName?.toLowerCase().includes(needle) ||
+          item.ticketId.toLowerCase().includes(needle) ||
+          (digits && item.customerNumber.replace(/\D/g, "").includes(digits)),
+      );
+    }
+
+    const totalCount = recordings.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    const pageRows = recordings.slice(start, start + PAGE_SIZE);
+
     return NextResponse.json({
-      recordings,
+      recordings: pageRows,
       departments: dashboard.departments,
       source: "demo",
       scopedDepartmentId: null,
+      page: safePage,
+      pageSize: PAGE_SIZE,
+      totalCount,
+      totalPages,
+      totalDurationSeconds: recordings.reduce(
+        (sum, item) => sum + item.durationSeconds,
+        0,
+      ),
+      voicemailCount: recordings.filter(
+        (item) => item.recordingType === "voicemail",
+      ).length,
     });
   }
 
@@ -47,15 +100,16 @@ export async function GET() {
   }
 
   const departmentScope = await getDepartmentScope(supabase, user.id);
+  const effectiveDepartment = departmentScope ?? department;
 
-  const [recordingsResult, departmentsResult] = await Promise.all([
-    supabase
-      .from("call_recordings")
-      .select(
-        "id,call_id,ticket_id,recording_type,duration_seconds,created_at,calls(customer_number,department_id,agents(name),departments(name))",
-      )
-      .order("created_at", { ascending: false })
-      .limit(1000),
+  const [pageResult, departmentsResult] = await Promise.all([
+    supabase.rpc("list_call_recordings_page", {
+      p_page: page,
+      p_page_size: PAGE_SIZE,
+      p_department_id: effectiveDepartment,
+      p_recording_type: type,
+      p_search: search || null,
+    }),
     (() => {
       let query = supabase
         .from("departments")
@@ -66,41 +120,31 @@ export async function GET() {
       return query;
     })(),
   ]);
-  const error = recordingsResult.error ?? departmentsResult.error;
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+  if (pageResult.error || departmentsResult.error) {
+    return NextResponse.json(
+      {
+        error:
+          pageResult.error?.message ??
+          departmentsResult.error?.message ??
+          "load_failed",
+      },
+      { status: 500 },
+    );
   }
 
-  const recordings: CallRecording[] = (recordingsResult.data ?? [])
-    .map((row) => {
-      const call = row.calls as unknown as {
-        customer_number: string;
-        department_id: string | null;
-        agents: { name: string } | null;
-        departments: { name: string } | null;
-      };
-      return {
-        id: row.id,
-        callId: row.call_id,
-        ticketId: row.ticket_id,
-        recordingType: row.recording_type,
-        durationSeconds: row.duration_seconds,
-        createdAt: row.created_at,
-        agentName: call?.agents?.name ?? null,
-        departmentId: call?.department_id ?? null,
-        departmentName: call?.departments?.name ?? null,
-        customerNumber: call?.customer_number ?? "",
-      };
-    })
-    .filter(
-      (recording) =>
-        !departmentScope || recording.departmentId === departmentScope,
-    );
+  const payload = (pageResult.data ?? {}) as ListPageResult;
 
   return NextResponse.json({
-    recordings,
+    recordings: payload.recordings ?? [],
     departments: departmentsResult.data ?? [],
     source: "supabase",
     scopedDepartmentId: departmentScope,
+    page: payload.page ?? page,
+    pageSize: payload.pageSize ?? PAGE_SIZE,
+    totalCount: payload.totalCount ?? 0,
+    totalPages: payload.totalPages ?? 1,
+    totalDurationSeconds: payload.totalDurationSeconds ?? 0,
+    voicemailCount: payload.voicemailCount ?? 0,
   });
 }

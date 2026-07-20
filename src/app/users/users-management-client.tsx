@@ -341,7 +341,8 @@ export function UsersManagementClient() {
                       (page) =>
                         page.id !== "settings" &&
                         page.id !== "users" &&
-                        page.id !== "system-logs",
+                        page.id !== "system-logs" &&
+                        page.id !== "ai-analysis",
                     )
                     .map((page) => {
                       const checked = form.allowedPages.includes(page.id);

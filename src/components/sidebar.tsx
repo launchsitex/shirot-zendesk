@@ -16,6 +16,7 @@ import {
   PanelRightClose,
   ScrollText,
   Settings,
+  Sparkles,
   Timer,
   UserRoundCog,
   UsersRound,
@@ -37,6 +38,7 @@ const items: {
   label: string;
   pageId: AppPageId;
   icon: typeof LayoutDashboard;
+  requiresFeature?: "aiCallAnalysis";
 }[] = [
   {
     href: "/dashboard",
@@ -80,6 +82,13 @@ const items: {
     label: "זמני סטטוס נציגים",
     pageId: "status-report",
     icon: Timer,
+  },
+  {
+    href: "/ai-analysis",
+    label: "ניתוח AI",
+    pageId: "ai-analysis",
+    icon: Sparkles,
+    requiresFeature: "aiCallAnalysis",
   },
   {
     href: "/system-logs",
@@ -168,6 +177,7 @@ function Sidebar({
 }) {
   const pathname = usePathname();
   const [profile, setProfile] = useState<AppProfile | null>(null);
+  const [aiCallAnalysisEnabled, setAiCallAnalysisEnabled] = useState(false);
 
   useEffect(() => {
     fetch("/api/me", { cache: "no-store" })
@@ -175,18 +185,29 @@ function Sidebar({
         if (!response.ok) return;
         const result = await response.json();
         setProfile(result.profile ?? null);
+        setAiCallAnalysisEnabled(
+          Boolean(result.featureFlags?.aiCallAnalysis),
+        );
       })
       .catch(() => undefined);
   }, []);
 
-  const visibleItems = profile
-    ? items.filter((item) => canAccessPage(profile, item.pageId))
-    : items.filter(
-        (item) =>
-          item.pageId !== "settings" &&
-          item.pageId !== "users" &&
-          item.pageId !== "system-logs",
-      );
+  const visibleItems = (
+    profile
+      ? items.filter((item) => canAccessPage(profile, item.pageId))
+      : items.filter(
+          (item) =>
+            item.pageId !== "settings" &&
+            item.pageId !== "users" &&
+            item.pageId !== "system-logs" &&
+            item.pageId !== "ai-analysis",
+        )
+  ).filter((item) => {
+    if (item.requiresFeature === "aiCallAnalysis") {
+      return aiCallAnalysisEnabled;
+    }
+    return true;
+  });
 
   async function signOut() {
     if (isSupabaseBrowserConfigured()) {

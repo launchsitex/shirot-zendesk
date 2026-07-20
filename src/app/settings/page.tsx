@@ -1,3 +1,4 @@
+import { AiAnalysisSettingsClient } from "@/components/ai-analysis-settings";
 import { AircallSettingsClient } from "@/components/aircall-settings-client";
 import { BusinessHoursSettingsClient } from "@/components/business-hours-settings";
 import { AppShell } from "@/components/sidebar";
@@ -9,6 +10,7 @@ export default async function SettingsPage() {
   return (
     <AppShell>
       <div className="space-y-5">
+        <AiAnalysisSettingsClient />
         <BusinessHoursSettingsClient />
         <AircallSettingsClient />
       </div>

@@ -16,6 +16,7 @@ const ALL_PAGES = [
   "agents",
   "analytics",
   "status-report",
+  "ai-analysis",
   "system-logs",
   "settings",
   "users",
@@ -396,6 +397,8 @@ function pageLabel(id: PageKey) {
       return "דוחות וניתוח";
     case "status-report":
       return "זמני סטטוס נציגים";
+    case "ai-analysis":
+      return "ניתוח AI";
     case "system-logs":
       return "לוג מערכת";
     case "settings":

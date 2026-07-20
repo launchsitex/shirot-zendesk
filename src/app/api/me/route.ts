@@ -21,11 +21,13 @@ export async function GET() {
           "agents",
           "analytics",
           "status-report",
+          "ai-analysis",
           "system-logs",
           "settings",
           "users",
         ],
       },
+      featureFlags: { aiCallAnalysis: false },
     });
   }
 
@@ -37,11 +39,18 @@ export async function GET() {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, display_name, role, department_id, allowed_pages")
-    .eq("id", user.id)
-    .maybeSingle();
+  const [{ data, error }, flagResult] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, display_name, role, department_id, allowed_pages")
+      .eq("id", user.id)
+      .maybeSingle(),
+    supabase
+      .from("app_feature_flags")
+      .select("enabled")
+      .eq("key", "ai_call_analysis")
+      .maybeSingle(),
+  ]);
 
   if (error || !data) {
     return NextResponse.json(
@@ -58,6 +67,9 @@ export async function GET() {
       role,
       departmentId: data.department_id,
       allowedPages: resolveAllowedPages(role, data.allowed_pages),
+    },
+    featureFlags: {
+      aiCallAnalysis: Boolean(flagResult.data?.enabled),
     },
   });
 }
