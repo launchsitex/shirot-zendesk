@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   PhoneCall,
   PhoneMissed,
+  PhoneOutgoing,
   Search,
   TrendingUp,
   UserCheck,
@@ -584,7 +585,7 @@ export function AnalyticsReports() {
                 </span>
               </div>
             </section>
-            <section className="mb-5 grid grid-cols-2 gap-3 xl:grid-cols-4">
+            <section className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
               <SummaryCard
                 label="אחוז מענה"
                 value={`${kpis.answerRate}%`}
@@ -602,6 +603,18 @@ export function AnalyticsReports() {
                 value={kpis.missed}
                 icon={<PhoneMissed />}
                 tone="red"
+              />
+              <SummaryCard
+                label="שיחות יוצאות"
+                value={kpis.outbound}
+                icon={<PhoneOutgoing />}
+                tone="blue"
+              />
+              <SummaryCard
+                label='סה״כ שיחות'
+                value={kpis.total}
+                icon={<PhoneCall />}
+                tone="gray"
               />
               <SummaryCard
                 label="זמן שיחה ממוצע"
@@ -686,7 +699,7 @@ export function AnalyticsReports() {
                 <h2 className="font-bold">ביצועים לפי נציג</h2>
               </div>
               <div className="overflow-auto">
-                <table className="w-full min-w-[650px] text-right text-xs">
+                <table className="w-full min-w-[720px] text-right text-xs">
                   <thead className="bg-[#f8fafb] text-[#738188]">
                     <tr>
                       {[
@@ -694,6 +707,7 @@ export function AnalyticsReports() {
                         "סה״כ שיחות",
                         "נענו",
                         "לא נענו",
+                        "אחוז מענה",
                         "זמן שיחה",
                       ].map((heading) => (
                         <th key={heading} className="px-5 py-3 font-semibold">
@@ -712,6 +726,9 @@ export function AnalyticsReports() {
                         </td>
                         <td className="px-5 py-3 text-[#c34850]">
                           {agent.missed}
+                        </td>
+                        <td className="px-5 py-3 font-bold text-[#158f83]">
+                          {agent.answerRate}%
                         </td>
                         <td className="px-5 py-3 font-bold">
                           {formatDuration(agent.talkSeconds)}
@@ -865,7 +882,15 @@ function groupCallsByDay(calls: CallRecord[]) {
 function buildAgentStats(calls: CallRecord[]) {
   const grouped = new Map<
     string,
-    { name: string; total: number; answered: number; missed: number; talkSeconds: number }
+    {
+      name: string;
+      total: number;
+      answered: number;
+      missed: number;
+      inboundAnswered: number;
+      inboundMissed: number;
+      talkSeconds: number;
+    }
   >();
   calls.forEach((call) => {
     if (!call.agentName) return;
@@ -874,15 +899,37 @@ function buildAgentStats(calls: CallRecord[]) {
       total: 0,
       answered: 0,
       missed: 0,
+      inboundAnswered: 0,
+      inboundMissed: 0,
       talkSeconds: 0,
     };
     current.total += 1;
-    if (call.status === "answered") current.answered += 1;
-    if (call.status === "missed") current.missed += 1;
+    if (call.status === "answered") {
+      current.answered += 1;
+      if (call.direction === "inbound") current.inboundAnswered += 1;
+    }
+    if (call.status === "missed") {
+      current.missed += 1;
+      if (call.direction === "inbound") current.inboundMissed += 1;
+    }
     current.talkSeconds += call.talkTimeSeconds;
     grouped.set(call.agentName, current);
   });
-  return [...grouped.values()].sort((a, b) => b.total - a.total);
+  return [...grouped.values()]
+    .map((agent) => {
+      const inboundCompleted = agent.inboundAnswered + agent.inboundMissed;
+      return {
+        name: agent.name,
+        total: agent.total,
+        answered: agent.answered,
+        missed: agent.missed,
+        talkSeconds: agent.talkSeconds,
+        answerRate: inboundCompleted
+          ? Math.round((agent.inboundAnswered / inboundCompleted) * 100)
+          : 0,
+      };
+    })
+    .sort((a, b) => b.total - a.total);
 }
 
 function initials(name: string) {
