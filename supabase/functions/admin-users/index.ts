@@ -14,6 +14,8 @@ const ALL_PAGES = [
   "recordings",
   "agents",
   "analytics",
+  "status-report",
+  "system-logs",
   "settings",
   "users",
 ] as const;
@@ -361,7 +363,7 @@ function parsePages(value: unknown, role: AppRole): PageKey[] {
       (ALL_PAGES as readonly string[]).includes(item),
     )
     // Sensitive admin surfaces stay admin-only.
-    .filter((item) => item !== "settings" && item !== "users");
+    .filter((item) => item !== "settings" && item !== "users" && item !== "system-logs");
   if (pages.length === 0) {
     throw new Error("יש לבחור לפחות עמוד אחד");
   }
@@ -389,6 +391,10 @@ function pageLabel(id: PageKey) {
       return "נציגים וצוותים";
     case "analytics":
       return "דוחות וניתוח";
+    case "status-report":
+      return "זמני סטטוס נציגים";
+    case "system-logs":
+      return "לוג מערכת";
     case "settings":
       return "הגדרות";
     case "users":

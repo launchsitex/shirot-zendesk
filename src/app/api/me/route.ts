@@ -20,6 +20,8 @@ export async function GET() {
           "recordings",
           "agents",
           "analytics",
+          "status-report",
+          "system-logs",
           "settings",
           "users",
         ],

@@ -68,7 +68,10 @@ export function UsersManagementClient() {
     () =>
       (data?.pages ?? [])
         .map((page) => page.id)
-        .filter((id) => id !== "settings" && id !== "users"),
+        .filter(
+          (id) =>
+            id !== "settings" && id !== "users" && id !== "system-logs",
+        ),
     [data?.pages],
   );
 
@@ -90,7 +93,10 @@ export function UsersManagementClient() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   function openCreate() {
@@ -332,7 +338,10 @@ export function UsersManagementClient() {
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {(data?.pages ?? [])
                     .filter(
-                      (page) => page.id !== "settings" && page.id !== "users",
+                      (page) =>
+                        page.id !== "settings" &&
+                        page.id !== "users" &&
+                        page.id !== "system-logs",
                     )
                     .map((page) => {
                       const checked = form.allowedPages.includes(page.id);

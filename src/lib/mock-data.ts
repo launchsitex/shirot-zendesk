@@ -67,6 +67,9 @@ export function getMockDashboardData(): DashboardData {
       status,
       agentId: status === "missed" ? null : agent.id,
       agentName: status === "missed" ? null : names[index % names.length],
+      transferredByAgentId: index % 5 === 0 ? agents[(index + 1) % agents.length].id : null,
+      transferredByAgentName:
+        index % 5 === 0 ? agents[(index + 1) % agents.length].name : null,
       departmentId: agent.departmentId,
       departmentName: agent.departmentName,
       customerNumber: `+972 5${index % 9}-${String(370_5595 + index * 731).slice(0, 7)}`,

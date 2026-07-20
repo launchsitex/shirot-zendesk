@@ -80,6 +80,17 @@ Deno.serve(async (request) => {
         processed_at: new Date().toISOString(),
       })
       .eq("id", eventRow.id);
+    await logSystemEvent(supabase, {
+      severity: "error",
+      category: "aircall-webhook",
+      title: "כשל בעיבוד אירוע Aircall",
+      message: `האירוע ${eventType} נכשל בעיבוד.`,
+      details: {
+        eventType,
+        eventId: eventRow.id,
+        error: message.slice(0, 1000),
+      },
+    });
     return jsonResponse({ error: message }, 500);
   }
 });
@@ -155,7 +166,7 @@ async function processCallEvent(
 
   const { data: existing } = await supabase
     .from("calls")
-    .select("status,source_updated_at,agent_id")
+    .select("status,source_updated_at,agent_id,transferred_by_agent_id,raw")
     .eq("id", callId)
     .maybeSingle();
   if (
@@ -178,6 +189,35 @@ async function processCallEvent(
   // later event omits user (common on inbound ringing / decline / hangup).
   const eventAgentId = eventUser?.id ? String(eventUser.id) : null;
   const answeredAgentId = eventAgentId ?? existing?.agent_id ?? null;
+
+  const transferredBy = isRecord(call.transferred_by) ? call.transferred_by : null;
+  if (transferredBy) await upsertAgent(supabase, transferredBy);
+  const transferredTo = isRecord(call.transferred_to) ? call.transferred_to : null;
+  if (transferredTo) await upsertAgent(supabase, transferredTo);
+
+  const transferEvent =
+    eventType === "call.transferred" ||
+    eventType === "call.external_transferred";
+  const transferredByAgentId =
+    (transferredBy?.id ? String(transferredBy.id) : null) ??
+    (transferEvent && eventUser?.id ? String(eventUser.id) : null) ??
+    existing?.transferred_by_agent_id ??
+    null;
+
+  const existingRaw = isRecord(existing?.raw) ? existing.raw : {};
+  const mergedRaw = {
+    ...existingRaw,
+    ...call,
+    provider: "aircall",
+    last_event: eventType,
+    transferred_by:
+      transferredBy ??
+      (isRecord(existingRaw.transferred_by) ? existingRaw.transferred_by : null),
+    transferred_to:
+      transferredTo ??
+      (isRecord(existingRaw.transferred_to) ? existingRaw.transferred_to : null),
+  };
+
   const duration = Math.max(
     Number(call.duration ?? 0),
     endedAt
@@ -211,6 +251,7 @@ async function processCallEvent(
       status,
       completion_status: String(call.status ?? eventType),
       agent_id: answeredAgentId,
+      transferred_by_agent_id: transferredByAgentId,
       department_id: departmentId,
       line_id: lineId,
       customer_number: String(
@@ -222,7 +263,7 @@ async function processCallEvent(
       duration_seconds: duration,
       talk_time_seconds: talkTime,
       wait_time_seconds: waitTime,
-      raw: { ...call, provider: "aircall", last_event: eventType },
+      raw: mergedRaw,
       source_updated_at: eventTime,
       synced_at: new Date().toISOString(),
     },
@@ -334,11 +375,14 @@ async function updateAgentState(
     .select("state,state_since")
     .eq("agent_id", agentId)
     .maybeSingle();
+
+  const stateChanged = !previous || previous.state !== state;
+
   const { error } = await supabase.from("agent_live_status").upsert(
     {
       agent_id: agentId,
       state,
-      state_since: previous?.state === state ? previous.state_since : now,
+      state_since: stateChanged ? now : previous.state_since,
       current_call_started_at: currentCallStartedAt,
       zendesk_agent_state: sourceState,
       zendesk_call_status: sourceState,
@@ -348,6 +392,76 @@ async function updateAgentState(
     { onConflict: "agent_id" },
   );
   if (error) throw error;
+
+  if (stateChanged) {
+    await recordStatusTransition(supabase, agentId, state, now, sourceState);
+  }
+}
+
+async function recordStatusTransition(
+  supabase: SupabaseClient,
+  agentId: string,
+  state: string,
+  startedAt: string,
+  sourceEvent: string,
+) {
+  const { error: closeError } = await supabase
+    .from("agent_status_history")
+    .update({ ended_at: startedAt })
+    .eq("agent_id", agentId)
+    .is("ended_at", null);
+  if (closeError) {
+    await logSystemEvent(supabase, {
+      severity: "warning",
+      category: "agent-status",
+      title: "כשל בסגירת מקטע סטטוס קודם",
+      message: `לא ניתן היה לסגור את מקטע הסטטוס הפתוח של נציג ${agentId}.`,
+      details: { agentId, error: closeError.message, sourceEvent },
+    });
+  }
+
+  const { error: insertError } = await supabase
+    .from("agent_status_history")
+    .insert({
+      agent_id: agentId,
+      state,
+      started_at: startedAt,
+      ended_at: null,
+      source_event: sourceEvent,
+    });
+  if (insertError) {
+    await logSystemEvent(supabase, {
+      severity: "error",
+      category: "agent-status",
+      title: "כשל בפתיחת מקטע סטטוס חדש",
+      message: `לא ניתן היה לשמור מעבר סטטוס עבור נציג ${agentId}.`,
+      details: { agentId, state, error: insertError.message, sourceEvent },
+    });
+  }
+}
+
+async function logSystemEvent(
+  supabase: SupabaseClient,
+  event: {
+    severity: "info" | "warning" | "error";
+    category: string;
+    title: string;
+    message: string;
+    details?: UnknownRecord;
+  },
+) {
+  try {
+    await supabase.from("system_event_logs").insert({
+      severity: event.severity,
+      category: event.category,
+      title: event.title,
+      message: event.message,
+      details: event.details ?? {},
+      occurred_at: new Date().toISOString(),
+    });
+  } catch {
+    // Never fail the webhook because logging failed.
+  }
 }
 
 async function storeRecording(

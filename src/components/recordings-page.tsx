@@ -45,9 +45,11 @@ export function RecordingsPage() {
   }, []);
 
   useEffect(() => {
-    if (data?.scopedDepartmentId) {
-      setDepartment(data.scopedDepartmentId);
-    }
+    if (!data?.scopedDepartmentId) return;
+    const timer = window.setTimeout(() => {
+      setDepartment(data.scopedDepartmentId!);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [data?.scopedDepartmentId]);
 
   const recordings = useMemo(

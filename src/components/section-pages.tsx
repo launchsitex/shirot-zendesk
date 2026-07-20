@@ -183,9 +183,11 @@ export function CallsHistory() {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    if (data?.scopedDepartmentId) {
-      setDepartment(data.scopedDepartmentId);
-    }
+    if (!data?.scopedDepartmentId) return;
+    const timer = window.setTimeout(() => {
+      setDepartment(data.scopedDepartmentId!);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [data?.scopedDepartmentId]);
 
   return (
@@ -489,23 +491,34 @@ export function AnalyticsReports() {
 
   useEffect(() => {
     if (!data?.scopedDepartmentId) return;
-    setFilters((current) =>
-      current.departmentId === data.scopedDepartmentId
-        ? current
-        : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
-    );
+    const timer = window.setTimeout(() => {
+      setFilters((current) =>
+        current.departmentId === data.scopedDepartmentId
+          ? current
+          : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [data?.scopedDepartmentId]);
 
-  const filteredCalls = useMemo(
+  const departmentCalls = useMemo(
     () =>
       filterCalls(
         data?.calls ?? [],
         filters.from,
         filters.to,
         filters.departmentId,
-        filters.agentId,
+        "",
       ),
-    [data, filters],
+    [data, filters.from, filters.to, filters.departmentId],
+  );
+
+  const filteredCalls = useMemo(
+    () =>
+      filters.agentId
+        ? departmentCalls.filter((call) => call.agentId === filters.agentId)
+        : departmentCalls,
+    [departmentCalls, filters.agentId],
   );
 
   const selectableAgents = useMemo(
@@ -531,7 +544,9 @@ export function AnalyticsReports() {
         const kpis = calculateKpis(filteredCalls);
         const daily = groupCallsByDay(filteredCalls);
         const maxDaily = Math.max(...daily.map((day) => day.total), 1);
-        const agentStats = buildAgentStats(filteredCalls);
+        const agentStats = buildAgentStats(filteredCalls, departmentCalls).filter(
+          (agent) => !filters.agentId || agent.agentId === filters.agentId,
+        );
         return (
           <>
             <PageHeader
@@ -763,6 +778,7 @@ export function AnalyticsReports() {
                         "נענו",
                         "לא נענו",
                         "אחוז מענה",
+                        "העברות שיחה",
                         "זמן שיחה",
                         "זמן שיחה ממוצע",
                       ].map((heading) => (
@@ -777,7 +793,7 @@ export function AnalyticsReports() {
                   </thead>
                   <tbody className="divide-y divide-[#edf1f3]">
                     {agentStats.map((agent) => (
-                      <tr key={agent.name}>
+                      <tr key={agent.agentId ?? agent.name}>
                         <td className="w-0 whitespace-nowrap px-3 py-3 font-bold">
                           {agent.name}
                         </td>
@@ -792,6 +808,9 @@ export function AnalyticsReports() {
                         </td>
                         <td className="w-0 whitespace-nowrap px-3 py-3 font-bold text-[#158f83]">
                           {agent.answerRate}%
+                        </td>
+                        <td className="w-0 whitespace-nowrap px-3 py-3 font-bold">
+                          {agent.transfers}
                         </td>
                         <td className="w-0 whitespace-nowrap px-3 py-3 font-bold">
                           {formatDuration(agent.talkSeconds)}
@@ -945,28 +964,48 @@ function groupCallsByDay(calls: CallRecord[]) {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function buildAgentStats(calls: CallRecord[]) {
+function buildAgentStats(
+  calls: CallRecord[],
+  transferSourceCalls: CallRecord[] = calls,
+) {
   const grouped = new Map<
     string,
     {
+      key: string;
+      agentId: string | null;
       name: string;
       total: number;
       answered: number;
       missed: number;
+      transfers: number;
       talkSeconds: number;
       talkCount: number;
     }
   >();
-  calls.forEach((call) => {
-    if (!call.agentName) return;
-    const current = grouped.get(call.agentName) ?? {
-      name: call.agentName,
+
+  function ensureAgent(agentId: string | null, name: string) {
+    const key = agentId ?? `name:${name}`;
+    const current = grouped.get(key) ?? {
+      key,
+      agentId,
+      name,
       total: 0,
       answered: 0,
       missed: 0,
+      transfers: 0,
       talkSeconds: 0,
       talkCount: 0,
     };
+    grouped.set(key, current);
+    return current;
+  }
+
+  calls.forEach((call) => {
+    if (!call.agentName && !call.agentId) return;
+    const current = ensureAgent(
+      call.agentId,
+      call.agentName ?? call.agentId ?? "נציג",
+    );
     current.total += 1;
     // Answer rate is based on inbound handled calls only.
     if (call.direction === "inbound") {
@@ -977,16 +1016,29 @@ function buildAgentStats(calls: CallRecord[]) {
       current.talkSeconds += call.talkTimeSeconds;
       current.talkCount += 1;
     }
-    grouped.set(call.agentName, current);
   });
+
+  transferSourceCalls.forEach((call) => {
+    if (!call.transferredByAgentId && !call.transferredByAgentName) return;
+    const current = ensureAgent(
+      call.transferredByAgentId,
+      call.transferredByAgentName ??
+        call.transferredByAgentId ??
+        "נציג",
+    );
+    current.transfers += 1;
+  });
+
   return [...grouped.values()]
     .map((agent) => {
       const completed = agent.answered + agent.missed;
       return {
+        agentId: agent.agentId,
         name: agent.name,
         total: agent.total,
         answered: agent.answered,
         missed: agent.missed,
+        transfers: agent.transfers,
         talkSeconds: agent.talkSeconds,
         averageTalkSeconds: agent.talkCount
           ? Math.round(agent.talkSeconds / agent.talkCount)
@@ -996,7 +1048,8 @@ function buildAgentStats(calls: CallRecord[]) {
           : 0,
       };
     })
-    .sort((a, b) => b.total - a.total);
+    .filter((agent) => agent.total > 0 || agent.transfers > 0)
+    .sort((a, b) => b.total - a.total || b.transfers - a.transfers);
 }
 
 function initials(name: string) {

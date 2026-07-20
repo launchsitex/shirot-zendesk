@@ -13,7 +13,9 @@ import {
   Monitor,
   PhoneCall,
   PanelRightClose,
+  ScrollText,
   Settings,
+  Timer,
   UserRoundCog,
   UsersRound,
   X,
@@ -65,6 +67,18 @@ const items: {
     label: "דוחות וניתוח",
     pageId: "analytics",
     icon: BarChart3,
+  },
+  {
+    href: "/status-report",
+    label: "זמני סטטוס נציגים",
+    pageId: "status-report",
+    icon: Timer,
+  },
+  {
+    href: "/system-logs",
+    label: "לוג מערכת",
+    pageId: "system-logs",
+    icon: ScrollText,
   },
   {
     href: "/users",
@@ -161,7 +175,10 @@ function Sidebar({
   const visibleItems = profile
     ? items.filter((item) => canAccessPage(profile, item.pageId))
     : items.filter(
-        (item) => item.pageId !== "settings" && item.pageId !== "users",
+        (item) =>
+          item.pageId !== "settings" &&
+          item.pageId !== "users" &&
+          item.pageId !== "system-logs",
       );
 
   async function signOut() {

@@ -147,11 +147,14 @@ export function DashboardClient() {
 
   useEffect(() => {
     if (!data?.scopedDepartmentId) return;
-    setFilters((current) =>
-      current.departmentId === data.scopedDepartmentId
-        ? current
-        : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
-    );
+    const timer = window.setTimeout(() => {
+      setFilters((current) =>
+        current.departmentId === data.scopedDepartmentId
+          ? current
+          : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [data?.scopedDepartmentId]);
 
   useEffect(() => {
@@ -214,7 +217,16 @@ export function DashboardClient() {
     );
   }, [data, filters, search]);
 
-  const visibleAgents = data?.agents ?? [];
+  const visibleAgents = useMemo(
+    () =>
+      (data?.agents ?? []).filter(
+        (agent) =>
+          (!filters.departmentId ||
+            agent.departmentId === filters.departmentId) &&
+          (!filters.agentId || agent.id === filters.agentId),
+      ),
+    [data, filters.departmentId, filters.agentId],
+  );
   const selectableAgents = useMemo(
     () =>
       (data?.agents ?? []).filter(

@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
   let callsQuery = supabase
     .from("calls")
     .select(
-      "id,direction,status,agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,department_id,agents(name),departments(name)",
+      "id,direction,status,agent_id,transferred_by_agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,department_id,agents!agent_id(name),transferred_by_agent:agents!transferred_by_agent_id(name),departments(name)",
     )
     .gte("started_at", jerusalemBoundary(from))
     .lte("started_at", jerusalemBoundary(to, true))
@@ -116,6 +116,9 @@ export async function GET(request: NextRequest) {
 
   const calls: CallRecord[] = (callsResult.data ?? []).map((row) => {
     const agent = row.agents as unknown as { name: string } | null;
+    const transferredBy = row.transferred_by_agent as unknown as {
+      name: string;
+    } | null;
     const department = row.departments as unknown as { name: string } | null;
     return {
       id: row.id,
@@ -123,6 +126,8 @@ export async function GET(request: NextRequest) {
       status: row.status,
       agentId: row.agent_id,
       agentName: agent?.name ?? null,
+      transferredByAgentId: row.transferred_by_agent_id,
+      transferredByAgentName: transferredBy?.name ?? null,
       departmentId: row.department_id,
       departmentName: department?.name ?? null,
       customerNumber: row.customer_number,

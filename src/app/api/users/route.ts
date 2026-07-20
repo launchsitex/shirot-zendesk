@@ -58,7 +58,8 @@ async function callAdminUsers(
     }
   }
 
-  const { searchParams: _searchParams, ...requestInit } = init;
+  const requestInit = { ...init };
+  delete requestInit.searchParams;
   const response = await fetch(url, {
     ...requestInit,
     headers: {
@@ -104,7 +105,8 @@ export async function PATCH(request: Request) {
   if (!id) {
     return NextResponse.json({ error: "חסר מזהה משתמש" }, { status: 400 });
   }
-  const { id: _id, ...payload } = body;
+  const payload = { ...body };
+  delete payload.id;
   return callAdminUsers(session.accessToken!, {
     method: "PATCH",
     searchParams: { id },

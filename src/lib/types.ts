@@ -36,6 +36,8 @@ export interface CallRecord {
   status: CallStatus;
   agentId: string | null;
   agentName: string | null;
+  transferredByAgentId: string | null;
+  transferredByAgentName: string | null;
   departmentId: string | null;
   departmentName: string | null;
   customerNumber: string;

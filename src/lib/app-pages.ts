@@ -5,6 +5,8 @@ export const APP_PAGES = [
   { id: "recordings", href: "/recordings", label: "הקלטות שיחות" },
   { id: "agents", href: "/agents", label: "נציגים וצוותים" },
   { id: "analytics", href: "/analytics", label: "דוחות וניתוח" },
+  { id: "status-report", href: "/status-report", label: "זמני סטטוס נציגים" },
+  { id: "system-logs", href: "/system-logs", label: "לוג מערכת" },
   { id: "settings", href: "/settings", label: "הגדרות" },
   { id: "users", href: "/users", label: "ניהול משתמשים" },
 ] as const;
@@ -35,7 +37,13 @@ export function canAccessPage(
 ): boolean {
   if (!profile) return false;
   if (profile.role === "admin") return true;
-  if (pageId === "settings" || pageId === "users") return false;
+  if (
+    pageId === "settings" ||
+    pageId === "users" ||
+    pageId === "system-logs"
+  ) {
+    return false;
+  }
   return profile.allowedPages.includes(pageId);
 }
 
