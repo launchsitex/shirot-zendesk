@@ -699,7 +699,7 @@ export function AnalyticsReports() {
                 <h2 className="font-bold">ביצועים לפי נציג</h2>
               </div>
               <div className="overflow-auto">
-                <table className="w-full min-w-[720px] text-right text-xs">
+                <table className="w-full border-collapse text-right text-xs">
                   <thead className="bg-[#f8fafb] text-[#738188]">
                     <tr>
                       {[
@@ -709,8 +709,12 @@ export function AnalyticsReports() {
                         "לא נענו",
                         "אחוז מענה",
                         "זמן שיחה",
+                        "זמן שיחה ממוצע",
                       ].map((heading) => (
-                        <th key={heading} className="px-5 py-3 font-semibold">
+                        <th
+                          key={heading}
+                          className="w-0 whitespace-nowrap px-3 py-3 font-semibold"
+                        >
                           {heading}
                         </th>
                       ))}
@@ -719,19 +723,26 @@ export function AnalyticsReports() {
                   <tbody className="divide-y divide-[#edf1f3]">
                     {agentStats.map((agent) => (
                       <tr key={agent.name}>
-                        <td className="px-5 py-3 font-bold">{agent.name}</td>
-                        <td className="px-5 py-3">{agent.total}</td>
-                        <td className="px-5 py-3 text-[#21835a]">
+                        <td className="w-0 whitespace-nowrap px-3 py-3 font-bold">
+                          {agent.name}
+                        </td>
+                        <td className="w-0 whitespace-nowrap px-3 py-3">
+                          {agent.total}
+                        </td>
+                        <td className="w-0 whitespace-nowrap px-3 py-3 text-[#21835a]">
                           {agent.answered}
                         </td>
-                        <td className="px-5 py-3 text-[#c34850]">
+                        <td className="w-0 whitespace-nowrap px-3 py-3 text-[#c34850]">
                           {agent.missed}
                         </td>
-                        <td className="px-5 py-3 font-bold text-[#158f83]">
+                        <td className="w-0 whitespace-nowrap px-3 py-3 font-bold text-[#158f83]">
                           {agent.answerRate}%
                         </td>
-                        <td className="px-5 py-3 font-bold">
+                        <td className="w-0 whitespace-nowrap px-3 py-3 font-bold">
                           {formatDuration(agent.talkSeconds)}
+                        </td>
+                        <td className="w-0 whitespace-nowrap px-3 py-3 font-bold">
+                          {formatDuration(agent.averageTalkSeconds)}
                         </td>
                       </tr>
                     ))}
@@ -887,9 +898,8 @@ function buildAgentStats(calls: CallRecord[]) {
       total: number;
       answered: number;
       missed: number;
-      inboundAnswered: number;
-      inboundMissed: number;
       talkSeconds: number;
+      talkCount: number;
     }
   >();
   calls.forEach((call) => {
@@ -899,33 +909,35 @@ function buildAgentStats(calls: CallRecord[]) {
       total: 0,
       answered: 0,
       missed: 0,
-      inboundAnswered: 0,
-      inboundMissed: 0,
       talkSeconds: 0,
+      talkCount: 0,
     };
     current.total += 1;
-    if (call.status === "answered") {
-      current.answered += 1;
-      if (call.direction === "inbound") current.inboundAnswered += 1;
+    // Answer rate is based on inbound handled calls only.
+    if (call.direction === "inbound") {
+      if (call.status === "answered") current.answered += 1;
+      if (call.status === "missed") current.missed += 1;
     }
-    if (call.status === "missed") {
-      current.missed += 1;
-      if (call.direction === "inbound") current.inboundMissed += 1;
+    if (call.talkTimeSeconds > 0 && call.status !== "in_progress") {
+      current.talkSeconds += call.talkTimeSeconds;
+      current.talkCount += 1;
     }
-    current.talkSeconds += call.talkTimeSeconds;
     grouped.set(call.agentName, current);
   });
   return [...grouped.values()]
     .map((agent) => {
-      const inboundCompleted = agent.inboundAnswered + agent.inboundMissed;
+      const completed = agent.answered + agent.missed;
       return {
         name: agent.name,
         total: agent.total,
         answered: agent.answered,
         missed: agent.missed,
         talkSeconds: agent.talkSeconds,
-        answerRate: inboundCompleted
-          ? Math.round((agent.inboundAnswered / inboundCompleted) * 100)
+        averageTalkSeconds: agent.talkCount
+          ? Math.round(agent.talkSeconds / agent.talkCount)
+          : 0,
+        answerRate: completed
+          ? Math.round((agent.answered / completed) * 100)
           : 0,
       };
     })
