@@ -92,17 +92,16 @@ function presetDates(preset: DashboardFilters["preset"]) {
   return { from: toInputDate(from), to };
 }
 
-function useDashboardData(range?: { from: string; to: string }) {
+function useDashboardData(from?: string, to?: string) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
-    const params = range
-      ? `?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`
-      : "";
-    setData(null);
-    setError("");
+    const params =
+      from && to
+        ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
+        : "";
     const loadData = () =>
       fetch(`/api/dashboard${params}`, {
         cache: "no-store",
@@ -126,7 +125,7 @@ function useDashboardData(range?: { from: string; to: string }) {
       ? createSupabaseBrowserClient()
       : null;
     const channel = supabase
-      ?.channel(`section-pages-live-${range?.from ?? "all"}-${range?.to ?? "all"}`)
+      ?.channel(`section-pages-live-${from ?? "all"}-${to ?? "all"}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "calls" },
@@ -149,7 +148,7 @@ function useDashboardData(range?: { from: string; to: string }) {
       window.clearInterval(polling);
       if (supabase && channel) void supabase.removeChannel(channel);
     };
-  }, [range?.from, range?.to]);
+  }, [from, to]);
 
   return { data, error };
 }
@@ -453,10 +452,7 @@ export function AnalyticsReports() {
     departmentId: "",
     agentId: "",
   });
-  const { data, error } = useDashboardData({
-    from: filters.from,
-    to: filters.to,
-  });
+  const { data, error } = useDashboardData(filters.from, filters.to);
 
   const filteredCalls = useMemo(
     () =>

@@ -4,6 +4,7 @@ export function calculateKpis(calls: CallRecord[]): Kpis {
   const inbound = calls.filter((call) => call.direction === "inbound");
   const answered = inbound.filter((call) => call.status === "answered");
   const missed = inbound.filter((call) => call.status === "missed");
+  const completedInbound = answered.length + missed.length;
   const completedWithTalk = calls.filter(
     (call) => call.status !== "in_progress" && call.talkTimeSeconds > 0,
   );
@@ -18,8 +19,8 @@ export function calculateKpis(calls: CallRecord[]): Kpis {
     outbound: calls.filter((call) => call.direction === "outbound").length,
     answered: answered.length,
     missed: missed.length,
-    answerRate: inbound.length
-      ? Math.round((answered.length / inbound.length) * 100)
+    answerRate: completedInbound
+      ? Math.round((answered.length / completedInbound) * 100)
       : 0,
     totalTalkSeconds,
     averageTalkSeconds: completedWithTalk.length

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AircallSettingsClient } from "@/components/aircall-settings-client";
-import { Sidebar } from "@/components/sidebar";
+import { AppShell } from "@/components/sidebar";
 import {
   createSupabaseServerClient,
   isSupabaseConfigured,
@@ -22,11 +22,8 @@ export default async function SettingsPage() {
   }
 
   return (
-    <>
-      <Sidebar />
-      <main className="min-h-screen p-4 pt-20 lg:mr-[238px] lg:p-8">
-        <AircallSettingsClient />
-      </main>
-    </>
+    <AppShell>
+      <AircallSettingsClient />
+    </AppShell>
   );
 }
