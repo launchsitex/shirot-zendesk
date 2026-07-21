@@ -176,13 +176,30 @@ export function WallboardClient() {
     [businessCalls],
   );
 
-  const liveCalls = useMemo(
-    () =>
-      businessCalls.filter(
-        (call) => call.status === "in_progress" && Boolean(call.agentId),
-      ),
-    [businessCalls],
-  );
+  const liveCalls = useMemo(() => {
+    const hideLiveAgentIds = new Set(
+      (data?.agents ?? [])
+        .filter((agent) =>
+          [
+            "back_office",
+            "on_break",
+            "out_for_lunch",
+            "in_training",
+            "other",
+            "unavailable",
+            "scheduled",
+            "wrap_up",
+          ].includes(agent.state),
+        )
+        .map((agent) => agent.id),
+    );
+    return businessCalls.filter(
+      (call) =>
+        call.status === "in_progress" &&
+        Boolean(call.agentId) &&
+        !hideLiveAgentIds.has(call.agentId!),
+    );
+  }, [businessCalls, data?.agents]);
 
   const connected = useMemo(
     () =>

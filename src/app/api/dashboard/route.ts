@@ -139,8 +139,10 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  // Prefer live call truth over availability sync: agents with an open call
-  // must show as on_call even if roster sync wrote "available".
+  // Prefer live call truth over availability sync when the agent looks free:
+  // an open call must show as on_call even if roster sync wrote "available".
+  // Do NOT override explicit Aircall presence / wrap-up — stuck in_progress
+  // rows after transfer/missed hungup caused false "בשיחה".
   const activeCallByAgent = new Map<string, CallRecord>();
   for (const call of calls) {
     if (call.status !== "in_progress" || !call.agentId) continue;
@@ -167,18 +169,22 @@ export async function GET(request: NextRequest) {
     const status = Array.isArray(embeddedStatus)
       ? embeddedStatus[0]
       : embeddedStatus;
+    const liveState = status?.state ?? "unavailable";
     const activeCall = activeCallByAgent.get(row.id);
+    const forceOnCall =
+      Boolean(activeCall) &&
+      (liveState === "available" || liveState === "scheduled");
     return {
       id: row.id,
       name: row.name,
       departmentId: row.department_id ?? "",
       departmentName: department?.name ?? "ללא מחלקה",
-      state: activeCall ? "on_call" : (status?.state ?? "unavailable"),
-      stateSince: activeCall
-        ? activeCall.startedAt
+      state: forceOnCall ? "on_call" : liveState,
+      stateSince: forceOnCall
+        ? activeCall!.startedAt
         : (status?.state_since ?? new Date().toISOString()),
-      currentCallStartedAt: activeCall
-        ? activeCall.startedAt
+      currentCallStartedAt: forceOnCall
+        ? activeCall!.startedAt
         : (status?.current_call_started_at ?? undefined),
     };
   });

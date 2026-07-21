@@ -153,16 +153,25 @@ async function processCallEvent(
   const startedAt = toIso(call.started_at) ?? new Date().toISOString();
   const answeredAt = toIso(call.answered_at);
   const endedAt = toIso(call.ended_at);
+  // External transfer leaves the Aircall agent free; keep the call closed for them
+  // even if Aircall never sends an immediate hungup for that leg.
+  const agentLeftViaExternalTransfer =
+    eventType === "call.external_transferred";
   const isFinished =
     eventType === "call.hungup" ||
     eventType === "call.ended" ||
+    agentLeftViaExternalTransfer ||
     String(call.status ?? "") === "done";
   const status = isFinished
     ? answeredAt
       ? "answered"
       : "missed"
     : "in_progress";
-  const eventTime = endedAt ?? answeredAt ?? startedAt;
+  const eventTime =
+    endedAt ??
+    (isFinished ? new Date().toISOString() : null) ??
+    answeredAt ??
+    startedAt;
 
   const { data: existing } = await supabase
     .from("calls")
@@ -185,11 +194,6 @@ async function processCallEvent(
     return;
   }
 
-  // Prefer the agent on the current event. Never wipe a known agent_id when a
-  // later event omits user (common on inbound ringing / decline / hangup).
-  const eventAgentId = eventUser?.id ? String(eventUser.id) : null;
-  const answeredAgentId = eventAgentId ?? existing?.agent_id ?? null;
-
   const transferredBy = isRecord(call.transferred_by) ? call.transferred_by : null;
   if (transferredBy) await upsertAgent(supabase, transferredBy);
   const transferredTo = isRecord(call.transferred_to) ? call.transferred_to : null;
@@ -203,6 +207,15 @@ async function processCallEvent(
     (transferEvent && eventUser?.id ? String(eventUser.id) : null) ??
     existing?.transferred_by_agent_id ??
     null;
+
+  // Prefer the agent on the current event. Never wipe a known agent_id when a
+  // later event omits user (common on inbound ringing / decline / hangup).
+  // On internal transfer, ownership moves to the destination agent.
+  const eventAgentId = eventUser?.id ? String(eventUser.id) : null;
+  let answeredAgentId = eventAgentId ?? existing?.agent_id ?? null;
+  if (eventType === "call.transferred" && transferredTo?.id) {
+    answeredAgentId = String(transferredTo.id);
+  }
 
   const existingRaw = isRecord(existing?.raw) ? existing.raw : {};
   const mergedRaw = {
@@ -284,8 +297,17 @@ async function processCallEvent(
             ? wrapUpSeconds > 0
               ? "wrap_up"
               : mapAvailability(eventUser)
-            : null;
+            : transferEvent
+              ? mapAvailability(eventUser)
+              : null;
     if (state) {
+      if (state !== "on_call" && state !== "ringing") {
+        await closeOpenCallsForAgent(
+          supabase,
+          String(eventUser.id),
+          eventType,
+        );
+      }
       await updateAgentState(
         supabase,
         String(eventUser.id),
@@ -339,23 +361,76 @@ async function processUserEvent(
     );
   }
 
-  // Availability / presence events must not overwrite an active call.
+  const agentId = String(user.id);
+
+  // Explicit Aircall presence (Back office, break, etc.) is source of truth —
+  // close phantom in_progress rows that never received hungup.
+  if (isAwayPresence(state) || state === "wrap_up") {
+    await closeOpenCallsForAgent(supabase, agentId, sourceState);
+    await updateAgentState(supabase, agentId, state, null, sourceState);
+    return;
+  }
+
+  // Availability "available" must not overwrite a real active call.
   if (
     state !== "on_call" &&
     state !== "ringing" &&
     state !== "wrap_up" &&
-    (await agentHasOpenCall(supabase, String(user.id)))
+    (await agentHasOpenCall(supabase, agentId))
   ) {
     return;
   }
 
-  await updateAgentState(
-    supabase,
-    String(user.id),
-    state,
-    null,
-    sourceState,
-  );
+  await updateAgentState(supabase, agentId, state, null, sourceState);
+}
+
+function isAwayPresence(state: string) {
+  return [
+    "back_office",
+    "on_break",
+    "out_for_lunch",
+    "in_training",
+    "other",
+    "unavailable",
+  ].includes(state);
+}
+
+async function closeOpenCallsForAgent(
+  supabase: SupabaseClient,
+  agentId: string,
+  reason: string,
+) {
+  const now = new Date().toISOString();
+  const { data: openCalls, error } = await supabase
+    .from("calls")
+    .select("id,talk_time_seconds,source_updated_at,raw")
+    .eq("agent_id", agentId)
+    .eq("status", "in_progress");
+  if (error || !openCalls?.length) return;
+
+  for (const openCall of openCalls) {
+    const raw = isRecord(openCall.raw) ? openCall.raw : {};
+    const wasAnswered =
+      Number(openCall.talk_time_seconds ?? 0) > 0 ||
+      Boolean(toIso(raw.answered_at));
+    const { error: updateError } = await supabase
+      .from("calls")
+      .update({
+        status: wasAnswered ? "answered" : "missed",
+        ended_at: openCall.source_updated_at ?? now,
+        completion_status: reason,
+        raw: {
+          ...raw,
+          closed_reason: reason,
+          closed_at: now,
+        },
+        source_updated_at: now,
+        synced_at: now,
+      })
+      .eq("id", openCall.id)
+      .eq("status", "in_progress");
+    if (updateError) throw updateError;
+  }
 }
 
 async function agentHasOpenCall(supabase: SupabaseClient, agentId: string) {

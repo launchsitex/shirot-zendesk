@@ -137,11 +137,33 @@ async function syncUsers(supabase: SupabaseClient, users: AircallUser[]) {
         .eq("agent_id", agentId)
         .maybeSingle();
 
-      // Roster sync only knows availability — never wipe an active call state.
-      if (
+      const awayPresence = [
+        "back_office",
+        "on_break",
+        "out_for_lunch",
+        "in_training",
+        "other",
+        "unavailable",
+      ].includes(state);
+
+      // Aircall explicit presence wins — close phantom open calls.
+      if (awayPresence) {
+        await supabase
+          .from("calls")
+          .update({
+            status: "answered",
+            ended_at: now,
+            completion_status: "aircall_api_sync_away",
+            source_updated_at: now,
+            synced_at: now,
+          })
+          .eq("agent_id", agentId)
+          .eq("status", "in_progress");
+      } else if (
         previous &&
         ["on_call", "ringing", "wrap_up"].includes(previous.state)
       ) {
+        // Roster sync only knows availability — never wipe an active call state.
         const { count } = await supabase
           .from("calls")
           .select("id", { count: "exact", head: true })
