@@ -2,6 +2,8 @@
 
 Living document for agents and developers. Update this file when architecture, integrations, or status rules change.
 
+**Change log (required on every meaningful change):** see `CHANGELOG.md`. Cursor rule `.cursor/rules/update-changelog.mdc` enforces keeping it current.
+
 ## Product
 
 - **Name:** City Live (דשבורד Aircall)
@@ -17,7 +19,7 @@ Living document for agents and developers. Update this file when architecture, i
 | App | Next.js 16 (App Router), React 19, TypeScript, Tailwind 4 |
 | Auth / DB | Supabase Auth + Postgres + Realtime + RLS |
 | Telephony | **Aircall** (primary live source via webhooks + Users API) |
-| AI | Gemini (Edge Function `analyze-recording`) behind feature flag `ai_call_analysis` |
+| AI | Gemini (`analyze-recording`, `analyze-agent-day`) behind feature flag `ai_call_analysis` |
 | Hosting | Node Next.js host (e.g. Vercel / Hostinger Node) — not static |
 
 **Supabase project ref (production):** `whshmunahkugkmgxkvvw`
@@ -34,6 +36,7 @@ Living document for agents and developers. Update this file when architecture, i
 | `/after-hours` | After-hours routing / business hours |
 | `/recordings` | Recordings player (paginated RPC) |
 | `/ai-analysis` | AI call analysis (admin + feature flag) |
+| `/agent-ai-analysis` | Daily agent AI analysis + history (admin + feature flag) |
 | `/status-report` | Agent status duration + “Next status” |
 | `/settings` | Integrations, webhook URL, flags |
 | `/users` | User management (admin) |
@@ -83,6 +86,7 @@ Hebrew labels live in `src/lib/israel-time.ts` (or related helpers). Wrap-up = A
 - `call_recordings` — URLs expire (S3); refresh via Aircall API on 403 (`_shared/recordings.ts`)
 - `aircall_webhook_events` — idempotent delivery (hash)
 - `system_event_logs` — operational errors/warnings
+- `agent_day_analyses` — history of daily agent AI analyses
 - Feature flags in settings (e.g. `ai_call_analysis`)
 
 ## Edge functions
@@ -92,7 +96,8 @@ Hebrew labels live in `src/lib/israel-time.ts` (or related helpers). Wrap-up = A
 | `aircall-webhook` | off | Custom webhook key; call + user events |
 | `sync-aircall-users` | off | Roster / Away sync; sync secret header |
 | `stream-recording` | off | Authenticated stream + URL refresh |
-| `analyze-recording` | off | Gemini analysis |
+| `analyze-recording` | off | Gemini single-call analysis (Hold/Transfer-aware) |
+| `analyze-agent-day` | off | Gemini daily agent analysis; writes `agent_day_analyses` |
 | `admin-users` | on | User CRUD via service role |
 | `sync-live` / `sync-history` / `sync-recordings` | off | Legacy/Zendesk-era sync helpers (Talk path largely replaced by Aircall) |
 
@@ -124,7 +129,7 @@ Seeded: **שירות לקוחות**, **אספקות**. Mapping from Aircall Team
 - Do not commit auto-touched `next-env.d.ts` unless intentional
 - Commit/push only when the user asks; prefer `main` when they request production deploy
 - When fixing live status bugs: inspect `agent_live_status` **and** open `calls` rows together — UI bugs are often stale `in_progress`, not wrong live state
-- Keep `PROJECT_CONTEXT.md` updated after meaningful product/architecture changes
+- Keep `CHANGELOG.md` updated on every meaningful change; keep `PROJECT_CONTEXT.md` updated after product/architecture changes
 
 ## Local commands
 
@@ -137,7 +142,9 @@ npm run lint && npm run typecheck && npm test && npm run build
 
 ## Recent production fixes (2026-07)
 
+See `CHANGELOG.md` for the full dated history. Highlights:
+
 - Force `on_call` when open call + live `available` (roster wipe)
 - Close stale calls / respect Away presence so Back office is not shown as בשיחה
 - Recordings pagination RPC; Aircall recording URL refresh on 403
-- Gemini AI analysis behind admin feature flag
+- Gemini AI analysis (single call + daily agent) behind admin feature flag; Hold/Transfer-aware prompts
