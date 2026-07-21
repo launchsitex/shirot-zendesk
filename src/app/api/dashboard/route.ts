@@ -45,12 +45,16 @@ function jerusalemBoundary(date: string, endOfDay = false): string {
   return new Date(instant).toISOString();
 }
 
+const NO_STORE_HEADERS = { "Cache-Control": "no-store, must-revalidate" };
+
 export async function GET(request: NextRequest) {
   if (
     !isSupabaseConfigured() ||
     process.env.NEXT_PUBLIC_DEMO_MODE === "true"
   ) {
-    return NextResponse.json(getMockDashboardData());
+    return NextResponse.json(getMockDashboardData(), {
+      headers: NO_STORE_HEADERS,
+    });
   }
 
   const supabase = await createSupabaseServerClient();
@@ -58,7 +62,10 @@ export async function GET(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return NextResponse.json(
+      { error: "unauthorized" },
+      { status: 401, headers: NO_STORE_HEADERS },
+    );
   }
 
   const departmentScope = await getDepartmentScope(supabase, user.id);
@@ -110,7 +117,7 @@ export async function GET(request: NextRequest) {
   if (error) {
     return NextResponse.json(
       { error: "dashboard_query_failed", details: error.message },
-      { status: 500 },
+      { status: 500, headers: NO_STORE_HEADERS },
     );
   }
 
@@ -213,5 +220,5 @@ export async function GET(request: NextRequest) {
     source: "supabase",
     scopedDepartmentId: departmentScope,
   };
-  return NextResponse.json(payload);
+  return NextResponse.json(payload, { headers: NO_STORE_HEADERS });
 }
