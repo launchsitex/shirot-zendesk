@@ -22,6 +22,7 @@ export async function GET() {
           "analytics",
           "status-report",
           "ai-analysis",
+          "agent-ai-analysis",
           "system-logs",
           "settings",
           "users",

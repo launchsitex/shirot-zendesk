@@ -73,7 +73,8 @@ export function UsersManagementClient() {
             id !== "settings" &&
             id !== "users" &&
             id !== "system-logs" &&
-            id !== "ai-analysis",
+            id !== "ai-analysis" &&
+            id !== "agent-ai-analysis",
         ),
     [data?.pages],
   );
@@ -342,7 +343,8 @@ export function UsersManagementClient() {
                         page.id !== "settings" &&
                         page.id !== "users" &&
                         page.id !== "system-logs" &&
-                        page.id !== "ai-analysis",
+                        page.id !== "ai-analysis" &&
+                        page.id !== "agent-ai-analysis",
                     )
                     .map((page) => {
                       const checked = form.allowedPages.includes(page.id);

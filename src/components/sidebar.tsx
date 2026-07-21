@@ -19,6 +19,7 @@ import {
   Sparkles,
   Timer,
   UserRoundCog,
+  UserSearch,
   UsersRound,
   X,
 } from "lucide-react";
@@ -88,6 +89,13 @@ const items: {
     label: "ניתוח AI",
     pageId: "ai-analysis",
     icon: Sparkles,
+    requiresFeature: "aiCallAnalysis",
+  },
+  {
+    href: "/agent-ai-analysis",
+    label: "ניתוח נציג AI",
+    pageId: "agent-ai-analysis",
+    icon: UserSearch,
     requiresFeature: "aiCallAnalysis",
   },
   {
@@ -200,7 +208,8 @@ function Sidebar({
             item.pageId !== "settings" &&
             item.pageId !== "users" &&
             item.pageId !== "system-logs" &&
-            item.pageId !== "ai-analysis",
+            item.pageId !== "ai-analysis" &&
+            item.pageId !== "agent-ai-analysis",
         )
   ).filter((item) => {
     if (item.requiresFeature === "aiCallAnalysis") {

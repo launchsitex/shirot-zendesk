@@ -17,6 +17,7 @@ const ALL_PAGES = [
   "analytics",
   "status-report",
   "ai-analysis",
+  "agent-ai-analysis",
   "system-logs",
   "settings",
   "users",
@@ -370,7 +371,8 @@ function parsePages(value: unknown, role: AppRole): PageKey[] {
         item !== "settings" &&
         item !== "users" &&
         item !== "system-logs" &&
-        item !== "ai-analysis",
+        item !== "ai-analysis" &&
+        item !== "agent-ai-analysis",
     );
   if (pages.length === 0) {
     throw new Error("יש לבחור לפחות עמוד אחד");
@@ -405,6 +407,8 @@ function pageLabel(id: PageKey) {
       return "זמני סטטוס נציגים";
     case "ai-analysis":
       return "ניתוח AI";
+    case "agent-ai-analysis":
+      return "ניתוח נציג AI";
     case "system-logs":
       return "לוג מערכת";
     case "settings":

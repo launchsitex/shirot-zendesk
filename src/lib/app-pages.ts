@@ -12,6 +12,11 @@ export const APP_PAGES = [
   { id: "analytics", href: "/analytics", label: "דוחות וניתוח" },
   { id: "status-report", href: "/status-report", label: "זמני סטטוס נציגים" },
   { id: "ai-analysis", href: "/ai-analysis", label: "ניתוח AI" },
+  {
+    id: "agent-ai-analysis",
+    href: "/agent-ai-analysis",
+    label: "ניתוח נציג AI",
+  },
   { id: "system-logs", href: "/system-logs", label: "לוג מערכת" },
   { id: "settings", href: "/settings", label: "הגדרות" },
   { id: "users", href: "/users", label: "ניהול משתמשים" },
@@ -48,7 +53,8 @@ export function canAccessPage(
     pageId === "settings" ||
     pageId === "users" ||
     pageId === "system-logs" ||
-    pageId === "ai-analysis"
+    pageId === "ai-analysis" ||
+    pageId === "agent-ai-analysis"
   ) {
     return false;
   }
