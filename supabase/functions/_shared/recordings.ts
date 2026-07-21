@@ -215,6 +215,82 @@ export function describeHoldWindows(windows: HoldWindow[]): string[] {
   });
 }
 
+export type TransferEvent = {
+  atSeconds: number | null;
+  fromName: string | null;
+  toName: string | null;
+  fromAgentId: string | null;
+  toAgentId: string | null;
+};
+
+function isRecordLike(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function agentDisplayName(record: Record<string, unknown> | null): string | null {
+  if (!record) return null;
+  const joined = [record.first_name, record.last_name]
+    .filter(Boolean)
+    .join(" ");
+  const name = String(record.name ?? joined ?? "").trim();
+  return name || null;
+}
+
+/**
+ * Transfers of this call, as offsets (seconds) into the recording when the
+ * webhook stored a timestamp. Falls back to the untimestamped
+ * transferred_by / transferred_to pair kept for older calls.
+ */
+export function extractTransferEvents(callRaw: unknown): TransferEvent[] {
+  const raw = (callRaw ?? {}) as Record<string, unknown>;
+  const answeredMs = toMillis(raw.answered_at);
+  const events = Array.isArray(raw.transfer_events) ? raw.transfer_events : [];
+
+  const parsed = events
+    .filter(isRecordLike)
+    .map((record) => {
+      const atMs = toMillis(record.at);
+      return {
+        atSeconds:
+          atMs !== null && answeredMs !== null
+            ? Math.max(0, Math.round((atMs - answeredMs) / 1000))
+            : null,
+        fromName: record.from_agent_name ? String(record.from_agent_name) : null,
+        toName: record.to_agent_name ? String(record.to_agent_name) : null,
+        fromAgentId: record.from_agent_id ? String(record.from_agent_id) : null,
+        toAgentId: record.to_agent_id ? String(record.to_agent_id) : null,
+      };
+    });
+  if (parsed.length) return parsed;
+
+  const from = isRecordLike(raw.transferred_by) ? raw.transferred_by : null;
+  const to = isRecordLike(raw.transferred_to) ? raw.transferred_to : null;
+  if (from || to) {
+    return [
+      {
+        atSeconds: null,
+        fromName: agentDisplayName(from),
+        toName: agentDisplayName(to),
+        fromAgentId: from?.id ? String(from.id) : null,
+        toAgentId: to?.id ? String(to.id) : null,
+      },
+    ];
+  }
+  return [];
+}
+
+/** Hebrew description lines of the transfers, for the analysis prompt. */
+export function describeTransferEvents(events: TransferEvent[]): string[] {
+  return events.map((event) => {
+    const from = event.fromName ?? "נציג/ה אחר/ת";
+    const to = event.toName ?? "נציג/ה אחר/ת";
+    if (event.atSeconds !== null) {
+      return `בסביבות ${formatClock(event.atSeconds)} מתחילת ההקלטה השיחה הועברה מ-${from} אל ${to}`;
+    }
+    return `השיחה הועברה מ-${from} אל ${to} (הזמן המדויק לא דווח — זהה את נקודת ההעברה לפי האזנה: קול חדש, הצגה עצמית, "אני מעביר/ה אותך")`;
+  });
+}
+
 function normalizeAudioMime(contentType: string) {
   const lower = contentType.toLowerCase();
   if (lower.includes("wav")) return "audio/wav";

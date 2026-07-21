@@ -4,7 +4,9 @@ import {
 } from "../_shared/zendesk.ts";
 import {
   describeHoldWindows,
+  describeTransferEvents,
   extractHoldWindows,
+  extractTransferEvents,
   fetchRecordingBytes,
 } from "../_shared/recordings.ts";
 
@@ -22,6 +24,12 @@ const ANALYSIS_PROMPT = `אתה מנהל מוקד שירות לקוחות ואס
 2. סכם את השיחה בעברית ברורה.
 3. הערך את ביצועי הנציג כמו מנהל מוקד מחמיר אבל הוגן.
 4. תן המלצות שיפור קונקרטיות ויומיומיות (לא כלליות).
+
+כללי שיחה שהועברה בין נציגים (Transfer) — חובה מוחלטת:
+- אם מסומן בהמשך שהשיחה הועברה בין נציגים — בהקלטה משתתפים שני נציגים או יותר, וחובה להפריד ביניהם בצורה ברורה.
+- הנציג המנותח הוא הנציג ששמו מופיע בפרטי השיחה (הנציג שקיבל את השיחה לאחר ההעברה). הציון, ההערכה, החוזקות, החולשות וההמלצות מתייחסים אך ורק לקטעים שבהם הוא מדבר.
+- זהה את נקודת ההעברה: לפי הזמן שדווח מהמרכזייה אם צוין, או לפי האזנה (קול חדש, הצגה עצמית, "אני מעביר/ה אותך", מוזיקת המתנה לפני מעבר).
+- אל תייחס לנציג המנותח שום דבר שאמר או עשה הנציג/ה האחר/ת — לא לטובה ולא לרעה. בסיכום השיחה ציין בנפרד ובקצרה מה קרה בחלק של הנציג/ה האחר/ת, כהקשר בלבד.
 
 כללי החזק (Hold) והשתק (Mute) — חובה מוחלטת:
 - אם מפורטים בהמשך חלונות זמן שבהם הלקוח היה בהמתנה (Hold, נתון מדויק מהמרכזייה) — אל תנתח ואל תשפוט שום דיבור, צעקות, רעש רקע או מוזיקה שנשמעים בתוך החלונות האלה. רעשי מוקד בהקלטה בזמן Hold אינם נשמעים ללקוח (הוא שומע מוזיקת המתנה) ואסור להוריד עליהם ציון או להמליץ על Mute. כן מותר להעריך רק את ההתנהלות סביב ההחזקה: האם הנציג ביקש רשות לפני, האם משך ההמתנה סביר, והאם חזר עם התנצלות/עדכון.
@@ -121,6 +129,7 @@ Deno.serve(async (request) => {
     }
     const callRaw = (recording.calls as { raw?: unknown } | null)?.raw;
     const holdLines = describeHoldWindows(extractHoldWindows(callRaw));
+    const transferLines = describeTransferEvents(extractTransferEvents(callRaw));
     const analysis = await analyzeWithGemini(geminiKey, audio, {
       agentName:
         (recording.calls as { agents?: { name?: string } } | null)?.agents
@@ -134,6 +143,7 @@ Deno.serve(async (request) => {
       durationSeconds: duration,
       recordingType: String(recording.recording_type ?? "call"),
       holdLines,
+      transferLines,
     });
 
     return jsonResponse({
@@ -191,6 +201,7 @@ async function analyzeWithGemini(
     durationSeconds: number;
     recordingType: string;
     holdLines: string[];
+    transferLines: string[];
   },
 ) {
   const schema = {
@@ -274,6 +285,13 @@ async function analyzeWithGemini(
     `- מספר לקוח: ${meta.customerNumber || "לא ידוע"}`,
     `- משך: ${meta.durationSeconds} שניות`,
     `- סוג הקלטה: ${meta.recordingType}`,
+    meta.transferLines.length
+      ? [
+          "- שיחה שהועברה בין נציגים — חובה להפריד:",
+          ...meta.transferLines.map((line) => `  * ${line}`),
+          `  * הנציג המנותח הוא ${meta.agentName} — נתח ותן ציון רק לחלק שלו.`,
+        ].join("\n")
+      : "- לא דווחה העברה בין נציגים לשיחה זו.",
     meta.holdLines.length
       ? [
           "- חלונות המתנה (Hold) מדווחים מהמרכזייה — אל תנתח את האודיו בתוכם:",

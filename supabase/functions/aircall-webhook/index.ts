@@ -241,12 +241,35 @@ async function processCallEvent(
       ]
     : previousHoldEvents;
 
+  // Accumulate timestamped transfers so AI analysis can attribute each part
+  // of the recording to the right agent (and judge only the analyzed agent).
+  const previousTransferEvents = Array.isArray(existingRaw.transfer_events)
+    ? existingRaw.transfer_events
+    : [];
+  const transferEvents = transferEvent
+    ? [
+        ...previousTransferEvents,
+        {
+          event: eventType,
+          at: webhookTimestamp ?? new Date().toISOString(),
+          from_agent_id:
+            (transferredBy?.id ? String(transferredBy.id) : null) ??
+            eventAgentId,
+          from_agent_name:
+            agentDisplayName(transferredBy) ?? agentDisplayName(eventUser),
+          to_agent_id: transferredTo?.id ? String(transferredTo.id) : null,
+          to_agent_name: agentDisplayName(transferredTo),
+        },
+      ]
+    : previousTransferEvents;
+
   const mergedRaw = {
     ...existingRaw,
     ...call,
     provider: "aircall",
     last_event: eventType,
     hold_events: holdEvents,
+    transfer_events: transferEvents,
     transferred_by:
       transferredBy ??
       (isRecord(existingRaw.transferred_by) ? existingRaw.transferred_by : null),
@@ -498,6 +521,13 @@ async function agentHasOpenCall(supabase: SupabaseClient, agentId: string) {
     .eq("status", "in_progress");
   if (error) return false;
   return (count ?? 0) > 0;
+}
+
+function agentDisplayName(user: UnknownRecord | null): string | null {
+  if (!user) return null;
+  const joined = [user.first_name, user.last_name].filter(Boolean).join(" ");
+  const name = String(user.name ?? joined ?? "").trim();
+  return name || null;
 }
 
 async function upsertAgent(supabase: SupabaseClient, user: UnknownRecord) {
