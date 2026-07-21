@@ -137,16 +137,18 @@ async function syncUsers(supabase: SupabaseClient, users: AircallUser[]) {
         .eq("agent_id", agentId)
         .maybeSingle();
 
+      // "unavailable" is NOT away presence: Aircall reports in-call agents
+      // as unavailable, so treating it as away closed live calls (bug).
       const awayPresence = [
         "back_office",
         "on_break",
         "out_for_lunch",
         "in_training",
         "other",
-        "unavailable",
       ].includes(state);
 
-      // Aircall explicit presence wins — close phantom open calls.
+      // Aircall explicit presence wins — close phantom open calls, but only
+      // truly stale ones (no webhook update for 30+ minutes).
       if (awayPresence) {
         await supabase
           .from("calls")
@@ -158,18 +160,23 @@ async function syncUsers(supabase: SupabaseClient, users: AircallUser[]) {
             synced_at: now,
           })
           .eq("agent_id", agentId)
-          .eq("status", "in_progress");
-      } else if (
-        previous &&
-        ["on_call", "ringing", "wrap_up"].includes(previous.state)
-      ) {
-        // Roster sync only knows availability — never wipe an active call state.
+          .eq("status", "in_progress")
+          .lt(
+            "source_updated_at",
+            new Date(Date.now() - 30 * 60_000).toISOString(),
+          );
+      }
+
+      if (!awayPresence) {
+        // Roster sync only knows availability — never wipe an active call
+        // state. Aircall also reports in-call agents as "unavailable", so any
+        // open call means the webhook owns this agent's state right now.
         const { count } = await supabase
           .from("calls")
           .select("id", { count: "exact", head: true })
           .eq("agent_id", agentId)
           .eq("status", "in_progress");
-        if ((count ?? 0) > 0 || previous.state === "wrap_up") {
+        if ((count ?? 0) > 0 || previous?.state === "wrap_up") {
           continue;
         }
       }

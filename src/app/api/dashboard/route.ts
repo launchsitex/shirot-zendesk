@@ -139,10 +139,19 @@ export async function GET(request: NextRequest) {
     };
   });
 
-  // Prefer live call truth over availability sync when the agent looks free:
-  // an open call must show as on_call even if roster sync wrote "available".
-  // Do NOT override explicit Aircall presence / wrap-up — stuck in_progress
-  // rows after transfer/missed hungup caused false "בשיחה".
+  // Prefer live call truth over availability sync: an open call must show as
+  // on_call even when roster sync wrote "available" or "unavailable" (Aircall
+  // reports in-call agents as unavailable). Explicit Away presence and
+  // wrap-up still win, so stale in_progress rows can't fake "בשיחה".
+  const explicitPresence = new Set<Agent["state"]>([
+    "back_office",
+    "on_break",
+    "out_for_lunch",
+    "in_training",
+    "other",
+    "wrap_up",
+  ]);
+
   const activeCallByAgent = new Map<string, CallRecord>();
   for (const call of calls) {
     if (call.status !== "in_progress" || !call.agentId) continue;
@@ -171,9 +180,16 @@ export async function GET(request: NextRequest) {
       : embeddedStatus;
     const liveState = status?.state ?? "unavailable";
     const activeCall = activeCallByAgent.get(row.id);
+    // An answered open call always means on_call unless the agent explicitly
+    // moved to Away/wrap-up. Unanswered legs keep "ringing" visible.
+    const callAnswered = Boolean(activeCall && activeCall.talkTimeSeconds > 0);
     const forceOnCall =
       Boolean(activeCall) &&
-      (liveState === "available" || liveState === "scheduled");
+      !explicitPresence.has(liveState) &&
+      (callAnswered ||
+        liveState === "available" ||
+        liveState === "scheduled" ||
+        liveState === "unavailable");
     return {
       id: row.id,
       name: row.name,

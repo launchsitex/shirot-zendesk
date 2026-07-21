@@ -177,6 +177,8 @@ export function WallboardClient() {
   );
 
   const liveCalls = useMemo(() => {
+    // Hide open calls only for agents who explicitly moved to Away/wrap-up
+    // (stale rows); "unavailable" is how Aircall reports in-call agents.
     const hideLiveAgentIds = new Set(
       (data?.agents ?? [])
         .filter((agent) =>
@@ -186,8 +188,6 @@ export function WallboardClient() {
             "out_for_lunch",
             "in_training",
             "other",
-            "unavailable",
-            "scheduled",
             "wrap_up",
           ].includes(agent.state),
         )

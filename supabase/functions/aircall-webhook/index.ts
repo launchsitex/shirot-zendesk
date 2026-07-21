@@ -302,11 +302,10 @@ async function processCallEvent(
               : null;
     if (state) {
       if (state !== "on_call" && state !== "ringing") {
-        await closeOpenCallsForAgent(
-          supabase,
-          String(eventUser.id),
-          eventType,
-        );
+        // Clean only stale leftovers; never touch the agent's other live calls.
+        await closeOpenCallsForAgent(supabase, String(eventUser.id), eventType, {
+          excludeCallId: callId,
+        });
       }
       await updateAgentState(
         supabase,
@@ -385,22 +384,29 @@ async function processUserEvent(
 }
 
 function isAwayPresence(state: string) {
+  // "unavailable" is intentionally NOT here: Aircall reports agents who are
+  // currently on a call as unavailable, so it must never close live calls.
   return [
     "back_office",
     "on_break",
     "out_for_lunch",
     "in_training",
     "other",
-    "unavailable",
   ].includes(state);
 }
+
+const TALK_EVENTS = ["call.answered", "call.hold", "call.unhold"];
+const STALE_TALK_MS = 30 * 60_000;
+const STALE_RING_MS = 60_000;
 
 async function closeOpenCallsForAgent(
   supabase: SupabaseClient,
   agentId: string,
   reason: string,
+  options: { excludeCallId?: string } = {},
 ) {
-  const now = new Date().toISOString();
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
   const { data: openCalls, error } = await supabase
     .from("calls")
     .select("id,talk_time_seconds,source_updated_at,raw")
@@ -409,7 +415,24 @@ async function closeOpenCallsForAgent(
   if (error || !openCalls?.length) return;
 
   for (const openCall of openCalls) {
+    if (options.excludeCallId && openCall.id === options.excludeCallId) {
+      continue;
+    }
     const raw = isRecord(openCall.raw) ? openCall.raw : {};
+    const lastEvent = String(raw.last_event ?? "");
+    const updatedAtMs = new Date(
+      openCall.source_updated_at ?? 0,
+    ).getTime();
+    const staleMs = nowMs - updatedAtMs;
+
+    // A call in active talk is only phantom after a long-missed hangup.
+    // Ringing/created/transferred legs get a short grace for racing events.
+    if (TALK_EVENTS.includes(lastEvent)) {
+      if (staleMs < STALE_TALK_MS) continue;
+    } else if (staleMs < STALE_RING_MS) {
+      continue;
+    }
+
     const wasAnswered =
       Number(openCall.talk_time_seconds ?? 0) > 0 ||
       Boolean(toIso(raw.answered_at));
