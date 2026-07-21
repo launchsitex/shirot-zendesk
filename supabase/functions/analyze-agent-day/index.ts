@@ -25,20 +25,28 @@ const GEMINI_MODEL = "gemini-2.5-pro";
 // Gemini inline request budget is ~20MB total; leave headroom for the prompt.
 const MAX_TOTAL_AUDIO_BYTES = 17 * 1024 * 1024;
 const MAX_RECORDING_SECONDS = 40 * 60;
-const MAX_RECORDINGS = 12;
+const MAX_BATCH_RECORDINGS = 12;
 
-const DAY_ANALYSIS_PROMPT = `אתה מנהל מוקד שירות לקוחות ואספקות עם ניסיון של שנים רבות בחברות קמעונאיות בישראל (רהיטים / משלוחים / שירות).
-אתה מבצע בקרת איכות יומית על נציג: מצורפים נתוני היום המלאים שלו וכן הקלטות של שיחות מאותו יום.
+const BATCH_PROMPT = `אתה מנהל מוקד שירות לקוחות ואספקות עם ניסיון של שנים רבות בחברות קמעונאיות בישראל (רהיטים / משלוחים / שירות).
+אתה מבצע בקרת איכות על נציג: מצורפות הקלטות של חלק משיחות היום שלו. כל הקלטה מסומנת במספר שיחה ופרטיה.
 
 משימות:
-1. האזן לכל ההקלטות המצורפות, אחת-אחת. כל הקלטה מסומנת במספר שיחה ופרטיה.
-2. נתח גם את הנתונים המספריים של היום (כמות שיחות, נענו/לא נענו, זמני שיחה, סטטוסים).
-3. כתוב ביקורת יומית מלאה ומקצועית, כמו מנהל מוקד מחמיר אבל הוגן שישב והאזין לכל השיחות.
-4. לכל שיחה שהאזנת לה — תן משוב קצר וממוקד עם ציון.
-5. זהה דפוסים חוזרים (לטובה ולרעה) לאורך היום, לא רק בשיחה בודדת.
-6. תן תוכנית שיפור קונקרטית ויומיומית לנציג, עם משפטים לדוגמה.
+1. האזן לכל ההקלטות המצורפות, אחת-אחת.
+2. לכל שיחה כתוב סיכום קצר, ציון 1-10, ומשוב ממוקד ומקצועי — מה היה טוב ומה לשפר.
+3. השתמש במספרי השיחות בדיוק כפי שסומנו (callIndex).
 
-חשוב: כל הטקסטים בעברית. אל תמציא שיחות שלא צורפו. אם צורפו רק חלק מההקלטות — ציין זאת בהערות המנהל. החזר JSON בלבד לפי הסכמה.`;
+חשוב: כל הטקסטים בעברית. אל תמציא שיחות שלא צורפו. החזר JSON בלבד לפי הסכמה.`;
+
+const SUMMARY_PROMPT = `אתה מנהל מוקד שירות לקוחות ואספקות עם ניסיון של שנים רבות בחברות קמעונאיות בישראל (רהיטים / משלוחים / שירות).
+ביצעת בקרת איכות יומית על נציג: האזנת לכל שיחות היום שלו וכתבת משוב לכל שיחה. עכשיו מצורפים כל המשובים שכתבת + הנתונים המספריים של היום.
+
+משימות:
+1. כתוב ביקורת יומית מלאה ומקצועית, כמו מנהל מוקד מחמיר אבל הוגן שהאזין לכל השיחות.
+2. נתח גם את הנתונים המספריים של היום (כמות שיחות, נענו/לא נענו, זמני שיחה, סטטוסים).
+3. זהה דפוסים חוזרים (לטובה ולרעה) לאורך היום, על בסיס המשובים לכל השיחות.
+4. תן תוכנית שיפור קונקרטית ויומיומית לנציג, עם משפטים לדוגמה.
+
+חשוב: כל הטקסטים בעברית. התבסס רק על המשובים והנתונים המצורפים. החזר JSON בלבד לפי הסכמה.`;
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
@@ -91,99 +99,26 @@ Deno.serve(async (request) => {
 
   const agentId = String(body.agentId ?? "").trim();
   const date = String(body.date ?? "").trim();
+  const mode = String(body.mode ?? "plan");
   if (!agentId) return jsonResponse({ error: "agent_id_required" }, 400);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return jsonResponse({ error: "date_required" }, 400);
   }
 
-  const { data: agent } = await supabase
-    .from("agents")
-    .select("id,name")
-    .eq("id", agentId)
-    .maybeSingle();
-  if (!agent) return jsonResponse({ error: "agent_not_found" }, 404);
-
-  const dayStart = jerusalemBoundary(date, false);
-  const dayEnd = jerusalemBoundary(date, true);
-
-  const { data: calls, error: callsError } = await supabase
-    .from("calls")
-    .select(
-      "id,direction,status,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,wait_time_seconds,departments(name)",
-    )
-    .eq("agent_id", agentId)
-    .gte("started_at", dayStart)
-    .lte("started_at", dayEnd)
-    .order("started_at", { ascending: true });
-  if (callsError) {
-    return jsonResponse({ error: callsError.message }, 500);
-  }
-  if (!calls?.length) {
-    return jsonResponse(
-      {
-        error: "no_calls",
-        message: "לא נמצאו שיחות לנציג הזה בתאריך שנבחר.",
-      },
-      404,
-    );
-  }
-
-  const stats = buildStats(calls);
-  const statusSummary = await buildStatusSummary(
-    supabase,
-    agentId,
-    dayStart,
-    dayEnd,
-  );
-
-  const callIds = calls.map((call) => String(call.id));
-  const { data: recordings } = await supabase
-    .from("call_recordings")
-    .select("id,call_id,recording_type,duration_seconds,created_at,recording_url,raw")
-    .in("call_id", callIds)
-    .eq("recording_type", "call")
-    .order("created_at", { ascending: true });
+  const day = await loadDay(supabase, agentId, date);
+  if ("errorResponse" in day) return day.errorResponse;
 
   try {
-    const { audioParts, includedCalls, skipped } = await collectAudio(
-      supabase,
-      recordings ?? [],
-      calls,
-    );
-
-    if (!audioParts.length) {
-      return jsonResponse(
-        {
-          error: "no_recordings",
-          message:
-            "יש שיחות ביום הזה אבל אין אף הקלטה זמינה לניתוח. נסה תאריך אחר.",
-        },
-        404,
-      );
+    if (mode === "plan") {
+      return planResponse(supabase, day);
     }
-
-    const analysis = await analyzeDayWithGemini(geminiKey, {
-      agentName: String(agent.name ?? agentId),
-      date,
-      stats,
-      statusSummary,
-      includedCalls,
-      skippedCount: skipped,
-      audioParts,
-    });
-
-    return jsonResponse({
-      ok: true,
-      agent: { id: agent.id, name: agent.name },
-      date,
-      stats,
-      statusSummary,
-      analyzedCalls: includedCalls,
-      skippedRecordings: skipped,
-      analysis,
-      model: GEMINI_MODEL,
-      analyzedAt: new Date().toISOString(),
-    });
+    if (mode === "batch") {
+      return await batchResponse(supabase, geminiKey, day, body);
+    }
+    if (mode === "summary") {
+      return await summaryResponse(supabase, geminiKey, day, body);
+    }
+    return jsonResponse({ error: "unknown_mode" }, 400);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const friendly =
@@ -207,7 +142,6 @@ type CallRow = {
   duration_seconds: number | null;
   talk_time_seconds: number | null;
   wait_time_seconds: number | null;
-  departments?: { name?: string } | { name?: string }[] | null;
 };
 
 type RecordingRow = {
@@ -228,6 +162,426 @@ type IncludedCall = {
   customerNumber: string;
   durationSeconds: number;
 };
+
+type DayContext = {
+  agent: { id: string; name: string | null };
+  agentId: string;
+  date: string;
+  dayStart: string;
+  dayEnd: string;
+  calls: CallRow[];
+};
+
+async function loadDay(
+  supabase: ReturnType<typeof getAdminClient>,
+  agentId: string,
+  date: string,
+): Promise<DayContext | { errorResponse: Response }> {
+  const { data: agent } = await supabase
+    .from("agents")
+    .select("id,name")
+    .eq("id", agentId)
+    .maybeSingle();
+  if (!agent) {
+    return { errorResponse: jsonResponse({ error: "agent_not_found" }, 404) };
+  }
+
+  const dayStart = jerusalemBoundary(date, false);
+  const dayEnd = jerusalemBoundary(date, true);
+
+  const { data: calls, error: callsError } = await supabase
+    .from("calls")
+    .select(
+      "id,direction,status,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,wait_time_seconds",
+    )
+    .eq("agent_id", agentId)
+    .gte("started_at", dayStart)
+    .lte("started_at", dayEnd)
+    .order("started_at", { ascending: true });
+  if (callsError) {
+    return { errorResponse: jsonResponse({ error: callsError.message }, 500) };
+  }
+  if (!calls?.length) {
+    return {
+      errorResponse: jsonResponse(
+        {
+          error: "no_calls",
+          message: "לא נמצאו שיחות לנציג הזה בתאריך שנבחר.",
+        },
+        404,
+      ),
+    };
+  }
+
+  return { agent, agentId, date, dayStart, dayEnd, calls };
+}
+
+/** Stage 1: list all recordings of the day so the client can batch them. */
+async function planResponse(
+  supabase: ReturnType<typeof getAdminClient>,
+  day: DayContext,
+) {
+  const callIds = day.calls.map((call) => String(call.id));
+  const { data: recordings } = await supabase
+    .from("call_recordings")
+    .select("id,call_id,duration_seconds,created_at")
+    .in("call_id", callIds)
+    .eq("recording_type", "call")
+    .order("created_at", { ascending: true });
+
+  const callById = new Map(day.calls.map((call) => [String(call.id), call]));
+  const eligible: {
+    recordingId: string;
+    callId: string;
+    durationSeconds: number;
+  }[] = [];
+  let skippedTooLong = 0;
+
+  // Keep recordings in call start-time order so call numbering follows the day.
+  const sorted = [...(recordings ?? [])].sort((a, b) => {
+    const callA = callById.get(String(a.call_id));
+    const callB = callById.get(String(b.call_id));
+    return (
+      new Date(callA?.started_at ?? 0).getTime() -
+      new Date(callB?.started_at ?? 0).getTime()
+    );
+  });
+
+  for (const recording of sorted) {
+    if (!callById.has(String(recording.call_id))) continue;
+    if (Number(recording.duration_seconds ?? 0) > MAX_RECORDING_SECONDS) {
+      skippedTooLong += 1;
+      continue;
+    }
+    eligible.push({
+      recordingId: String(recording.id),
+      callId: String(recording.call_id),
+      durationSeconds: Number(recording.duration_seconds ?? 0),
+    });
+  }
+
+  if (!eligible.length) {
+    return jsonResponse(
+      {
+        error: "no_recordings",
+        message:
+          "יש שיחות ביום הזה אבל אין אף הקלטה זמינה לניתוח. נסה תאריך אחר.",
+      },
+      404,
+    );
+  }
+
+  const statusSummary = await buildStatusSummary(
+    supabase,
+    day.agentId,
+    day.dayStart,
+    day.dayEnd,
+  );
+
+  return jsonResponse({
+    ok: true,
+    agent: { id: day.agent.id, name: day.agent.name },
+    date: day.date,
+    stats: buildStats(day.calls),
+    statusSummary,
+    recordings: eligible,
+    skippedTooLong,
+    model: GEMINI_MODEL,
+  });
+}
+
+/** Stage 2: listen to one batch of recordings and review each call. */
+async function batchResponse(
+  supabase: ReturnType<typeof getAdminClient>,
+  geminiKey: string,
+  day: DayContext,
+  body: UnknownRecord,
+) {
+  const recordingIds = Array.isArray(body.recordingIds)
+    ? body.recordingIds.map(String).slice(0, MAX_BATCH_RECORDINGS)
+    : [];
+  const startIndex = Math.max(1, Number(body.startIndex ?? 1));
+  if (!recordingIds.length) {
+    return jsonResponse({ error: "recording_ids_required" }, 400);
+  }
+
+  const { data: recordings } = await supabase
+    .from("call_recordings")
+    .select(
+      "id,call_id,recording_type,duration_seconds,created_at,recording_url,raw",
+    )
+    .in("id", recordingIds);
+
+  // Preserve the client's requested order (day order), and drop anything that
+  // doesn't belong to this agent+day.
+  const callById = new Map(day.calls.map((call) => [String(call.id), call]));
+  const byId = new Map(
+    (recordings ?? []).map((row) => [String(row.id), row as RecordingRow]),
+  );
+  const ordered = recordingIds
+    .map((id) => byId.get(id))
+    .filter(
+      (row): row is RecordingRow =>
+        Boolean(row) && callById.has(String(row!.call_id)),
+    );
+
+  const audioParts: { label: string; bytes: Uint8Array; mimeType: string }[] =
+    [];
+  const includedCalls: IncludedCall[] = [];
+  let totalBytes = 0;
+  let skipped = 0;
+
+  for (const recording of ordered) {
+    let audio: { bytes: Uint8Array; mimeType: string };
+    try {
+      audio = await fetchRecordingBytes(supabase, {
+        id: recording.id,
+        call_id: recording.call_id,
+        recording_url: recording.recording_url,
+        recording_type: recording.recording_type,
+        raw: recording.raw,
+      });
+    } catch {
+      skipped += 1;
+      continue;
+    }
+    if (totalBytes + audio.bytes.byteLength > MAX_TOTAL_AUDIO_BYTES) {
+      skipped += 1;
+      continue;
+    }
+
+    const call = callById.get(String(recording.call_id))!;
+    totalBytes += audio.bytes.byteLength;
+    const index = startIndex + includedCalls.length;
+    const time = new Date(call.started_at).toLocaleTimeString("he-IL", {
+      timeZone: "Asia/Jerusalem",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const label = [
+      `שיחה ${index}:`,
+      `- שעה: ${time}`,
+      `- כיוון: ${call.direction === "outbound" ? "יוצאת" : "נכנסת"}`,
+      `- לקוח: ${call.customer_number ?? "לא ידוע"}`,
+      `- משך שיחה: ${Number(call.talk_time_seconds ?? 0)} שניות`,
+    ].join("\n");
+
+    audioParts.push({ label, bytes: audio.bytes, mimeType: audio.mimeType });
+    includedCalls.push({
+      index,
+      callId: String(call.id),
+      time,
+      direction: call.direction,
+      customerNumber: call.customer_number ?? "",
+      durationSeconds: Number(call.talk_time_seconds ?? 0),
+    });
+  }
+
+  if (!audioParts.length) {
+    return jsonResponse({
+      ok: true,
+      callReviews: [],
+      includedCalls: [],
+      skipped,
+    });
+  }
+
+  const schema = {
+    type: "object",
+    properties: {
+      callReviews: {
+        type: "array",
+        description: "משוב לכל שיחה שנותחה, לפי מספרי השיחות שסומנו",
+        items: {
+          type: "object",
+          properties: {
+            callIndex: {
+              type: "integer",
+              description: "מספר השיחה כפי שסומן",
+            },
+            summary: { type: "string", description: "סיכום קצר של השיחה" },
+            score: { type: "integer", description: "ציון 1 עד 10 לשיחה" },
+            feedback: { type: "string", description: "משוב ממוקד על השיחה" },
+          },
+          required: ["callIndex", "summary", "score", "feedback"],
+        },
+      },
+    },
+    required: ["callReviews"],
+  };
+
+  const context = [
+    BATCH_PROMPT,
+    "",
+    `נציג: ${day.agent.name ?? day.agentId}`,
+    `תאריך: ${day.date}`,
+    `מצורפות ${audioParts.length} הקלטות (שיחות ${startIndex} עד ${
+      startIndex + audioParts.length - 1
+    } מתוך היום).`,
+  ].join("\n");
+
+  const parts: UnknownRecord[] = [{ text: context }];
+  for (const audio of audioParts) {
+    parts.push({ text: audio.label });
+    parts.push({
+      inline_data: {
+        mime_type: audio.mimeType,
+        data: bytesToBase64(audio.bytes),
+      },
+    });
+  }
+
+  const analysis = await callGemini(geminiKey, parts, schema);
+
+  return jsonResponse({
+    ok: true,
+    callReviews: Array.isArray(analysis.callReviews)
+      ? analysis.callReviews
+      : [],
+    includedCalls,
+    skipped,
+  });
+}
+
+/** Stage 3: merge all per-call reviews into the full daily manager report. */
+async function summaryResponse(
+  supabase: ReturnType<typeof getAdminClient>,
+  geminiKey: string,
+  day: DayContext,
+  body: UnknownRecord,
+) {
+  const callReviews = Array.isArray(body.callReviews)
+    ? (body.callReviews as UnknownRecord[])
+    : [];
+  if (!callReviews.length) {
+    return jsonResponse({ error: "call_reviews_required" }, 400);
+  }
+
+  const stats = buildStats(day.calls);
+  const statusSummary = await buildStatusSummary(
+    supabase,
+    day.agentId,
+    day.dayStart,
+    day.dayEnd,
+  );
+
+  const schema = {
+    type: "object",
+    properties: {
+      dailySummary: {
+        type: "string",
+        description: "סיכום יומי מלא של ביצועי הנציג בעברית",
+      },
+      statsInsights: {
+        type: "string",
+        description: "תובנות מהנתונים המספריים של היום",
+      },
+      overallScore: {
+        type: "integer",
+        description: "ציון יומי כולל 1 עד 10",
+      },
+      overallAssessment: {
+        type: "string",
+        description: "הערכה כללית של היום כולו",
+      },
+      recurringStrengths: {
+        type: "array",
+        items: { type: "string" },
+        description: "חוזקות שחזרו לאורך היום",
+      },
+      recurringWeaknesses: {
+        type: "array",
+        items: { type: "string" },
+        description: "חולשות / דפוסים בעייתיים שחזרו לאורך היום",
+      },
+      improvementPlan: {
+        type: "array",
+        items: { type: "string" },
+        description: "תוכנית שיפור קונקרטית — צעדים מעשיים",
+      },
+      coachingScript: {
+        type: "string",
+        description: "משפטים לדוגמה שהנציג יכול לאמץ, על בסיס מה שנשמע",
+      },
+      managerNotes: {
+        type: "string",
+        description: "הערות מנהל לשיחת המשוב עם הנציג",
+      },
+      riskFlags: {
+        type: "array",
+        items: { type: "string" },
+        description: "דגלים אדומים אם יש",
+      },
+    },
+    required: [
+      "dailySummary",
+      "statsInsights",
+      "overallScore",
+      "overallAssessment",
+      "recurringStrengths",
+      "recurringWeaknesses",
+      "improvementPlan",
+      "coachingScript",
+      "managerNotes",
+      "riskFlags",
+    ],
+  };
+
+  const statusLines = statusSummary.length
+    ? statusSummary
+        .map((item) => `- ${item.state}: ${Math.round(item.seconds / 60)} דקות`)
+        .join("\n")
+    : "- אין נתוני סטטוס ליום הזה";
+
+  const reviewLines = callReviews
+    .map((review) =>
+      [
+        `שיחה ${review.callIndex} (ציון ${review.score}/10):`,
+        `סיכום: ${review.summary}`,
+        `משוב: ${review.feedback}`,
+      ].join("\n"),
+    )
+    .join("\n\n");
+
+  const skippedCount = Number(body.skippedCount ?? 0);
+  const context = [
+    SUMMARY_PROMPT,
+    "",
+    `נציג: ${day.agent.name ?? day.agentId}`,
+    `תאריך: ${day.date}`,
+    "",
+    "נתוני היום:",
+    `- סך שיחות: ${stats.totalCalls}`,
+    `- נכנסות: ${stats.inbound} | יוצאות: ${stats.outbound}`,
+    `- נענו: ${stats.answered} | לא נענו: ${stats.missed}`,
+    `- זמן שיחה כולל: ${Math.round(stats.totalTalkSeconds / 60)} דקות`,
+    `- זמן שיחה ממוצע: ${stats.averageTalkSeconds} שניות`,
+    "",
+    "זמני סטטוס:",
+    statusLines,
+    "",
+    `נותחו ${callReviews.length} שיחות מוקלטות.` +
+      (skippedCount > 0
+        ? ` ${skippedCount} הקלטות נוספות לא נותחו בגלל מגבלות טכניות — ציין זאת בהערות המנהל.`
+        : ""),
+    "",
+    "המשובים לכל השיחות:",
+    reviewLines,
+  ].join("\n");
+
+  const analysis = await callGemini(geminiKey, [{ text: context }], schema);
+
+  return jsonResponse({
+    ok: true,
+    agent: { id: day.agent.id, name: day.agent.name },
+    date: day.date,
+    stats,
+    statusSummary,
+    analysis,
+    model: GEMINI_MODEL,
+    analyzedAt: new Date().toISOString(),
+  });
+}
 
 function buildStats(calls: CallRow[]) {
   const answered = calls.filter((call) => call.status === "answered");
@@ -279,81 +633,6 @@ async function buildStatusSummary(
     .sort((a, b) => b.seconds - a.seconds);
 }
 
-async function collectAudio(
-  supabase: ReturnType<typeof getAdminClient>,
-  recordings: RecordingRow[],
-  calls: CallRow[],
-) {
-  const callById = new Map(calls.map((call) => [String(call.id), call]));
-  const audioParts: { label: string; bytes: Uint8Array; mimeType: string }[] =
-    [];
-  const includedCalls: IncludedCall[] = [];
-  let totalBytes = 0;
-  let skipped = 0;
-
-  for (const recording of recordings) {
-    if (audioParts.length >= MAX_RECORDINGS) {
-      skipped += 1;
-      continue;
-    }
-    if (Number(recording.duration_seconds ?? 0) > MAX_RECORDING_SECONDS) {
-      skipped += 1;
-      continue;
-    }
-    const call = callById.get(String(recording.call_id));
-    if (!call) {
-      skipped += 1;
-      continue;
-    }
-
-    let audio: { bytes: Uint8Array; mimeType: string };
-    try {
-      audio = await fetchRecordingBytes(supabase, {
-        id: recording.id,
-        call_id: recording.call_id,
-        recording_url: recording.recording_url,
-        recording_type: recording.recording_type,
-        raw: recording.raw,
-      });
-    } catch {
-      skipped += 1;
-      continue;
-    }
-
-    if (totalBytes + audio.bytes.byteLength > MAX_TOTAL_AUDIO_BYTES) {
-      skipped += 1;
-      continue;
-    }
-
-    totalBytes += audio.bytes.byteLength;
-    const index = audioParts.length + 1;
-    const time = new Date(call.started_at).toLocaleTimeString("he-IL", {
-      timeZone: "Asia/Jerusalem",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    const label = [
-      `שיחה ${index}:`,
-      `- שעה: ${time}`,
-      `- כיוון: ${call.direction === "outbound" ? "יוצאת" : "נכנסת"}`,
-      `- לקוח: ${call.customer_number ?? "לא ידוע"}`,
-      `- משך שיחה: ${Number(call.talk_time_seconds ?? 0)} שניות`,
-    ].join("\n");
-
-    audioParts.push({ label, bytes: audio.bytes, mimeType: audio.mimeType });
-    includedCalls.push({
-      index,
-      callId: String(call.id),
-      time,
-      direction: call.direction,
-      customerNumber: call.customer_number ?? "",
-      durationSeconds: Number(call.talk_time_seconds ?? 0),
-    });
-  }
-
-  return { audioParts, includedCalls, skipped };
-}
-
 function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
   const chunk = 0x8000;
@@ -363,143 +642,11 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-async function analyzeDayWithGemini(
+async function callGemini(
   apiKey: string,
-  input: {
-    agentName: string;
-    date: string;
-    stats: ReturnType<typeof buildStats>;
-    statusSummary: { state: string; seconds: number }[];
-    includedCalls: IncludedCall[];
-    skippedCount: number;
-    audioParts: { label: string; bytes: Uint8Array; mimeType: string }[];
-  },
-) {
-  const schema = {
-    type: "object",
-    properties: {
-      dailySummary: {
-        type: "string",
-        description: "סיכום יומי מלא של ביצועי הנציג בעברית",
-      },
-      statsInsights: {
-        type: "string",
-        description: "תובנות מהנתונים המספריים של היום",
-      },
-      overallScore: {
-        type: "integer",
-        description: "ציון יומי כולל 1 עד 10",
-      },
-      overallAssessment: {
-        type: "string",
-        description: "הערכה כללית של היום כולו",
-      },
-      callReviews: {
-        type: "array",
-        description: "משוב לכל שיחה שנותחה, לפי סדר השיחות",
-        items: {
-          type: "object",
-          properties: {
-            callIndex: {
-              type: "integer",
-              description: "מספר השיחה כפי שסומן",
-            },
-            summary: { type: "string", description: "סיכום קצר של השיחה" },
-            score: { type: "integer", description: "ציון 1 עד 10 לשיחה" },
-            feedback: {
-              type: "string",
-              description: "משוב ממוקד על השיחה",
-            },
-          },
-          required: ["callIndex", "summary", "score", "feedback"],
-        },
-      },
-      recurringStrengths: {
-        type: "array",
-        items: { type: "string" },
-        description: "חוזקות שחזרו לאורך היום",
-      },
-      recurringWeaknesses: {
-        type: "array",
-        items: { type: "string" },
-        description: "חולשות / דפוסים בעייתיים שחזרו לאורך היום",
-      },
-      improvementPlan: {
-        type: "array",
-        items: { type: "string" },
-        description: "תוכנית שיפור קונקרטית — צעדים מעשיים",
-      },
-      coachingScript: {
-        type: "string",
-        description: "משפטים לדוגמה שהנציג יכול לאמץ, על בסיס מה שנשמע",
-      },
-      managerNotes: {
-        type: "string",
-        description: "הערות מנהל לשיחת המשוב עם הנציג",
-      },
-      riskFlags: {
-        type: "array",
-        items: { type: "string" },
-        description: "דגלים אדומים אם יש",
-      },
-    },
-    required: [
-      "dailySummary",
-      "statsInsights",
-      "overallScore",
-      "overallAssessment",
-      "callReviews",
-      "recurringStrengths",
-      "recurringWeaknesses",
-      "improvementPlan",
-      "coachingScript",
-      "managerNotes",
-      "riskFlags",
-    ],
-  };
-
-  const statusLines = input.statusSummary.length
-    ? input.statusSummary
-        .map(
-          (item) =>
-            `- ${item.state}: ${Math.round(item.seconds / 60)} דקות`,
-        )
-        .join("\n")
-    : "- אין נתוני סטטוס ליום הזה";
-
-  const context = [
-    DAY_ANALYSIS_PROMPT,
-    "",
-    `נציג: ${input.agentName}`,
-    `תאריך: ${input.date}`,
-    "",
-    "נתוני היום:",
-    `- סך שיחות: ${input.stats.totalCalls}`,
-    `- נכנסות: ${input.stats.inbound} | יוצאות: ${input.stats.outbound}`,
-    `- נענו: ${input.stats.answered} | לא נענו: ${input.stats.missed}`,
-    `- זמן שיחה כולל: ${Math.round(input.stats.totalTalkSeconds / 60)} דקות`,
-    `- זמן שיחה ממוצע: ${input.stats.averageTalkSeconds} שניות`,
-    "",
-    "זמני סטטוס:",
-    statusLines,
-    "",
-    `מצורפות ${input.audioParts.length} הקלטות מתוך היום.` +
-      (input.skippedCount > 0
-        ? ` ${input.skippedCount} הקלטות נוספות לא צורפו בגלל מגבלת גודל.`
-        : ""),
-  ].join("\n");
-
-  const parts: UnknownRecord[] = [{ text: context }];
-  for (const audio of input.audioParts) {
-    parts.push({ text: audio.label });
-    parts.push({
-      inline_data: {
-        mime_type: audio.mimeType,
-        data: bytesToBase64(audio.bytes),
-      },
-    });
-  }
-
+  parts: UnknownRecord[],
+  schema: UnknownRecord,
+): Promise<UnknownRecord> {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
     {

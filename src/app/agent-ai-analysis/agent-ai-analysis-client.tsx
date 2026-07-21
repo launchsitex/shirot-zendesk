@@ -72,6 +72,44 @@ type AnalyzeResponse = {
   analyzedAt: string;
 };
 
+type PlanRecording = {
+  recordingId: string;
+  callId: string;
+  durationSeconds: number;
+};
+
+type Progress = {
+  percent: number;
+  label: string;
+};
+
+// Each batch is capped so its audio stays under the Gemini inline size limit
+// (Aircall mp3 is roughly 0.5MB per minute; the server enforces exact bytes).
+const BATCH_MAX_RECORDINGS = 6;
+const BATCH_MAX_DURATION_SECONDS = 25 * 60;
+
+function buildBatches(recordings: PlanRecording[]): PlanRecording[][] {
+  const batches: PlanRecording[][] = [];
+  let current: PlanRecording[] = [];
+  let currentDuration = 0;
+  for (const recording of recordings) {
+    const duration = Math.max(30, recording.durationSeconds);
+    if (
+      current.length &&
+      (current.length >= BATCH_MAX_RECORDINGS ||
+        currentDuration + duration > BATCH_MAX_DURATION_SECONDS)
+    ) {
+      batches.push(current);
+      current = [];
+      currentDuration = 0;
+    }
+    current.push(recording);
+    currentDuration += duration;
+  }
+  if (current.length) batches.push(current);
+  return batches;
+}
+
 const STATE_LABELS: Record<string, string> = {
   available: "זמין",
   ringing: "מצלצל",
@@ -98,6 +136,7 @@ export function AgentAiAnalysisClient() {
   const [date, setDate] = useState(todayJerusalem());
   const [loadingAgents, setLoadingAgents] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
 
@@ -123,6 +162,7 @@ export function AgentAiAnalysisClient() {
   async function analyze() {
     if (!agentId || !date) return;
     setAnalyzing(true);
+    setProgress({ percent: 0, label: "טוען את שיחות היום..." });
     setError("");
     setResult(null);
     try {
@@ -140,40 +180,106 @@ export function AgentAiAnalysisClient() {
         throw new Error("אין סשן פעיל — התחבר מחדש");
       }
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze-agent-day`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-            "Content-Type": "application/json",
+      const callEdge = async (body: Record<string, unknown>) => {
+        const response = await fetch(
+          `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze-agent-day`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ agentId, date, ...body }),
           },
-          body: JSON.stringify({ agentId, date }),
-        },
-      );
+        );
+        const raw = await response.text();
+        let payload: Record<string, unknown>;
+        try {
+          payload = JSON.parse(raw) as Record<string, unknown>;
+        } catch {
+          throw new Error("השרת החזיר תשובה לא תקינה — נסה שוב");
+        }
+        if (!response.ok) {
+          throw new Error(
+            String(payload.message ?? payload.error ?? "ניתוח נכשל"),
+          );
+        }
+        return payload;
+      };
 
-      const raw = await response.text();
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(raw) as Record<string, unknown>;
-      } catch {
+      // Stage 1: plan — which recordings exist for this day.
+      const plan = await callEdge({ mode: "plan" });
+      const recordings = (plan.recordings ?? []) as PlanRecording[];
+      const batches = buildBatches(recordings);
+      const total = recordings.length;
+
+      // Stage 2: listen batch by batch, accumulating per-call reviews.
+      // Listening consumes 0%..90% of the bar; the final summary is the rest.
+      const allReviews: CallReview[] = [];
+      const allAnalyzedCalls: AnalyzedCall[] = [];
+      let processed = 0;
+      let skippedTotal = Number(plan.skippedTooLong ?? 0);
+      let nextIndex = 1;
+
+      for (const batch of batches) {
+        setProgress({
+          percent: Math.round((processed / total) * 90),
+          label: `מאזין לשיחות ${processed + 1}–${Math.min(
+            processed + batch.length,
+            total,
+          )} מתוך ${total}...`,
+        });
+        const batchResult = await callEdge({
+          mode: "batch",
+          recordingIds: batch.map((item) => item.recordingId),
+          startIndex: nextIndex,
+        });
+        const reviews = (batchResult.callReviews ?? []) as CallReview[];
+        const included = (batchResult.includedCalls ?? []) as AnalyzedCall[];
+        allReviews.push(...reviews);
+        allAnalyzedCalls.push(...included);
+        skippedTotal += Number(batchResult.skipped ?? 0);
+        nextIndex += included.length;
+        processed += batch.length;
+        setProgress({
+          percent: Math.round((processed / total) * 90),
+          label: `הושלמו ${Math.min(processed, total)} מתוך ${total} שיחות`,
+        });
+      }
+
+      if (!allReviews.length) {
         throw new Error(
-          "השרת החזיר תשובה לא תקינה (ייתכן שהניתוח ארוך מדי) — נסה שוב או בחר יום עם פחות שיחות",
+          "לא הצלחנו לנתח אף הקלטה ביום הזה — נסה שוב או בחר תאריך אחר",
         );
       }
-      if (!response.ok) {
-        throw new Error(
-          String(payload.message ?? payload.error ?? "ניתוח נכשל"),
-        );
-      }
-      setResult(payload as unknown as AnalyzeResponse);
+
+      // Stage 3: merge all reviews into the full daily report.
+      setProgress({ percent: 92, label: "מסכם את היום ובונה דוח מנהל..." });
+      const summary = await callEdge({
+        mode: "summary",
+        callReviews: allReviews,
+        skippedCount: skippedTotal,
+      });
+
+      setProgress({ percent: 100, label: "הניתוח הושלם" });
+      const analysis = {
+        ...(summary.analysis as Omit<DayAnalysis, "callReviews">),
+        callReviews: allReviews.sort((a, b) => a.callIndex - b.callIndex),
+      } as DayAnalysis;
+      setResult({
+        ...(summary as unknown as AnalyzeResponse),
+        analysis,
+        analyzedCalls: allAnalyzedCalls,
+        skippedRecordings: skippedTotal,
+      });
     } catch (analyzeError) {
       setError(
         analyzeError instanceof Error ? analyzeError.message : "ניתוח נכשל",
       );
     } finally {
       setAnalyzing(false);
+      setProgress(null);
     }
   }
 
@@ -247,11 +353,25 @@ export function AgentAiAnalysisClient() {
             {analyzing ? "מנתח את היום..." : "נתח נציג"}
           </button>
         </div>
-        {analyzing ? (
-          <p className="mt-3 text-xs text-[#7f8d94]">
-            הניתוח כולל האזנה לכל הקלטות היום — זה עשוי לקחת מספר דקות. אל
-            תסגור את העמוד.
-          </p>
+        {analyzing && progress ? (
+          <div className="mt-4">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="font-bold text-[#35515c]">{progress.label}</span>
+              <span className="font-mono text-[#158f83]">
+                {progress.percent}%
+              </span>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-[#e7eef1]">
+              <div
+                className="h-full rounded-full bg-[#158f83] transition-all duration-500"
+                style={{ width: `${progress.percent}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-[#7f8d94]">
+              המערכת מאזינה לכל הקלטות היום בחלקים — אל תסגור את העמוד עד
+              לסיום.
+            </p>
+          </div>
         ) : null}
       </section>
 
