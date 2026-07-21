@@ -177,27 +177,21 @@ export function WallboardClient() {
   );
 
   const liveCalls = useMemo(() => {
-    // Hide open calls only for agents who explicitly moved to Away/wrap-up
-    // (stale rows); "unavailable" is how Aircall reports in-call agents.
-    const hideLiveAgentIds = new Set(
+    // A call still "call.ringing_on_agent" in Aircall has status=in_progress
+    // and an agentId before it's ever answered, so it must not count as a
+    // live/active call — only agents Aircall itself reports as on_call are.
+    // Deriving from agent.state (the same source the status panel shows)
+    // instead of an ever-growing exclude-list keeps the two views in sync.
+    const onCallAgentIds = new Set(
       (data?.agents ?? [])
-        .filter((agent) =>
-          [
-            "back_office",
-            "on_break",
-            "out_for_lunch",
-            "in_training",
-            "other",
-            "wrap_up",
-          ].includes(agent.state),
-        )
+        .filter((agent) => agent.state === "on_call")
         .map((agent) => agent.id),
     );
     return businessCalls.filter(
       (call) =>
         call.status === "in_progress" &&
         Boolean(call.agentId) &&
-        !hideLiveAgentIds.has(call.agentId!),
+        onCallAgentIds.has(call.agentId!),
     );
   }, [businessCalls, data?.agents]);
 
