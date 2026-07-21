@@ -138,6 +138,18 @@ export async function GET(request: NextRequest) {
       waitTimeSeconds: row.wait_time_seconds ?? 0,
     };
   });
+
+  // Prefer live call truth over availability sync: agents with an open call
+  // must show as on_call even if roster sync wrote "available".
+  const activeCallByAgent = new Map<string, CallRecord>();
+  for (const call of calls) {
+    if (call.status !== "in_progress" || !call.agentId) continue;
+    const existing = activeCallByAgent.get(call.agentId);
+    if (!existing || call.startedAt > existing.startedAt) {
+      activeCallByAgent.set(call.agentId, call);
+    }
+  }
+
   const agents: Agent[] = (agentsResult.data ?? []).map((row) => {
     const department = row.departments as unknown as { name: string } | null;
     const embeddedStatus = row.agent_live_status as unknown as
@@ -155,14 +167,19 @@ export async function GET(request: NextRequest) {
     const status = Array.isArray(embeddedStatus)
       ? embeddedStatus[0]
       : embeddedStatus;
+    const activeCall = activeCallByAgent.get(row.id);
     return {
       id: row.id,
       name: row.name,
       departmentId: row.department_id ?? "",
       departmentName: department?.name ?? "ללא מחלקה",
-      state: status?.state ?? "unavailable",
-      stateSince: status?.state_since ?? new Date().toISOString(),
-      currentCallStartedAt: status?.current_call_started_at ?? undefined,
+      state: activeCall ? "on_call" : (status?.state ?? "unavailable"),
+      stateSince: activeCall
+        ? activeCall.startedAt
+        : (status?.state_since ?? new Date().toISOString()),
+      currentCallStartedAt: activeCall
+        ? activeCall.startedAt
+        : (status?.current_call_started_at ?? undefined),
     };
   });
 

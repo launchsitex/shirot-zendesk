@@ -133,9 +133,25 @@ async function syncUsers(supabase: SupabaseClient, users: AircallUser[]) {
       const state = mapState(user);
       const { data: previous } = await supabase
         .from("agent_live_status")
-        .select("state,state_since")
+        .select("state,state_since,current_call_started_at")
         .eq("agent_id", agentId)
         .maybeSingle();
+
+      // Roster sync only knows availability — never wipe an active call state.
+      if (
+        previous &&
+        ["on_call", "ringing", "wrap_up"].includes(previous.state)
+      ) {
+        const { count } = await supabase
+          .from("calls")
+          .select("id", { count: "exact", head: true })
+          .eq("agent_id", agentId)
+          .eq("status", "in_progress");
+        if ((count ?? 0) > 0 || previous.state === "wrap_up") {
+          continue;
+        }
+      }
+
       const { error } = await supabase.from("agent_live_status").upsert(
         {
           agent_id: agentId,

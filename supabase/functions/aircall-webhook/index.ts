@@ -339,6 +339,16 @@ async function processUserEvent(
     );
   }
 
+  // Availability / presence events must not overwrite an active call.
+  if (
+    state !== "on_call" &&
+    state !== "ringing" &&
+    state !== "wrap_up" &&
+    (await agentHasOpenCall(supabase, String(user.id)))
+  ) {
+    return;
+  }
+
   await updateAgentState(
     supabase,
     String(user.id),
@@ -346,6 +356,16 @@ async function processUserEvent(
     null,
     sourceState,
   );
+}
+
+async function agentHasOpenCall(supabase: SupabaseClient, agentId: string) {
+  const { count, error } = await supabase
+    .from("calls")
+    .select("id", { count: "exact", head: true })
+    .eq("agent_id", agentId)
+    .eq("status", "in_progress");
+  if (error) return false;
+  return (count ?? 0) > 0;
 }
 
 async function upsertAgent(supabase: SupabaseClient, user: UnknownRecord) {
