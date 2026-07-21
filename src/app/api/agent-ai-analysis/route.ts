@@ -1,19 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
+import { NextResponse } from "next/server";
 import {
   createSupabaseServerClient,
   isSupabaseConfigured,
 } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
 
 const FLAG_KEY = "ai_call_analysis";
-
-const analyzeSchema = z.object({
-  agentId: z.string().min(1),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
 
 async function requireAiAccess() {
   if (!isSupabaseConfigured()) {
@@ -54,16 +47,7 @@ async function requireAiAccess() {
     };
   }
 
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    return {
-      error: NextResponse.json({ error: "אין סשן פעיל" }, { status: 401 }),
-    };
-  }
-
-  return { supabase, user, accessToken: session.access_token };
+  return { supabase, user };
 }
 
 /** List active agents for the picker. */
@@ -90,41 +74,6 @@ export async function GET() {
   });
 }
 
-/** Analyze an agent's full day with Gemini. */
-export async function POST(request: NextRequest) {
-  const access = await requireAiAccess();
-  if ("error" in access) return access.error;
-
-  const parsed = analyzeSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "invalid_payload", details: parsed.error.flatten() },
-      { status: 400 },
-    );
-  }
-
-  const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const response = await fetch(`${baseUrl}/functions/v1/analyze-agent-day`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${access.accessToken}`,
-      apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(parsed.data),
-    cache: "no-store",
-  });
-
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    return NextResponse.json(
-      {
-        error: result.error ?? "analysis_failed",
-        message: result.message ?? "ניתוח הנציג נכשל",
-      },
-      { status: response.status },
-    );
-  }
-
-  return NextResponse.json(result);
-}
+// The analysis POST goes straight from the browser to the Supabase edge
+// function `analyze-agent-day` — proxying it here hit the web host's proxy
+// timeout on long analyses and returned an HTML error page.

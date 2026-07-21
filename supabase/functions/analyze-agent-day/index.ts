@@ -1,10 +1,25 @@
-import {
-  getAdminClient,
-  jsonResponse,
-} from "../_shared/zendesk.ts";
+import { getAdminClient } from "../_shared/zendesk.ts";
 import { fetchRecordingBytes } from "../_shared/recordings.ts";
 
 type UnknownRecord = Record<string, unknown>;
+
+// The browser calls this function directly (the Next.js host proxy times out
+// on long analyses), so every response must carry CORS headers.
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+}
 
 const GEMINI_MODEL = "gemini-2.5-pro";
 // Gemini inline request budget is ~20MB total; leave headroom for the prompt.
@@ -27,13 +42,7 @@ const DAY_ANALYSIS_PROMPT = `אתה מנהל מוקד שירות לקוחות ו
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers":
-          "authorization, x-client-info, apikey, content-type",
-      },
-    });
+    return new Response("ok", { headers: CORS_HEADERS });
   }
   if (request.method !== "POST") {
     return jsonResponse({ error: "method" }, 405);

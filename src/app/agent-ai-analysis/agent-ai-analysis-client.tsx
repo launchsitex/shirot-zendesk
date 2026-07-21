@@ -11,6 +11,10 @@ import {
 import { useEffect, useState } from "react";
 import { formatDuration } from "@/lib/metrics";
 import { formatPhoneDisplay } from "@/lib/phone";
+import {
+  createSupabaseBrowserClient,
+  isSupabaseBrowserConfigured,
+} from "@/lib/supabase/browser";
 
 type AgentOption = {
   id: string;
@@ -122,16 +126,48 @@ export function AgentAiAnalysisClient() {
     setError("");
     setResult(null);
     try {
-      const response = await fetch("/api/agent-ai-analysis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ agentId, date }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.message ?? payload.error ?? "ניתוח נכשל");
+      // Call the edge function directly: the analysis can run for several
+      // minutes, longer than the web host's proxy timeout, which used to cut
+      // the connection and return an HTML error page instead of JSON.
+      if (!isSupabaseBrowserConfigured()) {
+        throw new Error("Supabase אינו מחובר");
       }
-      setResult(payload as AnalyzeResponse);
+      const supabase = createSupabaseBrowserClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("אין סשן פעיל — התחבר מחדש");
+      }
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/analyze-agent-day`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ agentId, date }),
+        },
+      );
+
+      const raw = await response.text();
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        throw new Error(
+          "השרת החזיר תשובה לא תקינה (ייתכן שהניתוח ארוך מדי) — נסה שוב או בחר יום עם פחות שיחות",
+        );
+      }
+      if (!response.ok) {
+        throw new Error(
+          String(payload.message ?? payload.error ?? "ניתוח נכשל"),
+        );
+      }
+      setResult(payload as unknown as AnalyzeResponse);
     } catch (analyzeError) {
       setError(
         analyzeError instanceof Error ? analyzeError.message : "ניתוח נכשל",
