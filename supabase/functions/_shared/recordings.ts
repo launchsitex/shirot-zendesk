@@ -140,6 +140,81 @@ export async function fetchRecordingBytes(
   return { bytes, mimeType: normalizeAudioMime(contentType) };
 }
 
+export type HoldWindow = { startSeconds: number; endSeconds: number | null };
+
+function toMillis(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "number" || /^\d+$/.test(String(value))) {
+    const numeric = Number(value);
+    return numeric > 10_000_000_000 ? numeric : numeric * 1000;
+  }
+  const parsed = new Date(String(value)).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+/**
+ * Hold windows from webhook hold_events, as offsets (seconds) into the
+ * recording. Aircall recordings start at answer time, so offsets are
+ * relative to raw.answered_at.
+ */
+export function extractHoldWindows(callRaw: unknown): HoldWindow[] {
+  const raw = (callRaw ?? {}) as Record<string, unknown>;
+  const events = Array.isArray(raw.hold_events) ? raw.hold_events : [];
+  const answeredMs = toMillis(raw.answered_at);
+  if (!answeredMs || !events.length) return [];
+
+  const sorted = events
+    .map((entry) => {
+      const record = (entry ?? {}) as Record<string, unknown>;
+      return {
+        event: String(record.event ?? ""),
+        atMs: toMillis(record.at),
+      };
+    })
+    .filter((entry): entry is { event: string; atMs: number } =>
+      entry.atMs !== null,
+    )
+    .sort((a, b) => a.atMs - b.atMs);
+
+  const windows: HoldWindow[] = [];
+  let openStartMs: number | null = null;
+  for (const entry of sorted) {
+    if (entry.event === "call.hold" && openStartMs === null) {
+      openStartMs = entry.atMs;
+    } else if (entry.event === "call.unhold" && openStartMs !== null) {
+      windows.push({
+        startSeconds: Math.max(0, Math.round((openStartMs - answeredMs) / 1000)),
+        endSeconds: Math.max(0, Math.round((entry.atMs - answeredMs) / 1000)),
+      });
+      openStartMs = null;
+    }
+  }
+  if (openStartMs !== null) {
+    windows.push({
+      startSeconds: Math.max(0, Math.round((openStartMs - answeredMs) / 1000)),
+      endSeconds: null,
+    });
+  }
+  return windows;
+}
+
+function formatClock(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+/** Hebrew description lines of hold windows, for the analysis prompt. */
+export function describeHoldWindows(windows: HoldWindow[]): string[] {
+  return windows.map((window) => {
+    if (window.endSeconds === null) {
+      return `מ-${formatClock(window.startSeconds)} ועד סוף ההקלטה`;
+    }
+    const duration = Math.max(0, window.endSeconds - window.startSeconds);
+    return `מ-${formatClock(window.startSeconds)} עד ${formatClock(window.endSeconds)} (${duration} שניות)`;
+  });
+}
+
 function normalizeAudioMime(contentType: string) {
   const lower = contentType.toLowerCase();
   if (lower.includes("wav")) return "audio/wav";

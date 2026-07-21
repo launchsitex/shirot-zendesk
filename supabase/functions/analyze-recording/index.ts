@@ -2,7 +2,11 @@ import {
   getAdminClient,
   jsonResponse,
 } from "../_shared/zendesk.ts";
-import { fetchRecordingBytes } from "../_shared/recordings.ts";
+import {
+  describeHoldWindows,
+  extractHoldWindows,
+  fetchRecordingBytes,
+} from "../_shared/recordings.ts";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -18,6 +22,12 @@ const ANALYSIS_PROMPT = `אתה מנהל מוקד שירות לקוחות ואס
 2. סכם את השיחה בעברית ברורה.
 3. הערך את ביצועי הנציג כמו מנהל מוקד מחמיר אבל הוגן.
 4. תן המלצות שיפור קונקרטיות ויומיומיות (לא כלליות).
+
+כללי החזק (Hold) והשתק (Mute) — חובה מוחלטת:
+- אם מפורטים בהמשך חלונות זמן שבהם הלקוח היה בהמתנה (Hold, נתון מדויק מהמרכזייה) — אל תנתח ואל תשפוט שום דיבור, צעקות, רעש רקע או מוזיקה שנשמעים בתוך החלונות האלה. רעשי מוקד בהקלטה בזמן Hold אינם נשמעים ללקוח (הוא שומע מוזיקת המתנה) ואסור להוריד עליהם ציון או להמליץ על Mute. כן מותר להעריך רק את ההתנהלות סביב ההחזקה: האם הנציג ביקש רשות לפני, האם משך ההמתנה סביר, והאם חזר עם התנצלות/עדכון.
+- גם בלי נתוני Hold מהמרכזייה: קטע עם מוזיקת המתנה, או קטע שבו הנציג יצא מהשיחה עם הלקוח (אמר "רגע"/"אבדוק" ואז נעלם) ואז חוזר — זה Hold. אל תשפוט רעשי מוקד/צעקות ברקע בזמן הזה, ואל תמליץ להשתמש ב-Mute במקום Hold.
+- Mute משתיק רק את מיקרופון הנציג; הוא לא שם את הלקוח בהמתנה. אל תבלבל בין השניים ואל תמליץ על Mute כטיפול ברעשי מוקד בזמן המתנה.
+- אם הנציג שקט לגמרי לאורך זמן בזמן שהלקוח מדבר (בלי מוזיקת המתנה) — ייתכן Mute; אל תוריד ציון על "חוסר תגובה" בקטע כזה, לכל היותר ציין זאת כהערה.
 
 החזר JSON בלבד לפי הסכמה. כל הטקסטים בעברית.`;
 
@@ -84,7 +94,7 @@ Deno.serve(async (request) => {
   const { data: recording, error: recordingError } = await supabase
     .from("call_recordings")
     .select(
-      "id,call_id,ticket_id,recording_type,duration_seconds,created_at,recording_url,raw,calls(customer_number,department_id,agents!agent_id(name),departments(name))",
+      "id,call_id,ticket_id,recording_type,duration_seconds,created_at,recording_url,raw,calls(customer_number,department_id,raw,agents!agent_id(name),departments(name))",
     )
     .eq("id", recordingId)
     .maybeSingle();
@@ -109,6 +119,8 @@ Deno.serve(async (request) => {
     if (audio.bytes.byteLength > MAX_INLINE_BYTES) {
       throw new Error("recording_file_too_large");
     }
+    const callRaw = (recording.calls as { raw?: unknown } | null)?.raw;
+    const holdLines = describeHoldWindows(extractHoldWindows(callRaw));
     const analysis = await analyzeWithGemini(geminiKey, audio, {
       agentName:
         (recording.calls as { agents?: { name?: string } } | null)?.agents
@@ -121,6 +133,7 @@ Deno.serve(async (request) => {
           ?.customer_number ?? "",
       durationSeconds: duration,
       recordingType: String(recording.recording_type ?? "call"),
+      holdLines,
     });
 
     return jsonResponse({
@@ -177,6 +190,7 @@ async function analyzeWithGemini(
     customerNumber: string;
     durationSeconds: number;
     recordingType: string;
+    holdLines: string[];
   },
 ) {
   const schema = {
@@ -260,6 +274,12 @@ async function analyzeWithGemini(
     `- מספר לקוח: ${meta.customerNumber || "לא ידוע"}`,
     `- משך: ${meta.durationSeconds} שניות`,
     `- סוג הקלטה: ${meta.recordingType}`,
+    meta.holdLines.length
+      ? [
+          "- חלונות המתנה (Hold) מדווחים מהמרכזייה — אל תנתח את האודיו בתוכם:",
+          ...meta.holdLines.map((line) => `  * ${line}`),
+        ].join("\n")
+      : "- לא דווחו חלונות המתנה (Hold) לשיחה זו.",
   ].join("\n");
 
   const response = await fetch(

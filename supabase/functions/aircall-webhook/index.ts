@@ -59,7 +59,12 @@ Deno.serve(async (request) => {
 
   try {
     if (eventType.startsWith("call.")) {
-      await processCallEvent(supabase, eventType, payload.data);
+      await processCallEvent(
+        supabase,
+        eventType,
+        payload.data,
+        toIso(payload.timestamp),
+      );
     } else if (eventType.startsWith("user.")) {
       await processUserEvent(supabase, eventType, payload.data);
     } else if (eventType.startsWith("number.")) {
@@ -99,6 +104,7 @@ async function processCallEvent(
   supabase: SupabaseClient,
   eventType: string,
   call: UnknownRecord,
+  webhookTimestamp: string | null,
 ) {
   const callId = String(call.id ?? "");
   if (!callId) throw new Error("Aircall call event is missing data.id");
@@ -153,6 +159,7 @@ async function processCallEvent(
   const startedAt = toIso(call.started_at) ?? new Date().toISOString();
   const answeredAt = toIso(call.answered_at);
   const endedAt = toIso(call.ended_at);
+  const isHoldEvent = eventType === "call.hold" || eventType === "call.unhold";
   // External transfer leaves the Aircall agent free; keep the call closed for them
   // even if Aircall never sends an immediate hungup for that leg.
   const agentLeftViaExternalTransfer =
@@ -170,6 +177,9 @@ async function processCallEvent(
   const eventTime =
     endedAt ??
     (isFinished ? new Date().toISOString() : null) ??
+    // Hold/unhold arrive mid-call; their own timestamp must advance
+    // source_updated_at, otherwise the ordering guard drops them.
+    (isHoldEvent ? webhookTimestamp ?? new Date().toISOString() : null) ??
     answeredAt ??
     startedAt;
 
@@ -218,11 +228,25 @@ async function processCallEvent(
   }
 
   const existingRaw = isRecord(existing?.raw) ? existing.raw : {};
+
+  // Accumulate hold/unhold moments so AI analysis can ignore audio heard
+  // while the customer was on hold (music, call-center background noise).
+  const previousHoldEvents = Array.isArray(existingRaw.hold_events)
+    ? existingRaw.hold_events
+    : [];
+  const holdEvents = isHoldEvent
+    ? [
+        ...previousHoldEvents,
+        { event: eventType, at: webhookTimestamp ?? new Date().toISOString() },
+      ]
+    : previousHoldEvents;
+
   const mergedRaw = {
     ...existingRaw,
     ...call,
     provider: "aircall",
     last_event: eventType,
+    hold_events: holdEvents,
     transferred_by:
       transferredBy ??
       (isRecord(existingRaw.transferred_by) ? existingRaw.transferred_by : null),
