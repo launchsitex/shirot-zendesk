@@ -116,7 +116,7 @@ Deno.serve(async (request) => {
       return await batchResponse(supabase, geminiKey, day, body);
     }
     if (mode === "summary") {
-      return await summaryResponse(supabase, geminiKey, day, body);
+      return await summaryResponse(supabase, geminiKey, day, body, user.id);
     }
     return jsonResponse({ error: "unknown_mode" }, 400);
   } catch (error) {
@@ -449,6 +449,7 @@ async function summaryResponse(
   geminiKey: string,
   day: DayContext,
   body: UnknownRecord,
+  analyzedBy: string,
 ) {
   const callReviews = Array.isArray(body.callReviews)
     ? (body.callReviews as UnknownRecord[])
@@ -456,6 +457,9 @@ async function summaryResponse(
   if (!callReviews.length) {
     return jsonResponse({ error: "call_reviews_required" }, 400);
   }
+  const analyzedCalls = Array.isArray(body.analyzedCalls)
+    ? (body.analyzedCalls as UnknownRecord[])
+    : [];
 
   const stats = buildStats(day.calls);
   const statusSummary = await buildStatusSummary(
@@ -570,16 +574,44 @@ async function summaryResponse(
   ].join("\n");
 
   const analysis = await callGemini(geminiKey, [{ text: context }], schema);
+  const analyzedAt = new Date().toISOString();
+
+  // Persist every completed analysis so the page can show a history.
+  const fullAnalysis = { ...analysis, callReviews };
+  const overallScore = Number((analysis as UnknownRecord).overallScore);
+  const { data: saved, error: saveError } = await supabase
+    .from("agent_day_analyses")
+    .insert({
+      agent_id: day.agent.id,
+      agent_name: day.agent.name ?? day.agentId,
+      analysis_date: day.date,
+      analyzed_at: analyzedAt,
+      analyzed_by: analyzedBy,
+      overall_score: Number.isFinite(overallScore) ? overallScore : null,
+      calls_analyzed: callReviews.length,
+      skipped_recordings: skippedCount,
+      stats,
+      status_summary: statusSummary,
+      analyzed_calls: analyzedCalls,
+      analysis: fullAnalysis,
+      model: GEMINI_MODEL,
+    })
+    .select("id")
+    .single();
+  if (saveError) {
+    console.error("agent_day_analyses insert failed", saveError.message);
+  }
 
   return jsonResponse({
     ok: true,
+    analysisId: saved?.id ?? null,
     agent: { id: day.agent.id, name: day.agent.name },
     date: day.date,
     stats,
     statusSummary,
     analysis,
     model: GEMINI_MODEL,
-    analyzedAt: new Date().toISOString(),
+    analyzedAt,
   });
 }
 

@@ -2,6 +2,9 @@
 
 import {
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  History,
   LoaderCircle,
   Phone,
   Sparkles,
@@ -78,6 +81,39 @@ type PlanRecording = {
   durationSeconds: number;
 };
 
+type HistoryItem = {
+  id: string;
+  agent_id: string;
+  agent_name: string;
+  analysis_date: string;
+  analyzed_at: string;
+  overall_score: number | null;
+  calls_analyzed: number;
+  skipped_recordings: number;
+  model: string | null;
+};
+
+type SavedAnalysisRecord = HistoryItem & {
+  stats: AnalyzeResponse["stats"];
+  status_summary: AnalyzeResponse["statusSummary"];
+  analyzed_calls: AnalyzedCall[];
+  analysis: DayAnalysis;
+};
+
+function savedRecordToResult(record: SavedAnalysisRecord): AnalyzeResponse {
+  return {
+    agent: { id: record.agent_id, name: record.agent_name },
+    date: record.analysis_date,
+    stats: record.stats,
+    statusSummary: record.status_summary ?? [],
+    analyzedCalls: record.analyzed_calls ?? [],
+    skippedRecordings: record.skipped_recordings ?? 0,
+    analysis: record.analysis,
+    model: record.model ?? "",
+    analyzedAt: record.analyzed_at,
+  };
+}
+
 type Progress = {
   percent: number;
   label: string;
@@ -139,6 +175,56 @@ export function AgentAiAnalysisClient() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [error, setError] = useState("");
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [openingHistoryId, setOpeningHistoryId] = useState("");
+
+  async function loadHistory() {
+    setLoadingHistory(true);
+    try {
+      const response = await fetch("/api/agent-ai-analysis?view=history", {
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      if (response.ok) setHistory(payload.history ?? []);
+    } catch {
+      // History is informational; failures shouldn't block the page.
+    } finally {
+      setLoadingHistory(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadHistory();
+  }, []);
+
+  async function openSavedAnalysis(id: string) {
+    setOpeningHistoryId(id);
+    setError("");
+    try {
+      const response = await fetch(
+        `/api/agent-ai-analysis?analysisId=${encodeURIComponent(id)}`,
+        { cache: "no-store" },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.message ?? payload.error ?? "טעינה נכשלה");
+      }
+      setResult(savedRecordToResult(payload.record as SavedAnalysisRecord));
+    } catch (openError) {
+      setError(
+        openError instanceof Error ? openError.message : "טעינת הניתוח נכשלה",
+      );
+    } finally {
+      setOpeningHistoryId("");
+    }
+  }
+
+  function backToHistory() {
+    setResult(null);
+    setError("");
+    void loadHistory();
+  }
 
   useEffect(() => {
     fetch("/api/agent-ai-analysis", { cache: "no-store" })
@@ -259,6 +345,7 @@ export function AgentAiAnalysisClient() {
       const summary = await callEdge({
         mode: "summary",
         callReviews: allReviews,
+        analyzedCalls: allAnalyzedCalls,
         skippedCount: skippedTotal,
       });
 
@@ -381,8 +468,114 @@ export function AgentAiAnalysisClient() {
         </p>
       ) : null}
 
-      {result ? <DayReport result={result} /> : null}
+      {result ? (
+        <>
+          <button
+            type="button"
+            onClick={backToHistory}
+            className="inline-flex items-center gap-1.5 text-sm font-bold text-[#158f83] hover:underline"
+          >
+            <ChevronRight size={16} />
+            חזרה להיסטוריית הניתוחים
+          </button>
+          <DayReport result={result} />
+        </>
+      ) : null}
+
+      {!result && !analyzing ? (
+        <HistoryList
+          history={history}
+          loading={loadingHistory}
+          openingId={openingHistoryId}
+          onOpen={(id) => void openSavedAnalysis(id)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function HistoryList({
+  history,
+  loading,
+  openingId,
+  onOpen,
+}: {
+  history: HistoryItem[];
+  loading: boolean;
+  openingId: string;
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <section className="card overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-[#eef3f5] px-5 py-4">
+        <History size={16} className="text-[#158f83]" />
+        <h3 className="font-bold text-[#17242d]">היסטוריית ניתוחים</h3>
+      </div>
+      {loading ? (
+        <p className="px-5 py-6 text-sm text-[#7f8d94]">טוען היסטוריה...</p>
+      ) : history.length === 0 ? (
+        <p className="px-5 py-6 text-sm text-[#9aa7ad]">
+          עדיין לא בוצעו ניתוחים — בחר נציג ותאריך ולחץ &quot;נתח נציג&quot;.
+        </p>
+      ) : (
+        <ul className="divide-y divide-[#eef3f5]">
+          {history.map((item) => {
+            const analyzedAt = new Date(item.analyzed_at);
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(item.id)}
+                  disabled={Boolean(openingId)}
+                  className="flex w-full flex-wrap items-center justify-between gap-2 px-5 py-3.5 text-right transition-colors hover:bg-[#f6fafb] disabled:opacity-60"
+                >
+                  <span className="flex flex-col gap-0.5">
+                    <strong className="text-sm text-[#17242d]">
+                      {item.agent_name}
+                    </strong>
+                    <span className="text-xs text-[#7f8d94]">
+                      יום מנותח:{" "}
+                      {new Date(
+                        `${item.analysis_date}T12:00:00Z`,
+                      ).toLocaleDateString("he-IL", {
+                        timeZone: "Asia/Jerusalem",
+                      })}{" "}
+                      · {item.calls_analyzed} שיחות נותחו
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-3">
+                    {item.overall_score != null ? (
+                      <span className="rounded-lg bg-[#e4f5f2] px-2 py-0.5 text-xs font-bold text-[#158f83]">
+                        {item.overall_score}/10
+                      </span>
+                    ) : null}
+                    <span className="text-xs text-[#9aa7ad]">
+                      בוצע:{" "}
+                      {analyzedAt.toLocaleDateString("he-IL", {
+                        timeZone: "Asia/Jerusalem",
+                      })}{" "}
+                      {analyzedAt.toLocaleTimeString("he-IL", {
+                        timeZone: "Asia/Jerusalem",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {openingId === item.id ? (
+                      <LoaderCircle
+                        className="animate-spin text-[#158f83]"
+                        size={14}
+                      />
+                    ) : (
+                      <ChevronLeft size={14} className="text-[#9aa7ad]" />
+                    )}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

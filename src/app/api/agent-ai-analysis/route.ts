@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
   createSupabaseServerClient,
   isSupabaseConfigured,
@@ -50,10 +50,44 @@ async function requireAiAccess() {
   return { supabase, user };
 }
 
-/** List active agents for the picker. */
-export async function GET() {
+/** List active agents, analysis history, or a single saved analysis. */
+export async function GET(request: NextRequest) {
   const access = await requireAiAccess();
   if ("error" in access) return access.error;
+
+  const view = request.nextUrl.searchParams.get("view");
+  const analysisId = request.nextUrl.searchParams.get("analysisId");
+
+  if (analysisId) {
+    const { data, error } = await access.supabase
+      .from("agent_day_analyses")
+      .select(
+        "id,agent_id,agent_name,analysis_date,analyzed_at,overall_score,calls_analyzed,skipped_recordings,stats,status_summary,analyzed_calls,analysis,model",
+      )
+      .eq("id", analysisId)
+      .maybeSingle();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (!data) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
+    return NextResponse.json({ record: data });
+  }
+
+  if (view === "history") {
+    const { data, error } = await access.supabase
+      .from("agent_day_analyses")
+      .select(
+        "id,agent_id,agent_name,analysis_date,analyzed_at,overall_score,calls_analyzed,skipped_recordings,model",
+      )
+      .order("analyzed_at", { ascending: false })
+      .limit(50);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ history: data ?? [] });
+  }
 
   const { data, error } = await access.supabase
     .from("agents")
