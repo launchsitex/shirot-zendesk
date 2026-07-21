@@ -51,7 +51,7 @@ export function normalizeSchedule(raw: unknown): DaySchedule[] {
       if (!item || typeof item !== "object") return;
       const row = item as Record<string, unknown>;
       const day = Number(row.day) as Weekday;
-      if (day < 0 || day > 6) return;
+      if (Number.isNaN(day) || day < 0 || day > 6) return;
       byDay.set(day, {
         day,
         isOpen: typeof row.isOpen === "boolean" ? row.isOpen : true,
@@ -118,14 +118,30 @@ export function isWithinBusinessHours(
   if (!schedule.length) return true;
   const { day, minutes } = israelWeekdayAndMinutes(startedAt);
   const daySchedule = schedule.find((item) => item.day === day);
-  if (!daySchedule || !daySchedule.isOpen) return false;
-  const open = timeToMinutes(daySchedule.open);
-  const close = timeToMinutes(daySchedule.close);
-  if (close <= open) {
-    // Overnight window (rare): open through midnight then until close.
-    return minutes >= open || minutes < close;
+  if (daySchedule?.isOpen) {
+    const open = timeToMinutes(daySchedule.open);
+    const close = timeToMinutes(daySchedule.close);
+    if (close <= open) {
+      // Overnight window: open through midnight then until close.
+      if (minutes >= open || minutes < close) return true;
+    } else if (minutes >= open && minutes < close) {
+      return true;
+    }
   }
-  return minutes >= open && minutes < close;
+
+  // A call just after midnight can fall within an overnight session that
+  // started the PREVIOUS day (e.g. open Friday 20:00 through 02:00, checked
+  // at Saturday 01:00 — Saturday's own row is correctly closed for Shabbat,
+  // but Friday's overnight window is still running).
+  const previousDay = ((day + 6) % 7) as Weekday;
+  const previousSchedule = schedule.find((item) => item.day === previousDay);
+  if (previousSchedule?.isOpen) {
+    const open = timeToMinutes(previousSchedule.open);
+    const close = timeToMinutes(previousSchedule.close);
+    if (close <= open && minutes < close) return true;
+  }
+
+  return false;
 }
 
 /**

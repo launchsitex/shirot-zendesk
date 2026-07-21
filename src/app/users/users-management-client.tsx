@@ -70,7 +70,10 @@ export function UsersManagementClient() {
         .map((page) => page.id)
         .filter(
           (id) =>
-            id !== "settings" && id !== "users" && id !== "system-logs",
+            id !== "settings" &&
+            id !== "users" &&
+            id !== "system-logs" &&
+            id !== "ai-analysis",
         ),
     [data?.pages],
   );
@@ -114,10 +117,7 @@ export function UsersManagementClient() {
       password: "",
       role: user.role,
       departmentId: user.departmentId ?? "",
-      allowedPages:
-        user.role === "admin"
-          ? (data?.pages.map((page) => page.id) ?? [])
-          : user.allowedPages,
+      allowedPages: user.role === "admin" ? defaultPages : user.allowedPages,
     });
     setShowForm(true);
     setError("");

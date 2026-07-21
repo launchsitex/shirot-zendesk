@@ -30,7 +30,23 @@ function presetDates(preset: DashboardFilters["preset"]) {
   if (preset === "today") return { from: to, to };
   const from = new Date(today);
   if (preset === "week") {
-    from.setDate(from.getDate() - 6);
+    // Sunday-start calendar week, matching dashboard-client.tsx/section-pages.tsx
+    // — not a rolling 7-day window, so "השבוע" means the same range everywhere.
+    const weekday = Number(
+      new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        timeZone: "Asia/Jerusalem",
+      })
+        .format(today)
+        .replace(
+          /Sun|Mon|Tue|Wed|Thu|Fri|Sat/,
+          (value) =>
+            String(
+              ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(value),
+            ),
+        ),
+    );
+    from.setDate(from.getDate() - weekday);
   } else {
     from.setDate(1);
   }
@@ -92,11 +108,14 @@ export function AfterHoursCallsPage() {
 
   useEffect(() => {
     if (!data?.scopedDepartmentId) return;
-    setFilters((current) =>
-      current.departmentId === data.scopedDepartmentId
-        ? current
-        : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
-    );
+    const timer = window.setTimeout(() => {
+      setFilters((current) =>
+        current.departmentId === data.scopedDepartmentId
+          ? current
+          : { ...current, departmentId: data.scopedDepartmentId!, agentId: "" },
+      );
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [data?.scopedDepartmentId]);
 
   const afterHoursCalls = useMemo(() => {
@@ -304,7 +323,11 @@ export function AfterHoursCallsPage() {
                           ? "נענתה"
                           : call.status === "missed"
                             ? "לא נענתה"
-                            : "בשיחה"}
+                            : !call.agentId
+                              ? "ממתין למענה"
+                              : call.talkTimeSeconds > 0
+                                ? "בשיחה"
+                                : "מצלצל"}
                       </td>
                       <td className="w-0 whitespace-nowrap px-3 py-3">
                         {formatDuration(call.durationSeconds)}

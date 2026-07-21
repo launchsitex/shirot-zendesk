@@ -365,7 +365,13 @@ function parsePages(value: unknown, role: AppRole): PageKey[] {
       (ALL_PAGES as readonly string[]).includes(item),
     )
     // Sensitive admin surfaces stay admin-only.
-    .filter((item) => item !== "settings" && item !== "users" && item !== "system-logs");
+    .filter(
+      (item) =>
+        item !== "settings" &&
+        item !== "users" &&
+        item !== "system-logs" &&
+        item !== "ai-analysis",
+    );
   if (pages.length === 0) {
     throw new Error("יש לבחור לפחות עמוד אחד");
   }

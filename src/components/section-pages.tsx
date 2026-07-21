@@ -219,6 +219,7 @@ export function CallsHistory() {
           return (
             (!needle ||
               call.agentName?.toLowerCase().includes(needle) ||
+              call.departmentName?.toLowerCase().includes(needle) ||
               phoneSearchText(call.customerNumber).includes(
                 needle.replace(/\D/g, "") || needle,
               )) &&
@@ -351,7 +352,7 @@ export function CallsHistory() {
                           {formatPhoneDisplay(call.customerNumber)}
                         </td>
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
-                          <CallBadge status={call.status} />
+                          <CallBadge call={call} />
                         </td>
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           {new Date(call.startedAt).toLocaleString("he-IL", {
@@ -389,8 +390,11 @@ export function AgentsTeams() {
         const connected = dashboard.agents.filter(
           (agent) => agent.state !== "unavailable",
         ).length;
-        const busy = dashboard.agents.filter((agent) =>
-          ["ringing", "on_call", "wrap_up"].includes(agent.state),
+        // "בטיפול בשיחה" means actually on a call — ringing (not yet
+        // answered) and wrap_up (post-call, no customer on the line) don't
+        // belong here, same distinction already made on the wallboard.
+        const busy = dashboard.agents.filter(
+          (agent) => agent.state === "on_call",
         ).length;
         const unavailable = dashboard.agents.filter(
           (agent) => agent.state === "unavailable",
@@ -491,7 +495,11 @@ export function AgentsTeams() {
                               עודכן{" "}
                               {new Date(agent.stateSince).toLocaleTimeString(
                                 "he-IL",
-                                { hour: "2-digit", minute: "2-digit" },
+                                {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                  timeZone: "Asia/Jerusalem",
+                                },
                               )}
                             </span>
                           </div>
@@ -1373,20 +1381,34 @@ function FilterSelect({
   );
 }
 
-function CallBadge({ status }: { status: CallRecord["status"] }) {
+function CallBadge({ call }: { call: CallRecord }) {
+  // An in_progress call isn't "בשיחה" until someone actually answers it —
+  // otherwise this contradicts the "לקוח ממתין" label shown for the same row.
+  const key: "answered" | "missed" | "waiting" | "ringing" | "on_call" =
+    call.status !== "in_progress"
+      ? call.status
+      : !call.agentId
+        ? "waiting"
+        : call.talkTimeSeconds > 0
+          ? "on_call"
+          : "ringing";
   const labels = {
     answered: "נענתה",
     missed: "לא נענתה",
-    in_progress: "בשיחה",
+    waiting: "ממתין למענה",
+    ringing: "מצלצל",
+    on_call: "בשיחה",
   };
   const styles = {
     answered: "bg-[#e4f5ea] text-[#298653]",
     missed: "bg-[#fdebed] text-[#c8434c]",
-    in_progress: "bg-[#e7efff] text-[#396acb]",
+    waiting: "bg-[#fff3d9] text-[#9a6811]",
+    ringing: "bg-[#fff3d9] text-[#9a6811]",
+    on_call: "bg-[#e7efff] text-[#396acb]",
   };
   return (
-    <span className={`rounded-full px-2.5 py-1 font-bold ${styles[status]}`}>
-      {labels[status]}
+    <span className={`rounded-full px-2.5 py-1 font-bold ${styles[key]}`}>
+      {labels[key]}
     </span>
   );
 }

@@ -38,6 +38,7 @@ import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import type {
   Agent,
   AgentState,
+  CallRecord,
   DashboardData,
   DashboardFilters,
 } from "@/lib/types";
@@ -420,6 +421,7 @@ export function DashboardClient() {
                   hour: "2-digit",
                   minute: "2-digit",
                   second: "2-digit",
+                  timeZone: "Asia/Jerusalem",
                 })
               : "כעת"}
           </div>
@@ -595,7 +597,7 @@ export function DashboardClient() {
                       {formatPhoneDisplay(call.customerNumber)}
                     </td>
                     <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
-                      <CallStatus status={call.status} />
+                      <CallStatus call={call} />
                     </td>
                     <td className="w-0 whitespace-nowrap px-2.5 py-2.5 text-[#526169]">
                       {new Date(call.startedAt).toLocaleTimeString("he-IL", {
@@ -740,20 +742,35 @@ function MetricCard({
   );
 }
 
-function CallStatus({ status }: { status: "answered" | "missed" | "in_progress" }) {
+function CallStatus({ call }: { call: CallRecord }) {
+  // An in_progress call isn't "בשיחה" (on a call) until someone actually
+  // answers it — otherwise this contradicts the "לקוח ממתין"/"מצלצל" label
+  // shown for the very same row elsewhere in the table.
+  const key: "answered" | "missed" | "waiting" | "ringing" | "on_call" =
+    call.status !== "in_progress"
+      ? call.status
+      : !call.agentId
+        ? "waiting"
+        : call.talkTimeSeconds > 0
+          ? "on_call"
+          : "ringing";
   const styles = {
     answered: "bg-[#e4f5ea] text-[#298653]",
     missed: "bg-[#fdebed] text-[#c8434c]",
-    in_progress: "bg-[#e7efff] text-[#396acb]",
+    waiting: "bg-[#fff3d9] text-[#9a6811]",
+    ringing: "bg-[#fff3d9] text-[#9a6811]",
+    on_call: "bg-[#e7efff] text-[#396acb]",
   };
   const labels = {
     answered: "נענתה",
     missed: "לא נענתה",
-    in_progress: "בשיחה",
+    waiting: "ממתין למענה",
+    ringing: "מצלצל",
+    on_call: "בשיחה",
   };
   return (
-    <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${styles[status]}`}>
-      {labels[status]}
+    <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${styles[key]}`}>
+      {labels[key]}
     </span>
   );
 }

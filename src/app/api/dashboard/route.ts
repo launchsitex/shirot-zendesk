@@ -149,7 +149,9 @@ export async function GET(request: NextRequest) {
   // Prefer live call truth over availability sync: an open call must show as
   // on_call even when roster sync wrote "available" or "unavailable" (Aircall
   // reports in-call agents as unavailable). Explicit Away presence and
-  // wrap-up still win, so stale in_progress rows can't fake "בשיחה".
+  // wrap-up still win, so stale in_progress rows can't fake "בשיחה". "ringing"
+  // also wins over inherited talk_time (e.g. right after an internal
+  // transfer, before the destination agent has answered).
   const explicitPresence = new Set<Agent["state"]>([
     "back_office",
     "on_break",
@@ -157,6 +159,7 @@ export async function GET(request: NextRequest) {
     "in_training",
     "other",
     "wrap_up",
+    "ringing",
   ]);
 
   const activeCallByAgent = new Map<string, CallRecord>();

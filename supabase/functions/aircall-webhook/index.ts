@@ -293,13 +293,15 @@ async function processCallEvent(
         ? "ringing"
         : eventType === "call.answered"
           ? "on_call"
-          : eventType === "call.hungup"
-            ? wrapUpSeconds > 0
-              ? "wrap_up"
-              : mapAvailability(eventUser)
-            : transferEvent
-              ? mapAvailability(eventUser)
-              : null;
+          : eventType === "call.agent_declined"
+            ? mapAvailability(eventUser)
+            : eventType === "call.hungup"
+              ? wrapUpSeconds > 0
+                ? "wrap_up"
+                : mapAvailability(eventUser)
+              : transferEvent
+                ? mapAvailability(eventUser)
+                : null;
     if (state) {
       if (state !== "on_call" && state !== "ringing") {
         // Clean only stale leftovers; never touch the agent's other live calls.
@@ -315,6 +317,14 @@ async function processCallEvent(
         state === "wrap_up" ? "after_call_work" : eventType,
       );
     }
+  }
+
+  // Internal transfer: the destination agent hasn't answered yet (Aircall
+  // rings their phone next). Without this, forceOnCall in the dashboard API
+  // shows them "on_call" immediately from the inherited talk_time of the
+  // pre-transfer leg — before they've picked up, or even if they decline.
+  if (eventType === "call.transferred" && transferredTo?.id) {
+    await updateAgentState(supabase, String(transferredTo.id), "ringing", null, eventType);
   }
 
   await storeRecording(supabase, callId, call, "recording");

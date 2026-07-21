@@ -5,6 +5,7 @@ import {
   normalizeSchedule,
   type BusinessHoursConfig,
 } from "@/lib/business-hours";
+import { getDepartmentScope } from "@/lib/auth/department-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,17 @@ async function loadConfig(): Promise<BusinessHoursConfig> {
     });
   }
 
+  const departmentScope = await getDepartmentScope(supabase, user.id);
+
+  let departmentsQuery = supabase
+    .from("departments")
+    .select("id, name")
+    .eq("active", true)
+    .order("name");
+  if (departmentScope) {
+    departmentsQuery = departmentsQuery.eq("id", departmentScope);
+  }
+
   const [flagResult, hoursResult, departmentsResult] = await Promise.all([
     supabase
       .from("app_feature_flags")
@@ -46,11 +58,7 @@ async function loadConfig(): Promise<BusinessHoursConfig> {
     supabase
       .from("department_business_hours")
       .select("department_id, schedule"),
-    supabase
-      .from("departments")
-      .select("id, name")
-      .eq("active", true)
-      .order("name"),
+    departmentsQuery,
   ]);
 
   if (flagResult.error || hoursResult.error || departmentsResult.error) {

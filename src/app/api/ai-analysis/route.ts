@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getDepartmentScope } from "@/lib/auth/department-scope";
-import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
+import { formatPhoneDisplay } from "@/lib/phone";
 import {
   createSupabaseServerClient,
   isSupabaseConfigured,
@@ -86,47 +86,31 @@ export async function GET(request: NextRequest) {
     access.user.id,
   );
 
-  const { data, error } = await access.supabase
-    .from("call_recordings")
-    .select(
-      "id,call_id,ticket_id,recording_type,duration_seconds,created_at,calls(customer_number,department_id,agents!agent_id(name),departments(name))",
-    )
-    .order("created_at", { ascending: false })
-    .limit(800);
+  // Search must run in SQL against the full table, not an in-memory filter
+  // over only the most-recently-created rows — otherwise a recording older
+  // than the fetch window can never be found regardless of how exact the
+  // phone match is. Reuses the same paginated-search RPC as /recordings.
+  const { data, error } = await access.supabase.rpc(
+    "list_call_recordings_page",
+    {
+      p_page: 1,
+      p_page_size: 40,
+      p_department_id: departmentScope,
+      p_recording_type: null,
+      p_search: phone,
+    },
+  );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const digits = phone.replace(/\D/g, "");
-  const recordings: CallRecording[] = (data ?? [])
-    .map((row) => {
-      const call = row.calls as unknown as {
-        customer_number: string;
-        department_id: string | null;
-        agents: { name: string } | null;
-        departments: { name: string } | null;
-      };
-      return {
-        id: row.id,
-        callId: row.call_id,
-        ticketId: row.ticket_id,
-        recordingType: row.recording_type,
-        durationSeconds: row.duration_seconds,
-        createdAt: row.created_at,
-        agentName: call?.agents?.name ?? null,
-        departmentId: call?.department_id ?? null,
-        departmentName: call?.departments?.name ?? null,
-        customerNumber: call?.customer_number ?? "",
-      };
-    })
-    .filter((recording) => {
-      if (departmentScope && recording.departmentId !== departmentScope) {
-        return false;
-      }
-      return phoneSearchText(recording.customerNumber).includes(digits);
-    })
-    .slice(0, 40);
+  const recordings: CallRecording[] = (
+    (data as { recordings?: CallRecording[] } | null)?.recordings ?? []
+  ).map((recording) => ({
+    ...recording,
+    customerNumber: recording.customerNumber ?? "",
+  }));
 
   return NextResponse.json({
     phone: formatPhoneDisplay(phone),

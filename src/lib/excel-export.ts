@@ -451,7 +451,7 @@ function buildDepartmentsOverviewSheet(
 
 function safeSheetName(name: string, used: Set<string>): string {
   const cleaned = name.replace(/[\\/?*[\]:]/g, " ").replace(/\s+/g, " ").trim();
-  let base = (cleaned || "מחלקה").slice(0, 28);
+  const base = (cleaned || "מחלקה").slice(0, 28);
   let candidate = base;
   let index = 2;
   while (used.has(candidate)) {

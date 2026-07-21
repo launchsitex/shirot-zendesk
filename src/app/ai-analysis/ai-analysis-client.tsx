@@ -177,7 +177,10 @@ export function AiAnalysisClient() {
                     </div>
                     <p className="text-xs text-[#7f8d94]">
                       {recording.departmentName ?? "ללא מחלקה"} ·{" "}
-                      {new Date(recording.createdAt).toLocaleString("he-IL")} ·{" "}
+                      {new Date(recording.createdAt).toLocaleString("he-IL", {
+                        timeZone: "Asia/Jerusalem",
+                      })}{" "}
+                      ·{" "}
                       {formatDuration(recording.durationSeconds)}
                       {recording.recordingType === "voicemail"
                         ? " · תא קולי"

@@ -222,6 +222,11 @@ function mapState(user: AircallUser) {
   if (states[substatus]) return states[substatus];
   if (user.availability_status === "available") return "available";
   if (user.availability_status === "custom") return "scheduled";
+  // Aircall reports a mid-call agent's availability_status as "in_call" /
+  // "after_call_work" — without these the roster sync could never restore
+  // on_call/wrap_up for an agent it's otherwise correctly leaving alone.
+  if (user.availability_status === "in_call") return "on_call";
+  if (user.availability_status === "after_call_work") return "wrap_up";
   return "unavailable";
 }
 
