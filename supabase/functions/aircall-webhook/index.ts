@@ -2,6 +2,7 @@ import {
   getAdminClient,
   jsonResponse,
 } from "../_shared/zendesk.ts";
+import { mapAvailability } from "../_shared/aircall-status.ts";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 type UnknownRecord = Record<string, unknown>;
@@ -695,46 +696,6 @@ async function storeRecording(
     { onConflict: "id" },
   );
   if (error) throw error;
-}
-
-function mapAvailability(user: UnknownRecord) {
-  const substatus = String(user.substatus ?? "")
-    .trim()
-    .toLowerCase();
-  const substatusStates: Record<string, string> = {
-    always_open: "available",
-    always_opened: "available",
-    available: "available",
-    according_to_schedule: "scheduled",
-    scheduled: "scheduled",
-    out_for_lunch: "out_for_lunch",
-    lunch: "out_for_lunch",
-    on_a_break: "on_break",
-    on_break: "on_break",
-    break: "on_break",
-    in_training: "in_training",
-    training: "in_training",
-    doing_back_office: "back_office",
-    back_office: "back_office",
-    other: "other",
-    always_closed: "unavailable",
-    unavailable: "unavailable",
-  };
-  if (substatusStates[substatus]) return substatusStates[substatus];
-
-  const availability = String(
-    user.availability_status ?? user.status ?? user.available ?? "",
-  ).toLowerCase();
-  if (
-    availability === "available" ||
-    availability === "custom" ||
-    availability === "true"
-  ) {
-    return "available";
-  }
-  if (availability === "in_call") return "on_call";
-  if (availability === "after_call_work") return "wrap_up";
-  return "unavailable";
 }
 
 function inferDepartment(teams: UnknownRecord[]) {

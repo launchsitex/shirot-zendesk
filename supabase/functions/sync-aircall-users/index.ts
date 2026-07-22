@@ -2,6 +2,7 @@ import {
   createClient,
   type SupabaseClient,
 } from "npm:@supabase/supabase-js@2";
+import { mapAvailability } from "../_shared/aircall-status.ts";
 
 type AircallNumber = {
   id: number;
@@ -130,7 +131,7 @@ async function syncUsers(supabase: SupabaseClient, users: AircallUser[]) {
 
     for (const user of users) {
       const agentId = String(user.id);
-      const state = mapState(user);
+      const state = mapAvailability(user);
       const { data: previous } = await supabase
         .from("agent_live_status")
         .select("state,state_since,current_call_started_at")
@@ -202,32 +203,6 @@ async function syncUsers(supabase: SupabaseClient, users: AircallUser[]) {
       if (error) throw error;
     }
   }
-}
-
-function mapState(user: AircallUser) {
-  const substatus = String(user.substatus ?? user.state ?? "").toLowerCase();
-  const states: Record<string, string> = {
-    always_open: "available",
-    always_opened: "available",
-    according_to_schedule: "scheduled",
-    auto: "scheduled",
-    out_for_lunch: "out_for_lunch",
-    on_a_break: "on_break",
-    on_break: "on_break",
-    in_training: "in_training",
-    doing_back_office: "back_office",
-    other: "other",
-    always_closed: "unavailable",
-  };
-  if (states[substatus]) return states[substatus];
-  if (user.availability_status === "available") return "available";
-  if (user.availability_status === "custom") return "scheduled";
-  // Aircall reports a mid-call agent's availability_status as "in_call" /
-  // "after_call_work" — without these the roster sync could never restore
-  // on_call/wrap_up for an agent it's otherwise correctly leaving alone.
-  if (user.availability_status === "in_call") return "on_call";
-  if (user.availability_status === "after_call_work") return "wrap_up";
-  return "unavailable";
 }
 
 function getAdminClient() {

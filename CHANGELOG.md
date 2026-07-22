@@ -9,6 +9,35 @@
 
 ---
 
+## [2026-07-22] — תיקון סטטוס נציג תקוע/שגוי במסך מוקד (TV)
+
+### באג — ארכיטקטורה של כתיבות כפולות/מתפצלות לסטטוס נציג
+- מנהלים דיווחו שסטטוס נציג במסך המוקד (TV) לא מתעדכן כשהוא משתנה
+  בפועל ב-Aircall (למשל נכנס לשיחה, משנה נוכחות).
+- הסיבה: היו **6 כותבים עצמאיים** לעמודת `agent_live_status.state`, עם
+  **3 עותקים נפרדים ומתפצלים** של לוגיקת "תרגום סטטוס Aircall לסטטוס
+  פנימי" — `mapAvailability` ב-webhook, `mapState` ב-cron
+  `sync-aircall-users` (רץ כל דקה ללא תלות באירועים), ו-
+  `private.aircall_state_from_user()` ב-SQL (נקרא משני triggers).
+  אומתו אי-התאמות בפועל: `"custom"` ממופה ל-`available` בעותק אחד
+  ול-`scheduled` בשניים אחרים; ל-`mapState` חסרים מפתחות נרדפים
+  שקיימים בעותקים האחרים — ומכיוון שהוא רץ כל 60 שניות ללא קשר
+  לאירועים, ערך לא-מזוהה שם גורם לסטטוס שגוי שנכפה מחדש כל דקה. טריגר
+  SQL נוסף (`apply_aircall_user_status`) התברר ככפילות מוחלטת של מה
+  שהוובהוק כבר כתב רגע קודם באותה בקשה.
+- תוקן ע"י איחוד הלוגיקה למקור אמת יחיד: `mapAvailability()` חדש ב-
+  `supabase/functions/_shared/aircall-status.ts`, בשימוש הן ע"י
+  ה-webhook והן ע"י ה-cron. שני ה-triggers המיותרים ב-SQL
+  (`apply_aircall_user_status`, `guard_aircall_agent_status_order`)
+  הוסרו במיגרציה חדשה. **החלטת מוצר:** סטטוס "Custom"/לא-מזוהה מוצג
+  כעת כ-`other` ("אחר") במקום נדחס בטעות ל"זמין" או "לפי לוח".
+- קבצים: `supabase/functions/_shared/aircall-status.ts` (חדש),
+  `supabase/functions/aircall-webhook/index.ts`,
+  `supabase/functions/sync-aircall-users/index.ts`,
+  `supabase/migrations/20260722140000_retire_duplicate_agent_status_triggers.sql`.
+
+---
+
 ## [2026-07-22] — תיקון "gemini_empty_response" בניתוח AI לנציג
 
 ### באג — ניתוח יום נציג נעצר ב-~80% עם שגיאת gemini_empty_response
