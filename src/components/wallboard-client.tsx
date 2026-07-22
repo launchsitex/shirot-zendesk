@@ -16,7 +16,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
 import { getHomeHref, type AppProfile } from "@/lib/app-pages";
 import { splitCallsByBusinessHours } from "@/lib/business-hours";
@@ -75,17 +75,22 @@ export function WallboardClient() {
   const [now, setNow] = useState(() => new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [profile, setProfile] = useState<AppProfile | null>(null);
+  const latestRequest = useRef(0);
 
   const loadData = useCallback(async () => {
+    const requestId = ++latestRequest.current;
     const day = todayJerusalem();
     try {
       const response = await fetch(`/api/dashboard?from=${day}&to=${day}`, {
         cache: "no-store",
       });
       if (!response.ok) throw new Error("לא ניתן לטעון את נתוני המוקד");
-      setData(await response.json());
+      const result = await response.json();
+      if (requestId !== latestRequest.current) return;
+      setData(result);
       setError("");
     } catch (loadError) {
+      if (requestId !== latestRequest.current) return;
       setError(
         loadError instanceof Error ? loadError.message : "אירעה שגיאה",
       );
