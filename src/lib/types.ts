@@ -67,6 +67,8 @@ export interface Kpis {
   outbound: number;
   answered: number;
   missed: number;
+  /** Missed inbound calls where the customer waited under the configured short-no-answer threshold. */
+  missedShort: number;
   answerRate: number;
   totalTalkSeconds: number;
   averageTalkSeconds: number;

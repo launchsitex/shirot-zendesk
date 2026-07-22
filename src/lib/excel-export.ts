@@ -9,6 +9,7 @@ const ALT_ROW = "F8FBFC";
 const GOOD = "1F7A55";
 const BAD = "C34850";
 const MUTED = "66757D";
+const SHORT_NO_ANSWER = "B47A16";
 
 export type AnalyticsExportMeta = {
   title?: string;
@@ -34,6 +35,7 @@ export type AnalyticsExportAgent = {
   total: number;
   answered: number;
   missed: number;
+  missedShort: number;
   answerRate: number;
   transfers: number;
   talkSeconds: number;
@@ -51,6 +53,7 @@ export type AnalyticsExportDay = {
   total: number;
   answered?: number;
   missed?: number;
+  missedShort?: number;
   answerRate?: number;
 };
 
@@ -61,6 +64,7 @@ export type AnalyticsExportHour = {
   inbound: number;
   answered: number;
   missed: number;
+  missedShort: number;
   answerRate: number;
 };
 
@@ -296,6 +300,11 @@ function buildSummarySheet(
     ["אחוז מענה", `${input.kpis.answerRate}%`, "מתוך שיחות נכנסות שהסתיימו"],
     ["נכנסות שנענו", input.kpis.answered, "שיחות נכנסות שנענו בפועל"],
     ["נכנסות שלא נענו", input.kpis.missed, "שיחות נכנסות שהוחמצו"],
+    [
+      "לא נענה פחות זמן",
+      input.kpis.missedShort,
+      "שיחות שלא נענו אך המתנת הלקוח הייתה קצרה מהסף שהוגדר בהגדרות",
+    ],
     ["שיחות יוצאות", input.kpis.outbound, "שיחות יוצאות שהסתיימו"],
     ["סה״כ שיחות", input.kpis.total, "נכנסות + יוצאות שהסתיימו"],
     ["זמן שיחה ממוצע", formatDuration(input.kpis.averageTalkSeconds), "ממוצע זמן דיבור"],
@@ -375,6 +384,7 @@ function buildDepartmentsOverviewSheet(
     "נכנסות",
     "נענו",
     "לא נענו",
+    "לא נענה פחות זמן",
     "אחוז מענה",
     "יוצאות",
     "זמן שיחה ממוצע",
@@ -384,7 +394,7 @@ function buildDepartmentsOverviewSheet(
     "מענה חלש",
     "מספר נציגים",
   ];
-  styleHeaderRow(header, 13);
+  styleHeaderRow(header, 14);
 
   input.departments.forEach((department, index) => {
     const row = sheet.getRow(5 + index);
@@ -394,6 +404,7 @@ function buildDepartmentsOverviewSheet(
       department.kpis.inbound,
       department.kpis.answered,
       department.kpis.missed,
+      department.kpis.missedShort,
       department.kpis.answerRate / 100,
       department.kpis.outbound,
       formatDuration(department.kpis.averageTalkSeconds),
@@ -403,11 +414,11 @@ function buildDepartmentsOverviewSheet(
       department.weakHourLabel ?? "—",
       department.agents.length,
     ];
-    for (let col = 1; col <= 13; col += 1) {
+    for (let col = 1; col <= 14; col += 1) {
       styleBodyCell(row.getCell(col), index % 2 === 1);
     }
-    row.getCell(6).numFmt = "0%";
-    row.getCell(6).font = {
+    row.getCell(7).numFmt = "0%";
+    row.getCell(7).font = {
       name: "Arial",
       size: 10,
       bold: true,
@@ -424,6 +435,7 @@ function buildDepartmentsOverviewSheet(
     input.kpis.inbound,
     input.kpis.answered,
     input.kpis.missed,
+    input.kpis.missedShort,
     input.kpis.answerRate / 100,
     input.kpis.outbound,
     formatDuration(input.kpis.averageTalkSeconds),
@@ -433,7 +445,7 @@ function buildDepartmentsOverviewSheet(
     input.weakHourLabel ?? "—",
     input.agents.length,
   ];
-  for (let col = 1; col <= 13; col += 1) {
+  for (let col = 1; col <= 14; col += 1) {
     const cell = totalsRow.getCell(col);
     cell.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = {
@@ -443,7 +455,7 @@ function buildDepartmentsOverviewSheet(
     };
     cell.alignment = { horizontal: "right", readingOrder: "rtl" };
   }
-  totalsRow.getCell(6).numFmt = "0%";
+  totalsRow.getCell(7).numFmt = "0%";
 
   sheet.views = [{ rightToLeft: true, state: "frozen", ySplit: 4 }];
   autofit(sheet, 12, 26);
@@ -493,6 +505,7 @@ function buildDepartmentSheet(
     ["אחוז מענה", `${department.kpis.answerRate}%`],
     ["נכנסות שנענו", department.kpis.answered],
     ["נכנסות שלא נענו", department.kpis.missed],
+    ["לא נענה פחות זמן", department.kpis.missedShort],
     ["שיחות יוצאות", department.kpis.outbound],
     ["סה״כ שיחות", department.kpis.total],
     ["זמן שיחה ממוצע", formatDuration(department.kpis.averageTalkSeconds)],
@@ -523,6 +536,7 @@ function buildDepartmentSheet(
     "סה״כ",
     "נענו",
     "לא נענו",
+    "לא נענה פחות זמן",
     "אחוז מענה",
     "יוצאות",
     "העברות",
@@ -531,7 +545,7 @@ function buildDepartmentSheet(
     "ASA",
     "המתנה",
   ];
-  styleHeaderRow(agentHeader, 12);
+  styleHeaderRow(agentHeader, 13);
 
   department.agents.forEach((agent, index) => {
     const row = sheet.getRow(agentsStart + 2 + index);
@@ -541,6 +555,7 @@ function buildDepartmentSheet(
       agent.total,
       agent.answered,
       agent.missed,
+      agent.missedShort,
       agent.answerRate / 100,
       agent.outbound ?? 0,
       agent.transfers,
@@ -549,10 +564,10 @@ function buildDepartmentSheet(
       formatSecondsLabel(agent.averageAsaSeconds ?? 0),
       formatSecondsLabel(agent.averageWaitSeconds ?? 0),
     ];
-    for (let col = 1; col <= 12; col += 1) {
+    for (let col = 1; col <= 13; col += 1) {
       styleBodyCell(row.getCell(col), index % 2 === 1);
     }
-    row.getCell(6).numFmt = "0%";
+    row.getCell(7).numFmt = "0%";
   });
 
   const hourlyStart = agentsStart + 2 + department.agents.length + 2;
@@ -564,9 +579,10 @@ function buildDepartmentSheet(
     "נכנסות",
     "נענו",
     "לא נענו",
+    "לא נענה פחות זמן",
     "אחוז מענה",
   ];
-  styleHeaderRow(hourHeader, 6);
+  styleHeaderRow(hourHeader, 7);
   department.hourly.forEach((hour, index) => {
     const row = sheet.getRow(hourlyStart + 2 + index);
     row.values = [
@@ -575,12 +591,13 @@ function buildDepartmentSheet(
       hour.inbound,
       hour.answered,
       hour.missed,
+      hour.missedShort,
       hour.inbound ? hour.answerRate / 100 : null,
     ];
-    for (let col = 1; col <= 6; col += 1) {
+    for (let col = 1; col <= 7; col += 1) {
       styleBodyCell(row.getCell(col), index % 2 === 1);
     }
-    row.getCell(6).numFmt = "0%";
+    row.getCell(7).numFmt = "0%";
   });
 
   sheet.getColumn(1).width = 18;
@@ -616,6 +633,9 @@ function buildComparisonsSheet(
     "לא נענו (נוכחי)",
     "לא נענו (קודם)",
     "שינוי לא נענו",
+    "לא נענה פחות זמן (נוכחי)",
+    "לא נענה פחות זמן (קודם)",
+    "שינוי לא נענה פחות זמן",
     "ממוצע שיחה (נוכחי)",
     "ממוצע שיחה (קודם)",
     "שינוי ממוצע שיחה (שנ׳)",
@@ -625,11 +645,15 @@ function buildComparisonsSheet(
     "המתנה ממוצעת קודמת",
     "סה״כ שיחות קודם",
   ];
-  styleHeaderRow(header, 16);
+  styleHeaderRow(header, 19);
 
   input.comparisons.forEach((comparison, index) => {
     const answerDelta = kpiDelta(input.kpis.answerRate, comparison.kpis.answerRate);
     const missedDelta = kpiDelta(input.kpis.missed, comparison.kpis.missed);
+    const missedShortDelta = kpiDelta(
+      input.kpis.missedShort,
+      comparison.kpis.missedShort,
+    );
     const talkDelta = kpiDelta(
       input.kpis.averageTalkSeconds,
       comparison.kpis.averageTalkSeconds,
@@ -646,6 +670,9 @@ function buildComparisonsSheet(
       input.kpis.missed,
       comparison.kpis.missed,
       signed(missedDelta),
+      input.kpis.missedShort,
+      comparison.kpis.missedShort,
+      signed(missedShortDelta),
       formatDuration(input.kpis.averageTalkSeconds),
       formatDuration(comparison.kpis.averageTalkSeconds),
       signed(talkDelta),
@@ -655,7 +682,7 @@ function buildComparisonsSheet(
       formatSecondsLabel(comparison.kpis.averageWaitSeconds),
       comparison.kpis.total,
     ];
-    for (let col = 1; col <= 16; col += 1) {
+    for (let col = 1; col <= 19; col += 1) {
       styleBodyCell(row.getCell(col), index % 2 === 1);
     }
     row.getCell(5).font = {
@@ -671,6 +698,12 @@ function buildComparisonsSheet(
       color: { argb: `FF${deltaTone(missedDelta, false)}` },
     };
     row.getCell(11).font = {
+      name: "Arial",
+      size: 10,
+      bold: true,
+      color: { argb: `FF${deltaTone(missedShortDelta, false)}` },
+    };
+    row.getCell(14).font = {
       name: "Arial",
       size: 10,
       bold: true,
@@ -705,6 +738,7 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
     "סה״כ שיחות",
     "נענו",
     "לא נענו",
+    "לא נענה פחות זמן",
     "אחוז מענה",
     "יוצאות",
     "העברות שיחה",
@@ -713,7 +747,7 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
     "ASA ממוצע",
     "המתנה ממוצעת",
   ];
-  styleHeaderRow(header, 13);
+  styleHeaderRow(header, 14);
 
   sortedAgents.forEach((agent, index) => {
     const row = sheet.getRow(4 + index);
@@ -724,6 +758,7 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
       agent.total,
       agent.answered,
       agent.missed,
+      agent.missedShort,
       agent.answerRate / 100,
       agent.outbound ?? "",
       agent.transfers,
@@ -736,19 +771,19 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
         ? formatSecondsLabel(agent.averageWaitSeconds)
         : "",
     ];
-    for (let col = 1; col <= 13; col += 1) {
+    for (let col = 1; col <= 14; col += 1) {
       styleBodyCell(row.getCell(col), index % 2 === 1);
     }
-    row.getCell(7).numFmt = "0%";
+    row.getCell(8).numFmt = "0%";
     if (agent.answerRate < 80 && agent.answered + agent.missed > 0) {
-      row.getCell(7).font = {
+      row.getCell(8).font = {
         name: "Arial",
         size: 10,
         bold: true,
         color: { argb: `FF${BAD}` },
       };
     } else {
-      row.getCell(7).font = {
+      row.getCell(8).font = {
         name: "Arial",
         size: 10,
         bold: true,
@@ -760,6 +795,10 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
   const totalsRow = sheet.getRow(4 + sortedAgents.length + 1);
   const answered = sortedAgents.reduce((sum, agent) => sum + agent.answered, 0);
   const missed = sortedAgents.reduce((sum, agent) => sum + agent.missed, 0);
+  const missedShort = sortedAgents.reduce(
+    (sum, agent) => sum + agent.missedShort,
+    0,
+  );
   const inbound = answered + missed;
   totalsRow.values = [
     "",
@@ -768,6 +807,7 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
     sortedAgents.reduce((sum, agent) => sum + agent.total, 0),
     answered,
     missed,
+    missedShort,
     inbound ? answered / inbound : 0,
     sortedAgents.reduce((sum, agent) => sum + (agent.outbound ?? 0), 0),
     sortedAgents.reduce((sum, agent) => sum + agent.transfers, 0),
@@ -776,7 +816,7 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
     formatSecondsLabel(input.kpis.averageAsaSeconds),
     formatSecondsLabel(input.kpis.averageWaitSeconds),
   ];
-  for (let col = 1; col <= 13; col += 1) {
+  for (let col = 1; col <= 14; col += 1) {
     const cell = totalsRow.getCell(col);
     cell.font = { name: "Arial", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
     cell.fill = {
@@ -786,12 +826,12 @@ function buildAgentsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
     };
     cell.alignment = { horizontal: "right", readingOrder: "rtl" };
   }
-  totalsRow.getCell(7).numFmt = "0%";
+  totalsRow.getCell(8).numFmt = "0%";
 
   sheet.views = [{ rightToLeft: true, state: "frozen", ySplit: 3 }];
   sheet.autoFilter = {
     from: { row: 3, column: 1 },
-    to: { row: 3 + Math.max(sortedAgents.length, 1), column: 13 },
+    to: { row: 3 + Math.max(sortedAgents.length, 1), column: 14 },
   };
   autofit(sheet, 10, 22);
 }
@@ -824,10 +864,11 @@ function buildHourlySheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
     "נכנסות",
     "נענו",
     "לא נענו",
+    "לא נענה פחות זמן",
     "אחוז מענה",
     "הערת עומס",
   ];
-  styleHeaderRow(header, 7);
+  styleHeaderRow(header, 8);
 
   const maxInbound = Math.max(...input.hourly.map((hour) => hour.inbound), 1);
   input.hourly.forEach((hour, index) => {
@@ -844,15 +885,16 @@ function buildHourlySheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
       hour.inbound,
       hour.answered,
       hour.missed,
+      hour.missedShort,
       hour.inbound ? hour.answerRate / 100 : null,
       load,
     ];
-    for (let col = 1; col <= 7; col += 1) {
+    for (let col = 1; col <= 8; col += 1) {
       styleBodyCell(row.getCell(col), index % 2 === 1);
     }
-    row.getCell(6).numFmt = "0%";
+    row.getCell(7).numFmt = "0%";
     if (load === "שיא עומס") {
-      row.getCell(7).font = {
+      row.getCell(8).font = {
         name: "Arial",
         size: 10,
         bold: true,
@@ -860,7 +902,7 @@ function buildHourlySheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInpu
       };
     }
     if (load === "מענה חלש") {
-      row.getCell(7).font = {
+      row.getCell(8).font = {
         name: "Arial",
         size: 10,
         bold: true,
@@ -890,9 +932,10 @@ function buildDailySheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInput
     "סה״כ",
     "נענו",
     "לא נענו",
+    "לא נענה פחות זמן",
     "אחוז מענה",
   ];
-  styleHeaderRow(header, 8);
+  styleHeaderRow(header, 9);
 
   input.daily.forEach((day, index) => {
     const row = sheet.getRow(4 + index);
@@ -904,12 +947,13 @@ function buildDailySheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInput
       day.total,
       day.answered ?? "",
       day.missed ?? "",
+      day.missedShort ?? "",
       day.answerRate != null ? day.answerRate / 100 : null,
     ];
-    for (let col = 1; col <= 8; col += 1) {
+    for (let col = 1; col <= 9; col += 1) {
       styleBodyCell(row.getCell(col), index % 2 === 1);
     }
-    row.getCell(8).numFmt = "0%";
+    row.getCell(9).numFmt = "0%";
   });
 
   sheet.views = [{ rightToLeft: true, state: "frozen", ySplit: 3 }];
@@ -968,6 +1012,13 @@ function buildCallsSheet(workbook: ExcelJS.Workbook, input: AnalyticsExportInput
         size: 10,
         bold: true,
         color: { argb: `FF${BAD}` },
+      };
+    } else if (call.status === "לא נענה פחות זמן") {
+      row.getCell(3).font = {
+        name: "Arial",
+        size: 10,
+        bold: true,
+        color: { argb: `FF${SHORT_NO_ANSWER}` },
       };
     }
   });

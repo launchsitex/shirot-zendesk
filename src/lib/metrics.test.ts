@@ -8,6 +8,7 @@ import {
   groupCallsByHour,
   inboundWaitSeconds,
   isCallInRange,
+  isShortNoAnswer,
   previousEqualPeriod,
   shiftCalendarDate,
 } from "@/lib/metrics";
@@ -69,12 +70,13 @@ const calls: CallRecord[] = [
 
 describe("calculateKpis", () => {
   it("calculates inbound answer rate without counting outbound calls", () => {
-    expect(calculateKpis(calls)).toEqual({
+    expect(calculateKpis(calls, 0)).toEqual({
       total: 3,
       inbound: 2,
       outbound: 1,
       answered: 1,
       missed: 1,
+      missedShort: 0,
       answerRate: 50,
       totalTalkSeconds: 150,
       averageTalkSeconds: 75,
@@ -104,19 +106,37 @@ describe("calculateKpis", () => {
         waitTimeSeconds: 12,
       },
     ];
-    const kpis = calculateKpis(withLive);
+    const kpis = calculateKpis(withLive, 0);
     expect(kpis.total).toBe(3);
-    expect(kpis.answered + kpis.missed + kpis.outbound).toBe(kpis.total);
+    expect(kpis.answered + kpis.missed + kpis.missedShort + kpis.outbound).toBe(
+      kpis.total,
+    );
   });
 
   it("returns zero answer rate when there are no inbound calls", () => {
-    expect(calculateKpis([calls[2]]).answerRate).toBe(0);
+    expect(calculateKpis([calls[2]], 0).answerRate).toBe(0);
+  });
+
+  it("reclassifies short-wait missed calls as missedShort and excludes them from answerRate", () => {
+    // calls[1] is missed with a 30s wait (see inboundWaitSeconds test below).
+    const kpis = calculateKpis(calls, 60);
+    expect(kpis.missed).toBe(0);
+    expect(kpis.missedShort).toBe(1);
+    // answered(1) / (answered(1) + missed(0)) = 100%, missedShort excluded entirely.
+    expect(kpis.answerRate).toBe(100);
   });
 });
 
 describe("wait metrics", () => {
   it("uses duration as wait for missed calls without wait_time", () => {
     expect(inboundWaitSeconds(calls[1])).toBe(30);
+  });
+
+  it("classifies a missed call as short no-answer only under the threshold", () => {
+    expect(isShortNoAnswer(calls[1], 60)).toBe(true);
+    expect(isShortNoAnswer(calls[1], 10)).toBe(false);
+    expect(isShortNoAnswer(calls[1], 0)).toBe(false);
+    expect(isShortNoAnswer(calls[0], 60)).toBe(false);
   });
 });
 
@@ -169,7 +189,7 @@ describe("period helpers", () => {
 
 describe("hourly grouping", () => {
   it("groups inbound answer rate by Jerusalem hour", () => {
-    const hourly = groupCallsByHour(calls);
+    const hourly = groupCallsByHour(calls, 0);
     const answeredHour = Number(
       new Intl.DateTimeFormat("en-GB", {
         timeZone: "Asia/Jerusalem",

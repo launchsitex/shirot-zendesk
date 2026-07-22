@@ -163,7 +163,9 @@ export function WallboardClient() {
     [data?.calls, businessHours],
   );
 
-  const kpis = useMemo(() => calculateKpis(businessCalls), [businessCalls]);
+  // TV wallboard intentionally ignores the "missed_short" threshold — it always
+  // shows the full raw missed-call count, unaffected by the reports-only setting.
+  const kpis = useMemo(() => calculateKpis(businessCalls, 0), [businessCalls]);
 
   const waitingCalls = useMemo(
     () =>

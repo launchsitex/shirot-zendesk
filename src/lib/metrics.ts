@@ -13,12 +13,35 @@ export function inboundWaitSeconds(call: CallRecord): number | null {
   return 0;
 }
 
-export function calculateKpis(calls: CallRecord[]): Kpis {
+/**
+ * A missed inbound call where the customer waited no longer than the
+ * admin-configured threshold before hanging up. Display-only classification —
+ * call.status stays "missed" in the DB either way.
+ */
+export function isShortNoAnswer(
+  call: CallRecord,
+  thresholdSeconds: number,
+): boolean {
+  if (call.status !== "missed" || thresholdSeconds <= 0) return false;
+  const wait = inboundWaitSeconds(call);
+  return wait !== null && wait <= thresholdSeconds;
+}
+
+export function calculateKpis(
+  calls: CallRecord[],
+  thresholdSeconds: number,
+): Kpis {
   // Exclude live/in-progress calls so totals match answered + missed + outbound.
   const completed = calls.filter((call) => call.status !== "in_progress");
   const inbound = completed.filter((call) => call.direction === "inbound");
   const answered = inbound.filter((call) => call.status === "answered");
-  const missed = inbound.filter((call) => call.status === "missed");
+  const missedCalls = inbound.filter((call) => call.status === "missed");
+  const missed = missedCalls.filter(
+    (call) => !isShortNoAnswer(call, thresholdSeconds),
+  );
+  const missedShort = missedCalls.filter((call) =>
+    isShortNoAnswer(call, thresholdSeconds),
+  );
   const outbound = completed.filter((call) => call.direction === "outbound");
   const completedWithTalk = completed.filter(
     (call) => call.talkTimeSeconds > 0,
@@ -35,14 +58,17 @@ export function calculateKpis(calls: CallRecord[]): Kpis {
     .map(inboundWaitSeconds)
     .filter((value): value is number => value !== null);
 
+  const answerRateBase = answered.length + missed.length;
+
   return {
     total: completed.length,
     inbound: inbound.length,
     outbound: outbound.length,
     answered: answered.length,
     missed: missed.length,
-    answerRate: inbound.length
-      ? Math.round((answered.length / inbound.length) * 100)
+    missedShort: missedShort.length,
+    answerRate: answerRateBase
+      ? Math.round((answered.length / answerRateBase) * 100)
       : 0,
     totalTalkSeconds,
     averageTalkSeconds: completedWithTalk.length
@@ -220,10 +246,14 @@ export type HourBucket = {
   inbound: number;
   answered: number;
   missed: number;
+  missedShort: number;
   answerRate: number;
 };
 
-export function groupCallsByHour(calls: CallRecord[]): HourBucket[] {
+export function groupCallsByHour(
+  calls: CallRecord[],
+  thresholdSeconds: number,
+): HourBucket[] {
   const buckets = Array.from({ length: 24 }, (_, hour) => ({
     hour,
     label: `${hour.toString().padStart(2, "0")}:00`,
@@ -231,6 +261,7 @@ export function groupCallsByHour(calls: CallRecord[]): HourBucket[] {
     inbound: 0,
     answered: 0,
     missed: 0,
+    missedShort: 0,
   }));
 
   const hourFormatter = new Intl.DateTimeFormat("en-GB", {
@@ -248,14 +279,17 @@ export function groupCallsByHour(calls: CallRecord[]): HourBucket[] {
     if (call.direction === "inbound") {
       bucket.inbound += 1;
       if (call.status === "answered") bucket.answered += 1;
-      if (call.status === "missed") bucket.missed += 1;
+      if (call.status === "missed") {
+        if (isShortNoAnswer(call, thresholdSeconds)) bucket.missedShort += 1;
+        else bucket.missed += 1;
+      }
     }
   });
 
   return buckets.map((bucket) => ({
     ...bucket,
-    answerRate: bucket.inbound
-      ? Math.round((bucket.answered / bucket.inbound) * 100)
+    answerRate: bucket.answered + bucket.missed
+      ? Math.round((bucket.answered / (bucket.answered + bucket.missed)) * 100)
       : 0,
   }));
 }

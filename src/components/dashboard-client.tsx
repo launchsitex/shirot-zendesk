@@ -24,6 +24,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
+import { useMissedCallThreshold } from "@/hooks/use-missed-call-threshold";
 import { splitCallsByBusinessHours } from "@/lib/business-hours";
 import {
   createSupabaseBrowserClient,
@@ -33,6 +34,7 @@ import {
   calculateKpis,
   filterCalls,
   formatDuration,
+  isShortNoAnswer,
 } from "@/lib/metrics";
 import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import type {
@@ -126,6 +128,7 @@ export function DashboardClient() {
   const [, setTick] = useState(0);
   const latestRequest = useRef(0);
   const { config: businessHours } = useBusinessHoursConfig();
+  const { thresholdSeconds } = useMissedCallThreshold();
 
   const loadData = useCallback(async (quiet = false) => {
     const requestId = ++latestRequest.current;
@@ -258,7 +261,7 @@ export function DashboardClient() {
       ).business,
     [data, filters.departmentId, businessHours],
   );
-  const kpis = calculateKpis(visibleCalls);
+  const kpis = calculateKpis(visibleCalls, thresholdSeconds);
 
   function setPreset(preset: DashboardFilters["preset"]) {
     setFilters((current) => ({
@@ -597,7 +600,7 @@ export function DashboardClient() {
                       {formatPhoneDisplay(call.customerNumber)}
                     </td>
                     <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
-                      <CallStatus call={call} />
+                      <CallStatus call={call} thresholdSeconds={thresholdSeconds} />
                     </td>
                     <td className="w-0 whitespace-nowrap px-2.5 py-2.5 text-[#526169]">
                       {new Date(call.startedAt).toLocaleTimeString("he-IL", {
@@ -742,21 +745,36 @@ function MetricCard({
   );
 }
 
-function CallStatus({ call }: { call: CallRecord }) {
+function CallStatus({
+  call,
+  thresholdSeconds,
+}: {
+  call: CallRecord;
+  thresholdSeconds: number;
+}) {
   // An in_progress call isn't "בשיחה" (on a call) until someone actually
   // answers it — otherwise this contradicts the "לקוח ממתין"/"מצלצל" label
   // shown for the very same row elsewhere in the table.
-  const key: "answered" | "missed" | "waiting" | "ringing" | "on_call" =
-    call.status !== "in_progress"
-      ? call.status
-      : !call.agentId
-        ? "waiting"
-        : call.talkTimeSeconds > 0
-          ? "on_call"
-          : "ringing";
+  const key:
+    | "answered"
+    | "missed"
+    | "missed_short"
+    | "waiting"
+    | "ringing"
+    | "on_call" =
+    call.status === "missed" && isShortNoAnswer(call, thresholdSeconds)
+      ? "missed_short"
+      : call.status !== "in_progress"
+        ? call.status
+        : !call.agentId
+          ? "waiting"
+          : call.talkTimeSeconds > 0
+            ? "on_call"
+            : "ringing";
   const styles = {
     answered: "bg-[#e4f5ea] text-[#298653]",
     missed: "bg-[#fdebed] text-[#c8434c]",
+    missed_short: "bg-[#fff3d9] text-[#b47a16]",
     waiting: "bg-[#fff3d9] text-[#9a6811]",
     ringing: "bg-[#fff3d9] text-[#9a6811]",
     on_call: "bg-[#e7efff] text-[#396acb]",
@@ -764,6 +782,7 @@ function CallStatus({ call }: { call: CallRecord }) {
   const labels = {
     answered: "נענתה",
     missed: "לא נענתה",
+    missed_short: "לא נענה פחות זמן",
     waiting: "ממתין למענה",
     ringing: "מצלצל",
     on_call: "בשיחה",

@@ -9,6 +9,17 @@
 
 ---
 
+## [2026-07-22] — פיצ'ר: סף "לא נענה פחות זמן" (ניתן להגדרה)
+
+### פיצ'ר חדש
+- מנהל יכול להגדיר בעמוד ההגדרות סף המתנה בשניות (גלובלי, ברירת מחדל 60). שיחות נכנסות שלא נענו וזמן ההמתנה של הלקוח בהן היה מתחת לסף מסווגות לתצוגה כ"לא נענה פחות זמן" — לא נספרות כ"לא נענו" ולא משפיעות על אחוז המענה (כללי או פר-מחלקה/נציג), אך ממשיכות להופיע בכל מקום במערכת. `calls.status` ב-DB לא משתנה — סיווג נגזר/display-only בלבד (`isShortNoAnswer()` ב-`metrics.ts`), כך שנתוני עבר לא נמחקים ולא משתנים.
+- **חריג מכוון:** מסך מוקד (TV) (`/wallboard`) ממשיך להציג את מונה "לא נענו" המקורי (כולל שיחות קצרות) — לא עבר את הסינון החדש, לפי בקשה מפורשת (הכי חשוב שם יציבות/פשטות, לא הפילוח).
+- טבלה חדשה `missed_call_settings` (singleton row, RLS admin-write) — קובץ migration בלבד, טרם הורץ מול Supabase החי.
+- מחוץ להיקף: ה-Edge Function `analyze-agent-day` (עמוד "ניתוח AI לנציגים") לא עודכן — runtime נפרד, ידרוש שינוי נפרד בהמשך אם יידרש.
+- קבצים עיקריים: `supabase/migrations/20260722120000_missed_call_threshold.sql`, `src/app/api/settings/missed-call-threshold/route.ts`, `src/hooks/use-missed-call-threshold.ts`, `src/components/missed-call-threshold-settings.tsx`, `src/lib/metrics.ts`, `src/lib/types.ts`, `src/lib/excel-export.ts`, `src/components/section-pages.tsx`, `src/components/dashboard-client.tsx`, `src/app/after-hours/after-hours-client.tsx`.
+
+---
+
 ## [2026-07-22] — תיקון תנודתיות במונה "לא נענו" במסך מוקד (TV)
 
 ### באג — Race condition בטעינת נתונים

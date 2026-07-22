@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
+import { useMissedCallThreshold } from "@/hooks/use-missed-call-threshold";
 import { splitCallsByBusinessHours } from "@/lib/business-hours";
 import { formatIsraelDateTime } from "@/lib/israel-time";
 import {
@@ -36,6 +37,7 @@ import {
   formatSecondsLabel,
   groupCallsByHour,
   inboundWaitSeconds,
+  isShortNoAnswer,
   kpiDelta,
   peakHoursForDisplay,
 } from "@/lib/metrics";
@@ -197,6 +199,7 @@ function PageState({
 export function CallsHistory() {
   const { data, error } = useDashboardData();
   const { config: businessHours } = useBusinessHoursConfig();
+  const { thresholdSeconds } = useMissedCallThreshold();
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [direction, setDirection] = useState("");
@@ -225,7 +228,14 @@ export function CallsHistory() {
               )) &&
             (!department || call.departmentId === department) &&
             (!direction || call.direction === direction) &&
-            (!status || call.status === status)
+            (!status ||
+              (status === "missed_short"
+                ? call.status === "missed" &&
+                  isShortNoAnswer(call, thresholdSeconds)
+                : status === "missed"
+                  ? call.status === "missed" &&
+                    !isShortNoAnswer(call, thresholdSeconds)
+                  : call.status === status))
           );
         });
 
@@ -279,6 +289,7 @@ export function CallsHistory() {
                 options={[
                   { value: "answered", label: "נענתה" },
                   { value: "missed", label: "לא נענתה" },
+                  { value: "missed_short", label: "לא נענה פחות זמן" },
                   { value: "in_progress", label: "בשיחה" },
                 ]}
               />
@@ -352,7 +363,7 @@ export function CallsHistory() {
                           {formatPhoneDisplay(call.customerNumber)}
                         </td>
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
-                          <CallBadge call={call} />
+                          <CallBadge call={call} thresholdSeconds={thresholdSeconds} />
                         </td>
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           {new Date(call.startedAt).toLocaleString("he-IL", {
@@ -528,6 +539,7 @@ export function AnalyticsReports() {
   const fetchFrom = useMemo(() => earliestFetchFrom(filters), [filters]);
   const { data, error } = useDashboardData(fetchFrom, filters.to);
   const { config: businessHours } = useBusinessHoursConfig();
+  const { thresholdSeconds } = useMissedCallThreshold();
 
   useEffect(() => {
     if (!data?.scopedDepartmentId) return;
@@ -584,7 +596,7 @@ export function AnalyticsReports() {
   return (
     <PageState data={data} error={error}>
       {(dashboard) => {
-        const kpis = calculateKpis(filteredCalls);
+        const kpis = calculateKpis(filteredCalls, thresholdSeconds);
         const comparisons = comparisonPeriods(filters).map((period) => {
           const periodCalls = splitCallsByBusinessHours(
             filterCalls(
@@ -598,12 +610,14 @@ export function AnalyticsReports() {
           ).business;
           return {
             ...period,
-            kpis: calculateKpis(periodCalls),
+            kpis: calculateKpis(periodCalls, thresholdSeconds),
           };
         });
-        const daily = groupCallsByDay(filteredCalls);
+        const daily = groupCallsByDay(filteredCalls, thresholdSeconds);
         const maxDaily = Math.max(...daily.map((day) => day.total), 1);
-        const hourly = peakHoursForDisplay(groupCallsByHour(filteredCalls));
+        const hourly = peakHoursForDisplay(
+          groupCallsByHour(filteredCalls, thresholdSeconds),
+        );
         const maxHourly = Math.max(...hourly.map((hour) => hour.inbound), 1);
         const peakHour = hourly.reduce(
           (best, hour) => (hour.inbound > best.inbound ? hour : best),
@@ -614,6 +628,7 @@ export function AnalyticsReports() {
             inbound: 0,
             answered: 0,
             missed: 0,
+            missedShort: 0,
             answerRate: 0,
           },
         );
@@ -624,7 +639,11 @@ export function AnalyticsReports() {
               hour.answerRate < worst.answerRate ? hour : worst,
             hourly.find((hour) => hour.inbound >= 2) ?? peakHour,
           );
-        const agentStats = buildAgentStats(filteredCalls, departmentCalls).filter(
+        const agentStats = buildAgentStats(
+          filteredCalls,
+          thresholdSeconds,
+          departmentCalls,
+        ).filter(
           (agent) => !filters.agentId || agent.agentId === filters.agentId,
         );
 
@@ -667,7 +686,9 @@ export function AnalyticsReports() {
                 ),
                 businessHours,
               ).business;
-              const deptHourly = peakHoursForDisplay(groupCallsByHour(deptCalls));
+              const deptHourly = peakHoursForDisplay(
+                groupCallsByHour(deptCalls, thresholdSeconds),
+              );
               const deptPeak = deptHourly.reduce(
                 (best, hour) => (hour.inbound > best.inbound ? hour : best),
                 deptHourly[0] ?? {
@@ -677,6 +698,7 @@ export function AnalyticsReports() {
                   inbound: 0,
                   answered: 0,
                   missed: 0,
+                  missedShort: 0,
                   answerRate: 0,
                 },
               );
@@ -690,9 +712,13 @@ export function AnalyticsReports() {
               return {
                 id: department.id,
                 name: department.name,
-                kpis: calculateKpis(deptCalls),
-                agents: buildAgentStats(deptCalls, deptTransferSource),
-                daily: groupCallsByDay(deptCalls),
+                kpis: calculateKpis(deptCalls, thresholdSeconds),
+                agents: buildAgentStats(
+                  deptCalls,
+                  thresholdSeconds,
+                  deptTransferSource,
+                ),
+                daily: groupCallsByDay(deptCalls, thresholdSeconds),
                 hourly: deptHourly,
                 peakHourLabel: deptHourly.length
                   ? `${deptPeak.label} (${deptPeak.inbound} נכנסות)`
@@ -717,14 +743,14 @@ export function AnalyticsReports() {
           );
           if (unassignedCalls.length && !filters.departmentId) {
             const unassignedHourly = peakHoursForDisplay(
-              groupCallsByHour(unassignedCalls),
+              groupCallsByHour(unassignedCalls, thresholdSeconds),
             );
             exportDepartments.push({
               id: "unassigned",
               name: "ללא שיוך",
-              kpis: calculateKpis(unassignedCalls),
-              agents: buildAgentStats(unassignedCalls),
-              daily: groupCallsByDay(unassignedCalls),
+              kpis: calculateKpis(unassignedCalls, thresholdSeconds),
+              agents: buildAgentStats(unassignedCalls, thresholdSeconds),
+              daily: groupCallsByDay(unassignedCalls, thresholdSeconds),
               hourly: unassignedHourly,
               peakHourLabel: undefined,
               weakHourLabel: undefined,
@@ -752,7 +778,9 @@ export function AnalyticsReports() {
                   call.status === "answered"
                     ? "נענתה"
                     : call.status === "missed"
-                      ? "לא נענתה"
+                      ? isShortNoAnswer(call, thresholdSeconds)
+                        ? "לא נענה פחות זמן"
+                        : "לא נענתה"
                       : "בשיחה",
                 agentName: call.agentName ?? "—",
                 departmentName: call.departmentName ?? "ללא שיוך",
@@ -783,7 +811,9 @@ export function AnalyticsReports() {
               agents: agentStats,
               departments: exportDepartments,
               daily,
-              hourly: peakHoursForDisplay(groupCallsByHour(filteredCalls)),
+              hourly: peakHoursForDisplay(
+                groupCallsByHour(filteredCalls, thresholdSeconds),
+              ),
               calls: exportCalls,
               peakHourLabel: hourly.length
                 ? `${peakHour.label} (${peakHour.inbound} נכנסות)`
@@ -921,6 +951,12 @@ export function AnalyticsReports() {
                 value={kpis.missed}
                 icon={<PhoneMissed />}
                 tone="red"
+              />
+              <SummaryCard
+                label="לא נענה פחות זמן"
+                value={kpis.missedShort}
+                icon={<PhoneMissed />}
+                tone="amber"
               />
               <SummaryCard
                 label="שיחות יוצאות"
@@ -1147,6 +1183,7 @@ export function AnalyticsReports() {
                         "סה״כ שיחות",
                         "נענו",
                         "לא נענו",
+                        "לא נענה פחות זמן",
                         "אחוז מענה",
                         "העברות שיחה",
                         "זמן שיחה",
@@ -1175,6 +1212,9 @@ export function AnalyticsReports() {
                         </td>
                         <td className="w-0 whitespace-nowrap px-3 py-3 text-[#c34850]">
                           {agent.missed}
+                        </td>
+                        <td className="w-0 whitespace-nowrap px-3 py-3 text-[#b47a16]">
+                          {agent.missedShort}
                         </td>
                         <td className="w-0 whitespace-nowrap px-3 py-3 font-bold text-[#158f83]">
                           {agent.answerRate}%
@@ -1326,6 +1366,7 @@ const summaryTones = {
   blue: "bg-[#e8effe] text-[#4772ce]",
   red: "bg-[#fdebed] text-[#d5545c]",
   gray: "bg-[#edf1f3] text-[#66767e]",
+  amber: "bg-[#fff3d9] text-[#b47a16]",
 };
 
 function SummaryCard({
@@ -1381,20 +1422,35 @@ function FilterSelect({
   );
 }
 
-function CallBadge({ call }: { call: CallRecord }) {
+function CallBadge({
+  call,
+  thresholdSeconds,
+}: {
+  call: CallRecord;
+  thresholdSeconds: number;
+}) {
   // An in_progress call isn't "בשיחה" until someone actually answers it —
   // otherwise this contradicts the "לקוח ממתין" label shown for the same row.
-  const key: "answered" | "missed" | "waiting" | "ringing" | "on_call" =
-    call.status !== "in_progress"
-      ? call.status
-      : !call.agentId
-        ? "waiting"
-        : call.talkTimeSeconds > 0
-          ? "on_call"
-          : "ringing";
+  const key:
+    | "answered"
+    | "missed"
+    | "missed_short"
+    | "waiting"
+    | "ringing"
+    | "on_call" =
+    call.status === "missed" && isShortNoAnswer(call, thresholdSeconds)
+      ? "missed_short"
+      : call.status !== "in_progress"
+        ? call.status
+        : !call.agentId
+          ? "waiting"
+          : call.talkTimeSeconds > 0
+            ? "on_call"
+            : "ringing";
   const labels = {
     answered: "נענתה",
     missed: "לא נענתה",
+    missed_short: "לא נענה פחות זמן",
     waiting: "ממתין למענה",
     ringing: "מצלצל",
     on_call: "בשיחה",
@@ -1402,6 +1458,7 @@ function CallBadge({ call }: { call: CallRecord }) {
   const styles = {
     answered: "bg-[#e4f5ea] text-[#298653]",
     missed: "bg-[#fdebed] text-[#c8434c]",
+    missed_short: "bg-[#fff3d9] text-[#b47a16]",
     waiting: "bg-[#fff3d9] text-[#9a6811]",
     ringing: "bg-[#fff3d9] text-[#9a6811]",
     on_call: "bg-[#e7efff] text-[#396acb]",
@@ -1413,7 +1470,7 @@ function CallBadge({ call }: { call: CallRecord }) {
   );
 }
 
-function groupCallsByDay(calls: CallRecord[]) {
+function groupCallsByDay(calls: CallRecord[], thresholdSeconds: number) {
   const grouped = new Map<
     string,
     {
@@ -1424,6 +1481,7 @@ function groupCallsByDay(calls: CallRecord[]) {
       total: number;
       answered: number;
       missed: number;
+      missedShort: number;
     }
   >();
   calls.forEach((call) => {
@@ -1443,20 +1501,24 @@ function groupCallsByDay(calls: CallRecord[]) {
       total: 0,
       answered: 0,
       missed: 0,
+      missedShort: 0,
     };
     current[call.direction] += 1;
     current.total += 1;
     if (call.direction === "inbound") {
       if (call.status === "answered") current.answered += 1;
-      if (call.status === "missed") current.missed += 1;
+      if (call.status === "missed") {
+        if (isShortNoAnswer(call, thresholdSeconds)) current.missedShort += 1;
+        else current.missed += 1;
+      }
     }
     grouped.set(date, current);
   });
   return [...grouped.values()]
     .map((day) => ({
       ...day,
-      answerRate: day.inbound
-        ? Math.round((day.answered / day.inbound) * 100)
+      answerRate: day.answered + day.missed
+        ? Math.round((day.answered / (day.answered + day.missed)) * 100)
         : 0,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -1464,6 +1526,7 @@ function groupCallsByDay(calls: CallRecord[]) {
 
 function buildAgentStats(
   calls: CallRecord[],
+  thresholdSeconds: number,
   transferSourceCalls: CallRecord[] = calls,
 ) {
   const grouped = new Map<
@@ -1476,6 +1539,7 @@ function buildAgentStats(
       total: number;
       answered: number;
       missed: number;
+      missedShort: number;
       outbound: number;
       transfers: number;
       talkSeconds: number;
@@ -1501,6 +1565,7 @@ function buildAgentStats(
       total: 0,
       answered: 0,
       missed: 0,
+      missedShort: 0,
       outbound: 0,
       transfers: 0,
       talkSeconds: 0,
@@ -1543,7 +1608,8 @@ function buildAgentStats(
         }
       }
       if (call.status === "missed") {
-        current.missed += 1;
+        if (isShortNoAnswer(call, thresholdSeconds)) current.missedShort += 1;
+        else current.missed += 1;
         const wait = inboundWaitSeconds(call);
         if (wait != null) {
           current.waitTotal += wait;
@@ -1579,6 +1645,7 @@ function buildAgentStats(
         total: agent.total,
         answered: agent.answered,
         missed: agent.missed,
+        missedShort: agent.missedShort,
         outbound: agent.outbound,
         transfers: agent.transfers,
         talkSeconds: agent.talkSeconds,

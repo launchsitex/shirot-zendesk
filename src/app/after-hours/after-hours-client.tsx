@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
-import { formatDuration, filterCalls } from "@/lib/metrics";
+import { useMissedCallThreshold } from "@/hooks/use-missed-call-threshold";
+import { formatDuration, filterCalls, isShortNoAnswer } from "@/lib/metrics";
 import { formatPhoneDisplay } from "@/lib/phone";
 import { formatIsraelDateTime } from "@/lib/israel-time";
 import { splitCallsByBusinessHours } from "@/lib/business-hours";
@@ -64,6 +65,7 @@ export function AfterHoursCallsPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
   const { config, error: hoursError } = useBusinessHoursConfig();
+  const { thresholdSeconds } = useMissedCallThreshold();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -229,7 +231,7 @@ export function AfterHoursCallsPage() {
             </div>
           </section>
 
-          <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+          <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
             <article className="card flex items-center gap-3 p-4">
               <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#fdebed] text-[#c34850]">
                 <Moon size={18} />
@@ -261,8 +263,26 @@ export function AfterHoursCallsPage() {
                 <p className="text-xs text-[#7c8990]">לא נענו</p>
                 <strong className="text-2xl">
                   {
-                    afterHoursCalls.filter((call) => call.status === "missed")
-                      .length
+                    afterHoursCalls.filter(
+                      (call) =>
+                        call.status === "missed" &&
+                        !isShortNoAnswer(call, thresholdSeconds),
+                    ).length
+                  }
+                </strong>
+              </div>
+            </article>
+            <article className="card flex items-center gap-3 p-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#fff3d9] text-[#b47a16]">
+                <PhoneMissed size={18} />
+              </span>
+              <div>
+                <p className="text-xs text-[#7c8990]">לא נענה פחות זמן</p>
+                <strong className="text-2xl">
+                  {
+                    afterHoursCalls.filter((call) =>
+                      isShortNoAnswer(call, thresholdSeconds),
+                    ).length
                   }
                 </strong>
               </div>
@@ -322,7 +342,9 @@ export function AfterHoursCallsPage() {
                         {call.status === "answered"
                           ? "נענתה"
                           : call.status === "missed"
-                            ? "לא נענתה"
+                            ? isShortNoAnswer(call, thresholdSeconds)
+                              ? "לא נענה פחות זמן"
+                              : "לא נענתה"
                             : !call.agentId
                               ? "ממתין למענה"
                               : call.talkTimeSeconds > 0
