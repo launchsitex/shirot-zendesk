@@ -18,6 +18,7 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
+import { useMissedCallThreshold } from "@/hooks/use-missed-call-threshold";
 import { getHomeHref, type AppProfile } from "@/lib/app-pages";
 import { splitCallsByBusinessHours } from "@/lib/business-hours";
 import { calculateKpis, formatDuration } from "@/lib/metrics";
@@ -71,6 +72,7 @@ function elapsed(iso: string) {
 export function WallboardClient() {
   const [data, setData] = useState<DashboardData | null>(null);
   const { config: businessHours } = useBusinessHoursConfig();
+  const { thresholdSeconds } = useMissedCallThreshold();
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -163,9 +165,10 @@ export function WallboardClient() {
     [data?.calls, businessHours],
   );
 
-  // TV wallboard intentionally ignores the "missed_short" threshold — it always
-  // shows the full raw missed-call count, unaffected by the reports-only setting.
-  const kpis = useMemo(() => calculateKpis(businessCalls, 0), [businessCalls]);
+  const kpis = useMemo(
+    () => calculateKpis(businessCalls, thresholdSeconds),
+    [businessCalls, thresholdSeconds],
+  );
 
   const waitingCalls = useMemo(
     () =>
