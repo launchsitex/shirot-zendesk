@@ -423,38 +423,59 @@ async function batchResponse(
     });
   }
 
-  const schema = {
-    type: "object",
-    properties: {
-      callReviews: {
-        type: "array",
-        description: "משוב לכל שיחה שנותחה, לפי מספרי השיחות שסומנו",
-        items: {
-          type: "object",
-          properties: {
-            callIndex: {
-              type: "integer",
-              description: "מספר השיחה כפי שסומן",
-            },
-            summary: { type: "string", description: "סיכום קצר של השיחה" },
-            score: { type: "integer", description: "ציון 1 עד 10 לשיחה" },
-            feedback: { type: "string", description: "משוב ממוקד על השיחה" },
+  const callReviews = await analyzeAudioBatchWithSplitFallback(
+    geminiKey,
+    day,
+    audioParts,
+    includedCalls,
+  );
+
+  return jsonResponse({
+    ok: true,
+    callReviews,
+    includedCalls,
+    skipped,
+  });
+}
+
+const CALL_REVIEWS_SCHEMA = {
+  type: "object",
+  properties: {
+    callReviews: {
+      type: "array",
+      description: "משוב לכל שיחה שנותחה, לפי מספרי השיחות שסומנו",
+      items: {
+        type: "object",
+        properties: {
+          callIndex: {
+            type: "integer",
+            description: "מספר השיחה כפי שסומן",
           },
-          required: ["callIndex", "summary", "score", "feedback"],
+          summary: { type: "string", description: "סיכום קצר של השיחה" },
+          score: { type: "integer", description: "ציון 1 עד 10 לשיחה" },
+          feedback: { type: "string", description: "משוב ממוקד על השיחה" },
         },
+        required: ["callIndex", "summary", "score", "feedback"],
       },
     },
-    required: ["callReviews"],
-  };
+  },
+  required: ["callReviews"],
+};
 
+async function runGeminiBatch(
+  geminiKey: string,
+  day: DayContext,
+  audioParts: { label: string; bytes: Uint8Array; mimeType: string }[],
+  includedCalls: IncludedCall[],
+): Promise<UnknownRecord[]> {
+  const firstIndex = includedCalls[0]?.index ?? 1;
+  const lastIndex = includedCalls[includedCalls.length - 1]?.index ?? firstIndex;
   const context = [
     BATCH_PROMPT,
     "",
     `נציג: ${day.agent.name ?? day.agentId}`,
     `תאריך: ${day.date}`,
-    `מצורפות ${audioParts.length} הקלטות (שיחות ${startIndex} עד ${
-      startIndex + audioParts.length - 1
-    } מתוך היום).`,
+    `מצורפות ${audioParts.length} הקלטות (שיחות ${firstIndex} עד ${lastIndex} מתוך היום).`,
   ].join("\n");
 
   const parts: UnknownRecord[] = [{ text: context }];
@@ -468,16 +489,56 @@ async function batchResponse(
     });
   }
 
-  const analysis = await callGemini(geminiKey, parts, schema);
+  const analysis = await callGemini(geminiKey, parts, CALL_REVIEWS_SCHEMA);
+  return Array.isArray(analysis.callReviews)
+    ? (analysis.callReviews as UnknownRecord[])
+    : [];
+}
 
-  return jsonResponse({
-    ok: true,
-    callReviews: Array.isArray(analysis.callReviews)
-      ? analysis.callReviews
-      : [],
-    includedCalls,
-    skipped,
-  });
+// A batch that keeps coming back empty (even after callGemini's internal
+// retries) is most often too much for the model to fit in one reply — not a
+// one-off fluke. Rather than fail the whole batch, halve it and retry each
+// half independently; this isolates the problem down to a smaller batch
+// (or a single call) instead of losing the entire analysis.
+const MIN_SPLIT_BATCH_SIZE = 1;
+
+async function analyzeAudioBatchWithSplitFallback(
+  geminiKey: string,
+  day: DayContext,
+  audioParts: { label: string; bytes: Uint8Array; mimeType: string }[],
+  includedCalls: IncludedCall[],
+): Promise<UnknownRecord[]> {
+  try {
+    return await runGeminiBatch(geminiKey, day, audioParts, includedCalls);
+  } catch (error) {
+    const isEmptyResponse =
+      error instanceof GeminiCallError &&
+      error.message === "gemini_empty_response";
+    if (!isEmptyResponse || audioParts.length <= MIN_SPLIT_BATCH_SIZE) {
+      throw error;
+    }
+
+    console.error(
+      `[analyze-agent-day] gemini_empty_response for batch of ${audioParts.length} calls (${includedCalls[0]?.index}-${includedCalls[includedCalls.length - 1]?.index}); splitting and retrying`,
+    );
+
+    const mid = Math.ceil(audioParts.length / 2);
+    const [firstReviews, secondReviews] = await Promise.all([
+      analyzeAudioBatchWithSplitFallback(
+        geminiKey,
+        day,
+        audioParts.slice(0, mid),
+        includedCalls.slice(0, mid),
+      ),
+      analyzeAudioBatchWithSplitFallback(
+        geminiKey,
+        day,
+        audioParts.slice(mid),
+        includedCalls.slice(mid),
+      ),
+    ]);
+    return [...firstReviews, ...secondReviews];
+  }
 }
 
 /** Stage 3: merge all per-call reviews into the full daily manager report. */
@@ -764,7 +825,18 @@ async function callGeminiOnce(
   }
 
   const text = extractGeminiText(payload);
-  if (!text) throw new GeminiCallError("gemini_empty_response");
+  if (!text) {
+    const candidate = (payload.candidates as UnknownRecord[] | undefined)?.[0];
+    console.error(
+      "[analyze-agent-day] gemini_empty_response",
+      JSON.stringify({
+        finishReason: candidate?.finishReason,
+        safetyRatings: candidate?.safetyRatings,
+        promptFeedback: payload.promptFeedback,
+      }),
+    );
+    throw new GeminiCallError("gemini_empty_response");
+  }
 
   try {
     return JSON.parse(text) as UnknownRecord;
