@@ -29,17 +29,27 @@ Deno.serve(async (request) => {
   try {
     payload = JSON.parse(rawBody) as UnknownRecord;
   } catch {
+    console.log("[aircall-webhook] received invalid JSON body", rawBody);
     return jsonResponse({ error: "invalid_json" }, 400);
   }
 
   const eventType = String(payload.event ?? "");
+  const logPayload = {
+    ...payload,
+    token: payload.token ? "[redacted]" : undefined,
+  };
+  console.log(
+    "[aircall-webhook] received webhook",
+    JSON.stringify({ event: eventType || null, payload: logPayload }),
+  );
+
   if (!eventType || !isRecord(payload.data)) {
     return jsonResponse({ error: "invalid_aircall_event" }, 400);
   }
 
   const deliveryHash = await sha256(rawBody);
   const tokenHash = payload.token ? await sha256(String(payload.token)) : null;
-  const storedPayload = { ...payload, token: payload.token ? "[redacted]" : undefined };
+  const storedPayload = logPayload;
   const { data: eventRow, error: insertError } = await supabase
     .from("aircall_webhook_events")
     .insert({
