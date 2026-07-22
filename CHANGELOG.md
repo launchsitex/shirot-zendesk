@@ -9,6 +9,16 @@
 
 ---
 
+## [2026-07-22] — תיקון "gemini_empty_response" בניתוח AI לנציג
+
+### באג — ניתוח יום נציג נעצר ב-~80% עם שגיאת gemini_empty_response
+- מנהלים דיווחו שניתוח AI ליום עבודה של נציג (`/agent-ai-analysis`) מתקדם עד כ-80% ואז נכשל עם השגיאה `gemini_empty_response` (HTTP 500 מ-`analyze-agent-day`).
+- הסיבה: הקריאה ל-`gemini-2.5-pro` לא הגבילה `maxOutputTokens`/`thinkingConfig.thinkingBudget`. ה"חשיבה" הפנימית של המודל נספרת מתוך תקציב הפלט — באצווה עם שיחות ארוכות/Transfer/Hold המודל יכול "לגמור" את כל התקציב על חשיבה ולהחזיר תשובה ריקה (`finishReason: MAX_TOKENS`), בדיוק ליד סוף רשימת האצוות (סביב 80%-90% התקדמות).
+- תוקן ע"י: הגבלת `thinkingConfig.thinkingBudget` לערך נמוך וקבוע (1024) והגדרת `maxOutputTokens` נדיב (16384) כדי שתמיד יישאר מקום לתשובת ה-JSON בפועל; נוסף retry עם backoff (עד 2 ניסיונות חוזרים) על `gemini_empty_response` ועל שגיאות 429/5xx חולפות — אותו דפוס retry שכבר קיים ב-`_shared/zendesk.ts`.
+- קבצים: `supabase/functions/analyze-agent-day/index.ts`.
+
+---
+
 ## [2026-07-22] — פיצ'ר: סף "לא נענה פחות זמן" (ניתן להגדרה)
 
 ### פיצ'ר חדש

@@ -711,7 +711,28 @@ function bytesToBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
-async function callGemini(
+// gemini-2.5-pro counts its internal "thinking" tokens against maxOutputTokens.
+// Without an explicit cap, a batch with more context (transfers, holds, longer
+// calls) can let thinking consume the entire budget, leaving zero tokens for
+// the actual JSON reply — which surfaces as gemini_empty_response. Capping
+// thinkingBudget low and maxOutputTokens generously guarantees room for output.
+const GEMINI_THINKING_BUDGET = 1024;
+const GEMINI_MAX_OUTPUT_TOKENS = 16384;
+const GEMINI_MAX_RETRIES = 2;
+
+class GeminiCallError extends Error {
+  status?: number;
+  constructor(message: string, status?: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callGeminiOnce(
   apiKey: string,
   parts: UnknownRecord[],
   schema: UnknownRecord,
@@ -727,6 +748,8 @@ async function callGemini(
           temperature: 0.3,
           responseMimeType: "application/json",
           responseSchema: schema,
+          maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS,
+          thinkingConfig: { thinkingBudget: GEMINI_THINKING_BUDGET },
         },
       }),
     },
@@ -737,17 +760,39 @@ async function callGemini(
     const err =
       (payload.error as { message?: string } | undefined)?.message ??
       JSON.stringify(payload).slice(0, 500);
-    throw new Error(`gemini_error:${err}`);
+    throw new GeminiCallError(`gemini_error:${err}`, response.status);
   }
 
   const text = extractGeminiText(payload);
-  if (!text) throw new Error("gemini_empty_response");
+  if (!text) throw new GeminiCallError("gemini_empty_response");
 
   try {
     return JSON.parse(text) as UnknownRecord;
   } catch {
-    throw new Error("gemini_invalid_json");
+    throw new GeminiCallError("gemini_invalid_json");
   }
+}
+
+/** Retries transient failures (empty response, rate limiting, server errors) with backoff. */
+async function callGemini(
+  apiKey: string,
+  parts: UnknownRecord[],
+  schema: UnknownRecord,
+): Promise<UnknownRecord> {
+  for (let attempt = 0; attempt <= GEMINI_MAX_RETRIES; attempt += 1) {
+    try {
+      return await callGeminiOnce(apiKey, parts, schema);
+    } catch (error) {
+      const retryable =
+        error instanceof GeminiCallError &&
+        (error.message === "gemini_empty_response" ||
+          error.status === 429 ||
+          (error.status !== undefined && error.status >= 500));
+      if (!retryable || attempt === GEMINI_MAX_RETRIES) throw error;
+      await sleep(1000 * (attempt + 1));
+    }
+  }
+  throw new Error("gemini_empty_response");
 }
 
 function extractGeminiText(payload: UnknownRecord) {
