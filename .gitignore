@@ -12,3 +12,5 @@ supabase/.temp/
 *.zip
 
 .deploy-payloads/
+.claude/
+.mcp.json
