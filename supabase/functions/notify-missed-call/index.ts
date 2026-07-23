@@ -6,7 +6,6 @@ import {
 
 type UnknownRecord = Record<string, unknown>;
 
-const DEFAULT_FROM_EMAIL = "rcity@rc-info.org";
 const DEFAULT_THRESHOLD_SECONDS = 60;
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
@@ -93,7 +92,13 @@ async function handleMissedCall(
     .select("from_email")
     .eq("id", 1)
     .maybeSingle();
-  const fromEmail = notificationSettings?.from_email || DEFAULT_FROM_EMAIL;
+  const fromEmail = notificationSettings?.from_email?.trim();
+  if (!fromEmail) {
+    console.error(
+      "[notify-missed-call] no sender address configured in Settings",
+    );
+    return false;
+  }
 
   const departmentRecord = call.departments as { name?: string } | null;
   const departmentName = departmentRecord?.name ?? "ללא שיוך מחלקתי";

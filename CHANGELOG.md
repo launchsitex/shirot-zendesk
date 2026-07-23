@@ -9,6 +9,16 @@
 
 ---
 
+## [2026-07-23] — בלי כתובת שולח קשיחה ב-notify-missed-call
+
+### אבטחה / הגדרות
+- הוסר fallback לכתובת שולח hardcoded ב-Edge Function; גם ברירת המחדל
+  בעמודת DB הוסרה. בלי שולח מוגדר בהגדרות — לא נשלח מייל.
+- קבצים: `supabase/functions/notify-missed-call/index.ts`,
+  `supabase/migrations/20260723073859_missed_call_notification_from_email_no_default.sql`.
+
+---
+
 ## [2026-07-23] — התראות מייל על שיחות שלא נענו (Resend)
 
 ### תשתית התראות
