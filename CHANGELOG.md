@@ -9,6 +9,15 @@
 
 ---
 
+## [2026-07-23] — פיצול דף Settings לטאבים לפי קטגוריה
+
+### UI
+- במקום חמישה כרטיסים מוערמים — ארבעה טאבים (שיחות שלא נענו, שעות
+  פעילות, AI, Aircall) דרך `SettingsTabs` בצד הלקוח.
+- קבצים: `src/app/settings/page.tsx`, `src/components/settings-tabs.tsx`.
+
+---
+
 ## [2026-07-23] — ניקוי כתובת שולח מה-seed של התראות missed-call
 
 ### הגדרות
