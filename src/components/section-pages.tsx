@@ -373,7 +373,16 @@ export function CallsHistory() {
                           })}
                         </td>
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-bold">
-                          {formatDuration(call.talkTimeSeconds)}
+                          {call.status === "missed" ? (
+                            <span>
+                              <span className="font-normal text-[#7d8a91]">
+                                המתנה:{" "}
+                              </span>
+                              {formatDuration(call.waitTimeSeconds)}
+                            </span>
+                          ) : (
+                            formatDuration(call.talkTimeSeconds)
+                          )}
                         </td>
                       </tr>
                     ))}
