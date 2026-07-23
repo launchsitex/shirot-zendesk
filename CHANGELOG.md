@@ -9,6 +9,16 @@
 
 ---
 
+## [2026-07-23] — ניקוי כתובת שולח מה-seed של התראות missed-call
+
+### הגדרות
+- שורת ה-bootstrap seed נוקתה מכתובת שולח של לקוח ספציפי (`null`) —
+  התקנה חדשה (כולל replay מלא של מיגרציות) מתחילה לא-מוגדרת ודורשת
+  הזנה ושמירה ב-Settings.
+- קבצים: `supabase/migrations/20260723074747_clear_missed_call_notification_from_email_seed.sql`.
+
+---
+
 ## [2026-07-23] — בלי כתובת שולח קשיחה ב-notify-missed-call
 
 ### אבטחה / הגדרות
