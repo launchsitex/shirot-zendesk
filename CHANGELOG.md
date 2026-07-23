@@ -9,6 +9,22 @@
 
 ---
 
+## [2026-07-23] — התראות מייל על שיחות שלא נענו (Resend)
+
+### תשתית התראות
+- אדמין מגדיר ב-Settings כתובת שולח ורשימת נמענים להתראות על שיחות
+  `missed`.
+- טריגר על `public.calls` שולח פעם אחת כששיחה הופכת ל-`missed` ל-Edge
+  Function חדשה `notify-missed-call`, שמיישמת את אותו סף "מענה קצר /
+  לא-נענה" כמו בשאר האפליקציה, ואז שולחת מייל HTML בעברית RTL דרך Resend.
+- קבצים: `src/app/settings/page.tsx`,
+  `src/app/api/settings/missed-call-notifications/`,
+  `src/components/missed-call-notification-settings.tsx`,
+  `supabase/functions/notify-missed-call/`,
+  `supabase/migrations/20260723073102_missed_call_email_notifications.sql`.
+
+---
+
 ## [2026-07-23] — התעלמות מקבצי IDE מקומיים ב-git
 
 ### Repo hygiene
