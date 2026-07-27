@@ -197,12 +197,21 @@ export function WallboardClient() {
         .filter((agent) => agent.state === "on_call")
         .map((agent) => agent.id),
     );
-    return businessCalls.filter(
-      (call) =>
-        call.status === "in_progress" &&
-        Boolean(call.agentId) &&
-        onCallAgentIds.has(call.agentId!),
-    );
+    // One card per agent: a second leg can ring (or sit on hold) while the
+    // agent is talking, and both rows are status=in_progress — rendering both
+    // made the same person appear in two simultaneous calls. Requiring talk
+    // time matches the rule CallBadge already uses for "בשיחה" vs "מצלצל".
+    const byAgent = new Map<string, CallRecord>();
+    for (const call of businessCalls) {
+      if (call.status !== "in_progress" || !call.agentId) continue;
+      if (!onCallAgentIds.has(call.agentId)) continue;
+      if (call.talkTimeSeconds <= 0) continue;
+      const current = byAgent.get(call.agentId);
+      if (!current || call.startedAt > current.startedAt) {
+        byAgent.set(call.agentId, call);
+      }
+    }
+    return [...byAgent.values()];
   }, [businessCalls, data?.agents]);
 
   const connected = useMemo(
@@ -215,13 +224,29 @@ export function WallboardClient() {
   const departmentSections = useMemo(() => {
     const departments = data?.departments ?? [];
     const agents = data?.agents ?? [];
-    return departments
-      .map((department) => ({
-        id: department.id,
-        name: department.name,
-        agents: agents.filter((agent) => agent.departmentId === department.id),
-      }))
-      .filter((section) => section.agents.length > 0);
+    const knownDepartmentIds = new Set(
+      departments.map((department) => department.id),
+    );
+    const sections = departments.map((department) => ({
+      id: department.id,
+      name: department.name,
+      agents: agents.filter((agent) => agent.departmentId === department.id),
+    }));
+    // Agents with no department — or one that is no longer active — were
+    // counted in the "מחוברים" tile but rendered in no section, so the panel
+    // could never add up to the tile. Show them instead of hiding them.
+    const unassigned = agents.filter(
+      (agent) =>
+        !agent.departmentId || !knownDepartmentIds.has(agent.departmentId),
+    );
+    if (unassigned.length) {
+      sections.push({
+        id: "__unassigned",
+        name: "ללא שיוך מחלקה",
+        agents: unassigned,
+      });
+    }
+    return sections.filter((section) => section.agents.length > 0);
   }, [data]);
 
   async function toggleFullscreen() {

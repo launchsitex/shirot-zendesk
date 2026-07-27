@@ -196,7 +196,9 @@ async function processCallEvent(
 
   const { data: existing } = await supabase
     .from("calls")
-    .select("status,source_updated_at,agent_id,transferred_by_agent_id,raw")
+    .select(
+      "status,source_updated_at,agent_id,transferred_by_agent_id,raw,ended_at,duration_seconds,talk_time_seconds",
+    )
     .eq("id", callId)
     .maybeSingle();
   if (
@@ -274,6 +276,24 @@ async function processCallEvent(
       ]
     : previousTransferEvents;
 
+  // A call already closed by an external transfer recorded the moment this
+  // agent left it. Aircall keeps the conversation alive at the external
+  // destination and later sends hungup/comm_assets/ended for the whole thing —
+  // recomputing from those would credit this agent with every minute after
+  // they were gone. Freeze what was captured at transfer time instead.
+  //
+  // The marker has to be its own sticky field: last_event is overwritten by
+  // the first post-transfer event, so keying off it would let the events after
+  // that one re-inflate the very values this just froze.
+  const wasClosedByExternalTransfer =
+    existingRaw.closed_by_external_transfer === true ||
+    String(existingRaw.last_event ?? "") === "call.external_transferred";
+  const closedByExternalTransfer =
+    Boolean(existing) &&
+    existing?.status !== "in_progress" &&
+    !agentLeftViaExternalTransfer &&
+    wasClosedByExternalTransfer;
+
   const mergedRaw = {
     ...existingRaw,
     ...call,
@@ -281,6 +301,8 @@ async function processCallEvent(
     last_event: eventType,
     hold_events: holdEvents,
     transfer_events: transferEvents,
+    closed_by_external_transfer:
+      agentLeftViaExternalTransfer || wasClosedByExternalTransfer,
     transferred_by:
       transferredBy ??
       (isRecord(existingRaw.transferred_by) ? existingRaw.transferred_by : null),
@@ -289,22 +311,26 @@ async function processCallEvent(
       (isRecord(existingRaw.transferred_to) ? existingRaw.transferred_to : null),
   };
 
-  const duration = Math.max(
-    Number(call.duration ?? 0),
-    endedAt
-      ? Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000)
-      : 0,
-  );
-  const talkTime = answeredAt
-    ? Math.max(
-        0,
-        Math.round(
-          ((endedAt ? new Date(endedAt).getTime() : Date.now()) -
-            new Date(answeredAt).getTime()) /
-            1000,
-        ),
-      )
-    : 0;
+  const duration = closedByExternalTransfer
+    ? Number(existing?.duration_seconds ?? 0)
+    : Math.max(
+        Number(call.duration ?? 0),
+        endedAt
+          ? Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000)
+          : 0,
+      );
+  const talkTime = closedByExternalTransfer
+    ? Number(existing?.talk_time_seconds ?? 0)
+    : answeredAt
+      ? Math.max(
+          0,
+          Math.round(
+            ((endedAt ? new Date(endedAt).getTime() : Date.now()) -
+              new Date(answeredAt).getTime()) /
+              1000,
+          ),
+        )
+      : 0;
   const waitTime = answeredAt
     ? Math.max(
         0,
@@ -332,7 +358,11 @@ async function processCallEvent(
           (isRecord(call.contact) ? call.contact.phone_number ?? "" : ""),
       ),
       started_at: startedAt,
-      ended_at: isFinished ? endedAt ?? eventTime : null,
+      ended_at: closedByExternalTransfer
+        ? existing?.ended_at ?? endedAt ?? eventTime
+        : isFinished
+          ? endedAt ?? eventTime
+          : null,
       duration_seconds: duration,
       talk_time_seconds: talkTime,
       wait_time_seconds: waitTime,
