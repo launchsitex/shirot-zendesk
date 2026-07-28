@@ -201,15 +201,43 @@ async function processCallEvent(
     )
     .eq("id", callId)
     .maybeSingle();
+  const existingRaw = isRecord(existing?.raw) ? existing.raw : {};
+
+  // closeOpenCallsForAgent stamps closed_reason when it sweeps a row shut. If
+  // Aircall then reports that same call answered or held, the sweep was wrong
+  // and the call is live — correct the row instead of dropping every event
+  // until the hangup lands 20+ minutes later, which left the agent showing as
+  // free on the wallboard for the entire conversation. The ordering guard has
+  // to be skipped too: the sweep stamped source_updated_at with its own now,
+  // which is later than the answer time this event carries.
+  const provesCallIsLive =
+    eventType === "call.answered" ||
+    eventType === "call.hold" ||
+    eventType === "call.unhold";
+  // Never resurrect a call Aircall itself reported finished: a late duplicate
+  // answered/hold must not reopen it just because an older sweep marker is
+  // still sitting in raw.
+  const closedByRealEndEvent =
+    String(existingRaw.last_event ?? "") === "call.hungup" ||
+    String(existingRaw.last_event ?? "") === "call.ended";
+  const wrongfullySweptShut =
+    Boolean(existing) &&
+    existing?.status !== "in_progress" &&
+    Boolean(existingRaw.closed_reason) &&
+    !closedByRealEndEvent &&
+    provesCallIsLive;
+
   if (
     existing &&
     existing?.status !== "in_progress" &&
     !isFinished &&
+    !wrongfullySweptShut &&
     eventType !== "call.comm_assets_generated"
   ) {
     return;
   }
   if (
+    !wrongfullySweptShut &&
     existing?.source_updated_at &&
     new Date(existing.source_updated_at).getTime() >
       new Date(eventTime).getTime()
@@ -239,8 +267,6 @@ async function processCallEvent(
   if (eventType === "call.transferred" && transferredTo?.id) {
     answeredAgentId = String(transferredTo.id);
   }
-
-  const existingRaw = isRecord(existing?.raw) ? existing.raw : {};
 
   // Accumulate hold/unhold moments so AI analysis can ignore audio heard
   // while the customer was on hold (music, call-center background noise).
@@ -303,6 +329,9 @@ async function processCallEvent(
     transfer_events: transferEvents,
     closed_by_external_transfer:
       agentLeftViaExternalTransfer || wasClosedByExternalTransfer,
+    // Reopening a wrongly swept row clears the sweep marker, so the record
+    // stops claiming it was closed and a later sweep can judge it afresh.
+    ...(wrongfullySweptShut ? { closed_reason: null, closed_at: null } : {}),
     transferred_by:
       transferredBy ??
       (isRecord(existingRaw.transferred_by) ? existingRaw.transferred_by : null),
@@ -495,7 +524,10 @@ function isAwayPresence(state: string) {
 
 const TALK_EVENTS = ["call.answered", "call.hold", "call.unhold"];
 const STALE_TALK_MS = 30 * 60_000;
-const STALE_RING_MS = 60_000;
+// A queued/ringing leg legitimately waits minutes before the agent picks up in
+// a busy centre. The old 60s grace swept those shut mid-ring, which then made
+// the real call.answered look like it belonged to a closed call.
+const STALE_RING_MS = 10 * 60_000;
 
 async function closeOpenCallsForAgent(
   supabase: SupabaseClient,
