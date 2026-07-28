@@ -367,7 +367,7 @@ export function WallboardClient() {
               </div>
               {waitingCalls.length ? (
                 <div className="grid gap-2 md:grid-cols-2">
-                  {waitingCalls.slice(0, 8).map((call) => (
+                  {waitingCalls.map((call) => (
                     <WaitingCard key={call.id} call={call} />
                   ))}
                 </div>
@@ -390,7 +390,7 @@ export function WallboardClient() {
               </div>
               {liveCalls.length ? (
                 <div className="grid gap-3 md:grid-cols-2">
-                  {liveCalls.slice(0, 10).map((call) => (
+                  {liveCalls.map((call) => (
                     <LiveCallCard key={call.id} call={call} />
                   ))}
                 </div>
