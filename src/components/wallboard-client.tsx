@@ -221,6 +221,21 @@ export function WallboardClient() {
     [data?.agents],
   );
 
+  // Inbound calls each agent actually handled today. A call they passed on
+  // belongs to whoever took it over, so anything they transferred away is
+  // left out — on an external transfer the row keeps their agent_id, which
+  // would otherwise credit them for a call they only started.
+  const inboundHandledByAgent = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const call of businessCalls) {
+      if (call.direction !== "inbound" || call.status !== "answered") continue;
+      if (!call.agentId) continue;
+      if (call.transferredByAgentId === call.agentId) continue;
+      counts.set(call.agentId, (counts.get(call.agentId) ?? 0) + 1);
+    }
+    return counts;
+  }, [businessCalls]);
+
   const departmentSections = useMemo(() => {
     const departments = data?.departments ?? [];
     const agents = data?.agents ?? [];
@@ -423,7 +438,11 @@ export function WallboardClient() {
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {section.agents.map((agent) => (
-                      <AgentCard key={agent.id} agent={agent} />
+                      <AgentCard
+                        key={agent.id}
+                        agent={agent}
+                        inboundHandled={inboundHandledByAgent.get(agent.id) ?? 0}
+                      />
                     ))}
                   </div>
                 </div>
@@ -521,9 +540,15 @@ function LiveCallCard({ call }: { call: CallRecord }) {
   );
 }
 
-function AgentCard({ agent }: { agent: Agent }) {
+function AgentCard({
+  agent,
+  inboundHandled,
+}: {
+  agent: Agent;
+  inboundHandled: number;
+}) {
   return (
-    <div className="flex items-center justify-between rounded-2xl bg-white/8 px-3 py-2.5">
+    <div className="flex items-center justify-between gap-2 rounded-2xl bg-white/8 px-3 py-2.5">
       <div className="min-w-0">
         <strong className="block truncate text-sm">{agent.name}</strong>
         {agent.state === "on_call" && agent.currentCallStartedAt && (
@@ -532,11 +557,20 @@ function AgentCard({ agent }: { agent: Agent }) {
           </span>
         )}
       </div>
-      <span
-        className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${stateStyles[agent.state]}`}
-      >
-        {stateLabels[agent.state]}
-      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-[11px] font-bold text-white/70"
+          title="שיחות נכנסות שטופלו היום (ללא שיחות שהועברו)"
+        >
+          <PhoneIncoming size={12} />
+          {inboundHandled}
+        </span>
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${stateStyles[agent.state]}`}
+        >
+          {stateLabels[agent.state]}
+        </span>
+      </div>
     </div>
   );
 }
