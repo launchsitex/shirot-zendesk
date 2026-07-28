@@ -47,6 +47,17 @@ function jerusalemBoundary(date: string, endOfDay = false): string {
 
 const NO_STORE_HEADERS = { "Cache-Control": "no-store, must-revalidate" };
 
+const CALLS_SELECT =
+  "id,direction,status,agent_id,transferred_by_agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,wait_time_seconds,department_id,agents!agent_id(name),transferred_by_agent:agents!transferred_by_agent_id(name),departments(name)";
+
+// PostgREST caps every response at the project's db-max-rows (1000 by default)
+// and silently ignores a larger .limit(). A busy day here runs past 1,400
+// calls, so one request returned only the newest 1,000 and every KPI quietly
+// under-reported the morning. Page through instead, advancing by the number of
+// rows actually returned so the loop stays correct whatever the cap is set to.
+const CALLS_PAGE_SIZE = 1000;
+const CALLS_HARD_CAP = 20000;
+
 export async function GET(request: NextRequest) {
   if (
     !isSupabaseConfigured() ||
@@ -77,15 +88,21 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("to") ??
     new Date().toISOString().slice(0, 10);
 
-  let callsQuery = supabase
-    .from("calls")
-    .select(
-      "id,direction,status,agent_id,transferred_by_agent_id,customer_number,started_at,ended_at,duration_seconds,talk_time_seconds,wait_time_seconds,department_id,agents!agent_id(name),transferred_by_agent:agents!transferred_by_agent_id(name),departments(name)",
-    )
-    .gte("started_at", jerusalemBoundary(from))
-    .lte("started_at", jerusalemBoundary(to, true))
-    .order("started_at", { ascending: false })
-    .limit(5000);
+  const callsPage = (offset: number) => {
+    const query = supabase
+      .from("calls")
+      .select(CALLS_SELECT)
+      .gte("started_at", jerusalemBoundary(from))
+      .lte("started_at", jerusalemBoundary(to, true))
+      .order("started_at", { ascending: false })
+      // started_at is not unique; a stable tiebreaker keeps pages from
+      // repeating or skipping rows that share a timestamp.
+      .order("id", { ascending: false })
+      .range(offset, offset + CALLS_PAGE_SIZE - 1);
+    return departmentScope
+      ? query.eq("department_id", departmentScope)
+      : query;
+  };
 
   let agentsQuery = supabase
     .from("agents")
@@ -102,18 +119,18 @@ export async function GET(request: NextRequest) {
     .order("name");
 
   if (departmentScope) {
-    callsQuery = callsQuery.eq("department_id", departmentScope);
     agentsQuery = agentsQuery.eq("department_id", departmentScope);
     departmentsQuery = departmentsQuery.eq("id", departmentScope);
   }
 
-  const [callsResult, agentsResult, departmentsResult] = await Promise.all([
-    callsQuery,
+  const [firstCallsPage, agentsResult, departmentsResult] = await Promise.all([
+    callsPage(0),
     agentsQuery,
     departmentsQuery,
   ]);
 
-  const error = callsResult.error ?? agentsResult.error ?? departmentsResult.error;
+  const error =
+    firstCallsPage.error ?? agentsResult.error ?? departmentsResult.error;
   if (error) {
     return NextResponse.json(
       { error: "dashboard_query_failed", details: error.message },
@@ -121,7 +138,25 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const calls: CallRecord[] = (callsResult.data ?? []).map((row) => {
+  const callRows = [...(firstCallsPage.data ?? [])];
+  // Keep pulling until a page comes back empty. Stopping at "fewer rows than
+  // requested" would silently truncate again if the server cap is ever set
+  // below CALLS_PAGE_SIZE.
+  let offset = callRows.length;
+  while (callRows.length > 0 && offset < CALLS_HARD_CAP) {
+    const { data: pageRows, error: pageError } = await callsPage(offset);
+    if (pageError) {
+      return NextResponse.json(
+        { error: "dashboard_query_failed", details: pageError.message },
+        { status: 500, headers: NO_STORE_HEADERS },
+      );
+    }
+    if (!pageRows?.length) break;
+    callRows.push(...pageRows);
+    offset += pageRows.length;
+  }
+
+  const calls: CallRecord[] = callRows.map((row) => {
     const agent = row.agents as unknown as { name: string } | null;
     const transferredBy = row.transferred_by_agent as unknown as {
       name: string;
