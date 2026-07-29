@@ -635,43 +635,78 @@ async function summaryResponse(
         .join("\n")
     : "- אין נתוני סטטוס ליום הזה";
 
-  const reviewLines = callReviews
-    .map((review) =>
-      [
-        `שיחה ${review.callIndex} (ציון ${review.score}/10):`,
-        `סיכום: ${review.summary}`,
-        `משוב: ${review.feedback}`,
-      ].join("\n"),
-    )
-    .join("\n\n");
-
   const skippedCount = Number(body.skippedCount ?? 0);
-  const context = [
-    SUMMARY_PROMPT,
-    "",
-    `נציג: ${day.agent.name ?? day.agentId}`,
-    `תאריך: ${day.date}`,
-    "",
-    "נתוני היום:",
-    `- סך שיחות: ${stats.totalCalls}`,
-    `- נכנסות: ${stats.inbound} | יוצאות: ${stats.outbound}`,
-    `- נענו: ${stats.answered} | לא נענו: ${stats.missed}`,
-    `- זמן שיחה כולל: ${Math.round(stats.totalTalkSeconds / 60)} דקות`,
-    `- זמן שיחה ממוצע: ${stats.averageTalkSeconds} שניות`,
-    "",
-    "זמני סטטוס:",
-    statusLines,
-    "",
-    `נותחו ${callReviews.length} שיחות מוקלטות.` +
-      (skippedCount > 0
-        ? ` ${skippedCount} הקלטות נוספות לא נותחו בגלל מגבלות טכניות — ציין זאת בהערות המנהל.`
-        : ""),
-    "",
-    "המשובים לכל השיחות:",
-    reviewLines,
-  ].join("\n");
+  const buildContext = (perReviewCharLimit: number | null) => {
+    const reviewLines = callReviews
+      .map((review) => {
+        const trim = (value: unknown) => {
+          const text = String(value ?? "");
+          return perReviewCharLimit && text.length > perReviewCharLimit
+            ? `${text.slice(0, perReviewCharLimit)}…`
+            : text;
+        };
+        return [
+          `שיחה ${review.callIndex} (ציון ${review.score}/10):`,
+          `סיכום: ${trim(review.summary)}`,
+          `משוב: ${trim(review.feedback)}`,
+        ].join("\n");
+      })
+      .join("\n\n");
 
-  const analysis = await callGemini(geminiKey, [{ text: context }], schema);
+    return [
+      SUMMARY_PROMPT,
+      "",
+      `נציג: ${day.agent.name ?? day.agentId}`,
+      `תאריך: ${day.date}`,
+      "",
+      "נתוני היום:",
+      `- סך שיחות: ${stats.totalCalls}`,
+      `- נכנסות: ${stats.inbound} | יוצאות: ${stats.outbound}`,
+      `- נענו: ${stats.answered} | לא נענו: ${stats.missed}`,
+      `- זמן שיחה כולל: ${Math.round(stats.totalTalkSeconds / 60)} דקות`,
+      `- זמן שיחה ממוצע: ${stats.averageTalkSeconds} שניות`,
+      "",
+      "זמני סטטוס:",
+      statusLines,
+      "",
+      `נותחו ${callReviews.length} שיחות מוקלטות.` +
+        (skippedCount > 0
+          ? ` ${skippedCount} הקלטות נוספות לא נותחו בגלל מגבלות טכניות — ציין זאת בהערות המנהל.`
+          : ""),
+      "",
+      "המשובים לכל השיחות:",
+      reviewLines,
+    ].join("\n");
+  };
+
+  // Busy agents reach 50-90 reviewed calls a day, and feeding every full
+  // review back in leaves the model little room to answer within
+  // maxOutputTokens — it burns the budget and returns an empty candidate,
+  // which surfaced to the user as gemini_empty_response with no report at all.
+  // Unlike the per-call stage there is nothing to split here, so retry with
+  // progressively shorter reviews: the day's shape survives, only the wording
+  // of each individual review is clipped.
+  const analysis = await (async () => {
+    const charLimits: (number | null)[] = [null, 400, 150];
+    for (let attempt = 0; attempt < charLimits.length; attempt += 1) {
+      try {
+        return await callGemini(
+          geminiKey,
+          [{ text: buildContext(charLimits[attempt]) }],
+          schema,
+        );
+      } catch (error) {
+        const isEmpty =
+          error instanceof GeminiCallError &&
+          error.message === "gemini_empty_response";
+        if (!isEmpty || attempt === charLimits.length - 1) throw error;
+        console.error(
+          `[analyze-agent-day] summary empty for ${callReviews.length} reviews; condensing to ${charLimits[attempt + 1]} chars each and retrying`,
+        );
+      }
+    }
+    throw new GeminiCallError("gemini_empty_response");
+  })();
   const analyzedAt = new Date().toISOString();
 
   // Persist every completed analysis so the page can show a history.
@@ -778,7 +813,11 @@ function bytesToBase64(bytes: Uint8Array) {
 // the actual JSON reply — which surfaces as gemini_empty_response. Capping
 // thinkingBudget low and maxOutputTokens generously guarantees room for output.
 const GEMINI_THINKING_BUDGET = 1024;
-const GEMINI_MAX_OUTPUT_TOKENS = 16384;
+// Hebrew tokenizes poorly (roughly 2-3 tokens a word), and a full day's report
+// asks for ten fields at once. 16k left agents with 50+ reviewed calls short of
+// room to finish, so the candidate came back empty. gemini-2.5-pro allows up to
+// 65k output tokens; 32k is generous headroom and costs nothing when unused.
+const GEMINI_MAX_OUTPUT_TOKENS = 32768;
 const GEMINI_MAX_RETRIES = 2;
 
 class GeminiCallError extends Error {
