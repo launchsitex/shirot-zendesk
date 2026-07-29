@@ -423,7 +423,7 @@ async function batchResponse(
     });
   }
 
-  const callReviews = await analyzeAudioBatchWithSplitFallback(
+  const { reviews, unanalyzable } = await analyzeAudioBatchWithSplitFallback(
     geminiKey,
     day,
     audioParts,
@@ -432,9 +432,9 @@ async function batchResponse(
 
   return jsonResponse({
     ok: true,
-    callReviews,
+    callReviews: reviews,
     includedCalls,
-    skipped,
+    skipped: skipped + unanalyzable,
   });
 }
 
@@ -507,23 +507,36 @@ async function analyzeAudioBatchWithSplitFallback(
   day: DayContext,
   audioParts: { label: string; bytes: Uint8Array; mimeType: string }[],
   includedCalls: IncludedCall[],
-): Promise<UnknownRecord[]> {
+): Promise<{ reviews: UnknownRecord[]; unanalyzable: number }> {
   try {
-    return await runGeminiBatch(geminiKey, day, audioParts, includedCalls);
+    return {
+      reviews: await runGeminiBatch(geminiKey, day, audioParts, includedCalls),
+      unanalyzable: 0,
+    };
   } catch (error) {
     const isEmptyResponse =
       error instanceof GeminiCallError &&
       error.message === "gemini_empty_response";
-    if (!isEmptyResponse || audioParts.length <= MIN_SPLIT_BATCH_SIZE) {
-      throw error;
+    if (!isEmptyResponse) throw error;
+
+    if (audioParts.length <= MIN_SPLIT_BATCH_SIZE) {
+      // Down to one recording and the model still will not answer on it.
+      // Losing that call is far better than losing the whole day's report,
+      // which is what throwing here did: the user waited minutes and got
+      // gemini_empty_response with nothing at all. Count it as skipped so the
+      // summary can tell the manager some calls were left out.
+      await logGeminiFailure({
+        stage: "batch-single-call",
+        callIndex: includedCalls[0]?.index ?? null,
+        callId: includedCalls[0]?.callId ?? null,
+        audioBytes: audioParts[0]?.bytes.byteLength ?? null,
+        mimeType: audioParts[0]?.mimeType ?? null,
+      });
+      return { reviews: [], unanalyzable: audioParts.length };
     }
 
-    console.error(
-      `[analyze-agent-day] gemini_empty_response for batch of ${audioParts.length} calls (${includedCalls[0]?.index}-${includedCalls[includedCalls.length - 1]?.index}); splitting and retrying`,
-    );
-
     const mid = Math.ceil(audioParts.length / 2);
-    const [firstReviews, secondReviews] = await Promise.all([
+    const [first, second] = await Promise.all([
       analyzeAudioBatchWithSplitFallback(
         geminiKey,
         day,
@@ -537,7 +550,10 @@ async function analyzeAudioBatchWithSplitFallback(
         includedCalls.slice(mid),
       ),
     ]);
-    return [...firstReviews, ...secondReviews];
+    return {
+      reviews: [...first.reviews, ...second.reviews],
+      unanalyzable: first.unanalyzable + second.unanalyzable,
+    };
   }
 }
 
@@ -832,6 +848,24 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Records why Gemini returned nothing, into a table we can actually query. */
+async function logGeminiFailure(details: UnknownRecord) {
+  try {
+    await getAdminClient()
+      .from("system_event_logs")
+      .insert({
+        severity: "error",
+        category: "ai-agent-day",
+        title: "Gemini החזיר תשובה ריקה",
+        message: "ניתוח יומי של נציג לא קיבל תוכן מ-Gemini.",
+        details,
+        occurred_at: new Date().toISOString(),
+      });
+  } catch {
+    // Diagnostics must never be the reason an analysis fails.
+  }
+}
+
 async function callGeminiOnce(
   apiKey: string,
   parts: UnknownRecord[],
@@ -866,14 +900,18 @@ async function callGeminiOnce(
   const text = extractGeminiText(payload);
   if (!text) {
     const candidate = (payload.candidates as UnknownRecord[] | undefined)?.[0];
-    console.error(
-      "[analyze-agent-day] gemini_empty_response",
-      JSON.stringify({
-        finishReason: candidate?.finishReason,
-        safetyRatings: candidate?.safetyRatings,
-        promptFeedback: payload.promptFeedback,
-      }),
-    );
+    // Edge-function console output is not readable from here in practice — the
+    // request log is drowned out by webhook traffic — so record why Gemini went
+    // quiet somewhere queryable instead of guessing at it.
+    await logGeminiFailure({
+      stage: "gemini-call",
+      finishReason: candidate?.finishReason ?? null,
+      safetyRatings: candidate?.safetyRatings ?? null,
+      promptFeedback: payload.promptFeedback ?? null,
+      usageMetadata: payload.usageMetadata ?? null,
+      candidateCount: (payload.candidates as unknown[] | undefined)?.length ?? 0,
+      partCount: parts.length,
+    });
     throw new GeminiCallError("gemini_empty_response");
   }
 
