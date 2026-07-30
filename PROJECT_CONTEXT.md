@@ -33,9 +33,14 @@ Living document for agents and developers. Update this file when architecture, i
 - The LiteSpeed layer serves its default `403 Forbidden — "Access to this
   resource on the server is denied!"` page when its anti-flood / per-IP
   protection triggers; this happens **before** the Next.js app.
-- Company site `rcity.co.il` is separate (Cloudflare). The dashboard's exact
-  production domain is not recorded in the repo/DB — it is not an `rcity.co.il`
-  subdomain; server default TLS cert is `*.hstgr.io`.
+- **Production URL: `https://zend-shirot.rc-info.org`** (verified 2026-07-30).
+  Chain: browser → Hostinger CDN (`Server: hcdn`, 92.113.x) → origin LiteSpeed
+  at `31.97.121.216` → Next.js Node on port 3000. Company site `rcity.co.il`
+  is a separate property (Cloudflare).
+- The 403 users hit is served **per client IP** by LiteSpeed's flood
+  protection — the app and both hops stay healthy for everyone else. Unblock
+  in hPanel; the durable fix is keeping request volume per IP low (see the
+  polling rules in `section-pages.tsx` / `dashboard-client.tsx`).
 
 ## App routes (pages)
 

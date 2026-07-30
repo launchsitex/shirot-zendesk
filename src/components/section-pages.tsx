@@ -37,6 +37,7 @@ import {
   formatSecondsLabel,
   groupCallsByHour,
   inboundWaitSeconds,
+  inclusiveDayCount,
   isShortNoAnswer,
   kpiDelta,
   peakHoursForDisplay,
@@ -113,9 +114,23 @@ function presetDates(preset: DashboardFilters["preset"]) {
   return { from: toInputDate(from), to };
 }
 
+/** Longest range still treated as a live view worth polling aggressively. */
+const LIVE_RANGE_DAYS = 7;
+/** Rows the history table mounts at once; filtering still spans everything. */
+const MAX_TABLE_ROWS = 500;
+
 function useDashboardData(from?: string, to?: string) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+
+  // Anything longer than a week — including the API's 31-day default when no
+  // range is passed — is a history view, not live ops. It used to poll every
+  // 15s *and* refetch on every single row change, so one open tab could pull
+  // the full capped payload dozens of times an hour. With several tabs open
+  // in the office that traffic all comes from one IP, which is what tripped
+  // the host's flood protection into serving 403 pages ahead of the app.
+  const liveRange =
+    Boolean(from && to) && inclusiveDayCount(from!, to!) <= LIVE_RANGE_DAYS;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -123,8 +138,12 @@ function useDashboardData(from?: string, to?: string) {
       from && to
         ? `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
         : "";
-    const loadData = () =>
-      fetch(`/api/dashboard${params}`, {
+    let requestId = 0;
+    // Responses can overtake each other once polling and live events overlap;
+    // only the newest request may write state.
+    const loadData = () => {
+      const current = ++requestId;
+      return fetch(`/api/dashboard${params}`, {
         cache: "no-store",
         signal: controller.signal,
       })
@@ -133,43 +152,62 @@ function useDashboardData(from?: string, to?: string) {
           return response.json();
         })
         .then((payload) => {
+          if (current !== requestId) return;
           setData(payload);
           setError("");
         })
         .catch((reason) => {
-          if (reason.name !== "AbortError") setError(reason.message);
+          if (current !== requestId || reason.name === "AbortError") return;
+          setError(reason.message);
         });
+    };
 
     void loadData();
-    const polling = window.setInterval(() => void loadData(), 15_000);
-    const supabase = isSupabaseBrowserConfigured()
-      ? createSupabaseBrowserClient()
-      : null;
+    const polling = window.setInterval(
+      () => void loadData(),
+      liveRange ? 15_000 : 60_000,
+    );
+
+    const supabase =
+      liveRange && isSupabaseBrowserConfigured()
+        ? createSupabaseBrowserClient()
+        : null;
+    // A busy morning writes many call rows per second. Coalesce a burst into
+    // one refetch instead of one per row change.
+    let pendingReload = 0;
+    const scheduleReload = () => {
+      if (pendingReload) return;
+      pendingReload = window.setTimeout(() => {
+        pendingReload = 0;
+        void loadData();
+      }, 3_000);
+    };
     const channel = supabase
       ?.channel(`section-pages-live-${from ?? "all"}-${to ?? "all"}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "calls" },
-        () => void loadData(),
+        scheduleReload,
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "agent_live_status" },
-        () => void loadData(),
+        scheduleReload,
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "agents" },
-        () => void loadData(),
+        scheduleReload,
       )
       .subscribe();
 
     return () => {
       controller.abort();
       window.clearInterval(polling);
+      if (pendingReload) window.clearTimeout(pendingReload);
       if (supabase && channel) void supabase.removeChannel(channel);
     };
-  }, [from, to]);
+  }, [from, to, liveRange]);
 
   return { data, error };
 }
@@ -299,6 +337,9 @@ export function CallsHistory() {
                 <strong>כל השיחות</strong>
                 <span className="text-xs text-[#7d8a91]">
                   {calls.length} תוצאות
+                  {calls.length > MAX_TABLE_ROWS &&
+                    ` · מוצגות ${MAX_TABLE_ROWS} האחרונות`}
+                  {dashboard.truncated && " · טווח ארוך — נטענו השיחות האחרונות בלבד"}
                 </span>
               </div>
               <div className="scrollbar-thin max-h-[650px] overflow-auto">
@@ -324,7 +365,7 @@ export function CallsHistory() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#edf1f3]">
-                    {calls.map((call) => (
+                    {calls.slice(0, MAX_TABLE_ROWS).map((call) => (
                       <tr key={call.id} className="hover:bg-[#f9fbfb]">
                         <td className="w-0 whitespace-nowrap px-2.5 py-2.5">
                           <span
@@ -403,7 +444,12 @@ export function CallsHistory() {
 }
 
 export function AgentsTeams() {
-  const { data, error } = useDashboardData();
+  // This page renders agents and departments only, but /api/dashboard always
+  // ships the call list with them. Asking for today instead of letting the
+  // route fall back to 31 days drops ~12k rows per refresh that were fetched
+  // and thrown away; today's calls are still enough for live agent state.
+  const today = toInputDate(new Date());
+  const { data, error } = useDashboardData(today, today);
   return (
     <PageState data={data} error={error}>
       {(dashboard) => {
