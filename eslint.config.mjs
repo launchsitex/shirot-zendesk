@@ -5,5 +5,11 @@ import nextTs from "eslint-config-next/typescript";
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores([".next/**", "coverage/**", "supabase/functions/**"]),
+  globalIgnores([
+    ".next/**",
+    "coverage/**",
+    "supabase/functions/**",
+    // Local scratch payloads from MCP deploy sessions — not app code.
+    ".deploy-payloads/**",
+  ]),
 ]);

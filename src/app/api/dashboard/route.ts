@@ -146,26 +146,63 @@ export async function GET(request: NextRequest) {
   }
 
   const callRows = [...(firstCallsPage.data ?? [])];
-  // Keep pulling until a page comes back empty. Stopping at "fewer rows than
-  // requested" would silently truncate again if the server cap is ever set
-  // below CALLS_PAGE_SIZE.
-  let offset = callRows.length;
   let truncated = false;
-  while (callRows.length > 0) {
-    if (offset >= CALLS_HARD_CAP) {
-      truncated = true;
-      break;
-    }
-    const { data: pageRows, error: pageError } = await callsPage(offset);
-    if (pageError) {
-      return NextResponse.json(
-        { error: "dashboard_query_failed", details: pageError.message },
-        { status: 500, headers: NO_STORE_HEADERS },
+  if (callRows.length === CALLS_PAGE_SIZE) {
+    // The range spills past one page. Fixed page offsets are only predictable
+    // when the server honors CALLS_PAGE_SIZE — a full first page proves it —
+    // so pull the rest in parallel batches instead of one-after-another: a
+    // month is ~12 pages, and 11 extra sequential round trips were most of
+    // the long-range latency. Batching (instead of firing all 11 at once)
+    // keeps a "today" poll at one extra batch instead of nine empty fetches.
+    const PARALLEL_PAGE_BATCH = 4;
+    let nextPage = 1;
+    let sawShortPage = false;
+    while (!sawShortPage && nextPage < CALLS_MAX_PAGES) {
+      const batchSize = Math.min(
+        PARALLEL_PAGE_BATCH,
+        CALLS_MAX_PAGES - nextPage,
       );
+      const batch = await Promise.all(
+        Array.from({ length: batchSize }, (_, index) =>
+          callsPage((nextPage + index) * CALLS_PAGE_SIZE),
+        ),
+      );
+      nextPage += batchSize;
+      for (const page of batch) {
+        if (page.error) {
+          return NextResponse.json(
+            { error: "dashboard_query_failed", details: page.error.message },
+            { status: 500, headers: NO_STORE_HEADERS },
+          );
+        }
+        const rows = page.data ?? [];
+        callRows.push(...rows);
+        if (rows.length < CALLS_PAGE_SIZE) {
+          sawShortPage = true;
+          break;
+        }
+      }
     }
-    if (!pageRows?.length) break;
-    callRows.push(...pageRows);
-    offset += pageRows.length;
+    // Twelve full pages may still not be the end of the range.
+    truncated = !sawShortPage && callRows.length >= CALLS_HARD_CAP;
+  } else if (callRows.length > 0) {
+    // Short first page: either the range fits in one page, or db-max-rows is
+    // set below CALLS_PAGE_SIZE and offsets can't be predicted — keep the old
+    // sequential walk that advances by the rows actually returned.
+    let offset = callRows.length;
+    while (offset < CALLS_HARD_CAP) {
+      const { data: pageRows, error: pageError } = await callsPage(offset);
+      if (pageError) {
+        return NextResponse.json(
+          { error: "dashboard_query_failed", details: pageError.message },
+          { status: 500, headers: NO_STORE_HEADERS },
+        );
+      }
+      if (!pageRows?.length) break;
+      callRows.push(...pageRows);
+      offset += pageRows.length;
+    }
+    truncated = offset >= CALLS_HARD_CAP;
   }
 
   const calls: CallRecord[] = callRows.map((row) => {

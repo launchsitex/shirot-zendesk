@@ -195,7 +195,10 @@ export function AgentAiAnalysisClient() {
   }
 
   useEffect(() => {
-    void loadHistory();
+    // Deferred a tick so the synchronous setState inside loadHistory doesn't
+    // cascade into the initial render (same pattern as dashboard-client).
+    const initialLoad = window.setTimeout(() => void loadHistory(), 0);
+    return () => window.clearTimeout(initialLoad);
   }, []);
 
   async function openSavedAnalysis(id: string) {

@@ -34,6 +34,7 @@ import {
   calculateKpis,
   filterCalls,
   formatDuration,
+  inclusiveDayCount,
   isShortNoAnswer,
 } from "@/lib/metrics";
 import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
@@ -112,6 +113,23 @@ function elapsed(iso: string) {
   return formatDuration(seconds);
 }
 
+/**
+ * Self-ticking elapsed-time label. Each instance re-renders only itself every
+ * second — the old page-wide ticker re-rendered the whole dashboard, which
+ * froze the tab once a month range put thousands of rows in the table.
+ */
+function Elapsed({ iso }: { iso: string }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => force((tick) => tick + 1), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return <>{elapsed(iso)}</>;
+}
+
+/** Cap what the calls table mounts in the DOM; search still scans the rest. */
+const MAX_TABLE_ROWS = 500;
+
 export function DashboardClient() {
   const initialDates = presetDates("today");
   const [data, setData] = useState<DashboardData | null>(null);
@@ -125,7 +143,6 @@ export function DashboardClient() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [, setTick] = useState(0);
   const latestRequest = useRef(0);
   const { config: businessHours } = useBusinessHoursConfig();
   const { thresholdSeconds } = useMissedCallThreshold();
@@ -164,21 +181,25 @@ export function DashboardClient() {
     return () => window.clearTimeout(timer);
   }, [data?.scopedDepartmentId]);
 
+  // "Live" treatment is for operational ranges. A month of history doesn't
+  // need a refetch every 15 seconds — and with ~12k rows per response that
+  // cadence is exactly what overwhelmed the page (and the host) before.
+  const liveRange = inclusiveDayCount(filters.from, filters.to) <= 7;
+
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadData(), 0);
-    const polling = window.setInterval(() => loadData(true), 15_000);
+    const polling = window.setInterval(
+      () => loadData(true),
+      liveRange ? 15_000 : 60_000,
+    );
     return () => {
       window.clearTimeout(initialLoad);
       window.clearInterval(polling);
     };
-  }, [loadData]);
+  }, [loadData, liveRange]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setTick((tick) => tick + 1), 1_000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
+    if (!liveRange) return;
     if (!isSupabaseBrowserConfigured()) return;
     const supabase = createSupabaseBrowserClient();
     const channel = supabase
@@ -202,7 +223,7 @@ export function DashboardClient() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [loadData]);
+  }, [loadData, liveRange]);
 
   const visibleCalls = useMemo(() => {
     const calls = splitCallsByBusinessHours(
@@ -503,7 +524,7 @@ export function DashboardClient() {
                   </span>
                 </div>
                 <span className="font-bold text-[#b47a16]">
-                  {elapsed(call.startedAt)}
+                  <Elapsed iso={call.startedAt} />
                 </span>
               </div>
             ))}
@@ -518,6 +539,10 @@ export function DashboardClient() {
               <h2 className="font-bold">שיחות אחרונות</h2>
               <p className="mt-1 text-xs text-[#829097]">
                 {visibleCalls.length} שיחות בטווח שנבחר
+                {visibleCalls.length > MAX_TABLE_ROWS &&
+                  ` · מוצגות ${MAX_TABLE_ROWS} האחרונות`}
+                {data?.truncated &&
+                  " · טווח ארוך — נטענו 12,000 השיחות האחרונות בלבד"}
               </p>
             </div>
             <label className="flex h-10 items-center gap-2 rounded-xl border border-[#dfe6ea] px-3">
@@ -558,7 +583,7 @@ export function DashboardClient() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#edf1f3]">
-                {visibleCalls.map((call) => (
+                {visibleCalls.slice(0, MAX_TABLE_ROWS).map((call) => (
                   <tr
                     key={call.id}
                     className="transition hover:bg-[#f9fbfb]"
@@ -611,9 +636,11 @@ export function DashboardClient() {
                       })}
                     </td>
                     <td className="w-0 whitespace-nowrap px-2.5 py-2.5 font-semibold">
-                      {call.status === "in_progress"
-                        ? elapsed(call.startedAt)
-                        : formatDuration(call.talkTimeSeconds)}
+                      {call.status === "in_progress" ? (
+                        <Elapsed iso={call.startedAt} />
+                      ) : (
+                        formatDuration(call.talkTimeSeconds)
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -826,7 +853,7 @@ function AgentRow({ agent }: { agent: Agent }) {
         </span>
         {inCall && (
           <span className="mt-1 block text-[10px] font-semibold text-[#5671a9]">
-            {elapsed(agent.currentCallStartedAt!)}
+            <Elapsed iso={agent.currentCallStartedAt!} />
           </span>
         )}
       </div>
