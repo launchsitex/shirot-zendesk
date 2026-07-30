@@ -20,9 +20,22 @@ Living document for agents and developers. Update this file when architecture, i
 | Auth / DB | Supabase Auth + Postgres + Realtime + RLS |
 | Telephony | **Aircall** (primary live source via webhooks + Users API) |
 | AI | Gemini (`analyze-recording`, `analyze-agent-day`) behind feature flag `ai_call_analysis` |
-| Hosting | Node Next.js host (e.g. Vercel / Hostinger Node) — not static |
+| Hosting | **Hostinger (hPanel) + LiteSpeed** at `31.97.121.216` — Node Next.js on internal port `3000` behind LiteSpeed. Not static, **not Vercel**. |
 
 **Supabase project ref (production):** `whshmunahkugkmgxkvvw`
+
+### Deployment reality (verified 2026-07-30)
+
+- **Pushing to GitHub `main` does NOT deploy.** The repo has no Vercel/GitHub
+  integration (no webhooks, no deploy keys, no commit statuses). Production is
+  updated manually on the Hostinger side (hPanel). Never assume a fix is live
+  just because it was pushed.
+- The LiteSpeed layer serves its default `403 Forbidden — "Access to this
+  resource on the server is denied!"` page when its anti-flood / per-IP
+  protection triggers; this happens **before** the Next.js app.
+- Company site `rcity.co.il` is separate (Cloudflare). The dashboard's exact
+  production domain is not recorded in the repo/DB — it is not an `rcity.co.il`
+  subdomain; server default TLS cert is `*.hstgr.io`.
 
 ## App routes (pages)
 
