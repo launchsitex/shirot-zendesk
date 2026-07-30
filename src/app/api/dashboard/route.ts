@@ -56,7 +56,14 @@ const CALLS_SELECT =
 // under-reported the morning. Page through instead, advancing by the number of
 // rows actually returned so the loop stays correct whatever the cap is set to.
 const CALLS_PAGE_SIZE = 1000;
-const CALLS_HARD_CAP = 20000;
+// Paging all the way to the end is right for a day or a week, but a month here
+// is ~40k calls (and analytics widens the window further for its comparison
+// period). Fetching that took dozens of sequential round trips and megabytes of
+// JSON, which overran the function's time budget — the dashboard span and then
+// rendered nothing at all. Bound the work so a long range degrades to "slightly
+// short" instead of "broken", and say so in the payload rather than silently.
+const CALLS_MAX_PAGES = 12;
+const CALLS_HARD_CAP = CALLS_PAGE_SIZE * CALLS_MAX_PAGES;
 
 export async function GET(request: NextRequest) {
   if (
@@ -143,7 +150,12 @@ export async function GET(request: NextRequest) {
   // requested" would silently truncate again if the server cap is ever set
   // below CALLS_PAGE_SIZE.
   let offset = callRows.length;
-  while (callRows.length > 0 && offset < CALLS_HARD_CAP) {
+  let truncated = false;
+  while (callRows.length > 0) {
+    if (offset >= CALLS_HARD_CAP) {
+      truncated = true;
+      break;
+    }
     const { data: pageRows, error: pageError } = await callsPage(offset);
     if (pageError) {
       return NextResponse.json(
@@ -257,6 +269,9 @@ export async function GET(request: NextRequest) {
     generatedAt: new Date().toISOString(),
     source: "supabase",
     scopedDepartmentId: departmentScope,
+    // True when the range held more calls than CALLS_HARD_CAP, so figures
+    // derived from this payload cover only the most recent slice of it.
+    truncated,
   };
   return NextResponse.json(payload, { headers: NO_STORE_HEADERS });
 }

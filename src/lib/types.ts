@@ -87,6 +87,9 @@ export interface DashboardData {
   stale?: boolean;
   /** When set, the current user may only view this department. */
   scopedDepartmentId?: string | null;
+  /** The range held more calls than one response can carry, so these cover
+   * only its most recent slice. Long analytics ranges hit this. */
+  truncated?: boolean;
 }
 
 export interface DashboardFilters {
