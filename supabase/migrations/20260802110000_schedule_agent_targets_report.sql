@@ -1,8 +1,7 @@
 -- Schedules the daily "יעדים לנציגים" email.
 --
--- NOT APPLIED YET — applying this is what starts sending mail to the recipient
--- list. Apply it once the targets and recipients are configured and a forced
--- test send has been eyeballed.
+-- Applied to the live project on 2026-08-02, after the targets and the
+-- recipient list were configured and a forced test send was checked.
 --
 -- Twice a day on purpose: pg_cron schedules in UTC and has no timezone
 -- support, while 15:30 in Jerusalem is 12:30 UTC in summer (IDT) and 13:30 UTC
