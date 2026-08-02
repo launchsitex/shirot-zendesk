@@ -24,12 +24,25 @@ Living document for agents and developers. Update this file when architecture, i
 
 **Supabase project ref (production):** `whshmunahkugkmgxkvvw`
 
-### Deployment reality (verified 2026-07-30)
+### Deployment reality (corrected 2026-08-02)
 
-- **Pushing to GitHub `main` does NOT deploy.** The repo has no Vercel/GitHub
-  integration (no webhooks, no deploy keys, no commit statuses). Production is
-  updated manually on the Hostinger side (hPanel). Never assume a fix is live
-  just because it was pushed.
+- **Pushing to GitHub `main` DOES deploy.** Production is a Hostinger
+  **Web App** with *Connected with GitHub* + *Auto-deployment* enabled
+  (repo `shirot-zendesk`, branch `main`, root `./`, Next.js, Node 22.x).
+  A push builds and goes live on its own in about a minute — commit
+  `e39876dd` deployed at 11:13 in 1m 0s. There is no manual step, no SSH
+  and no pm2; it is **not** a VPS.
+- An earlier note here claimed the opposite, reasoning that the GitHub repo
+  had no webhooks, deploy keys or commit statuses. **That inference was
+  wrong** — Hostinger's Web Apps integration does not appear on the repo
+  side at all. The authority is the hPanel dashboard's `Last deployment`
+  card (state, commit SHA, timestamp, duration).
+- **Deploying ≠ clients updating.** Browser tabs that were already open keep
+  running the previously served JavaScript until reloaded, so client-side
+  changes (polling intervals, Realtime handling) only take effect per tab on
+  refresh. After a fix aimed at request volume, tell the office to reload.
+- Supabase migrations and Edge Functions deploy **separately** (MCP
+  `apply_migration` / `deploy_edge_function`), not via the GitHub push.
 - The LiteSpeed layer serves its default `403 Forbidden — "Access to this
   resource on the server is denied!"` page when its anti-flood / per-IP
   protection triggers; this happens **before** the Next.js app.
