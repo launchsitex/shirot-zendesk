@@ -17,6 +17,7 @@ import {
   ScrollText,
   Settings,
   Sparkles,
+  Target,
   Timer,
   UserRoundCog,
   UserSearch,
@@ -83,6 +84,12 @@ const items: {
     label: "זמני סטטוס נציגים",
     pageId: "status-report",
     icon: Timer,
+  },
+  {
+    href: "/agent-targets",
+    label: "יעדים לנציגים",
+    pageId: "agent-targets",
+    icon: Target,
   },
   {
     href: "/ai-analysis",

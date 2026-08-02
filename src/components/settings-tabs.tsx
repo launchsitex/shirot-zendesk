@@ -1,17 +1,24 @@
 "use client";
 
-import { Clock3, Headphones, PhoneMissed, Sparkles } from "lucide-react";
+import { Clock3, Headphones, PhoneMissed, Sparkles, Target } from "lucide-react";
 import { useState } from "react";
+import { AgentTargetsSettingsClient } from "@/components/agent-targets-settings";
 import { AiAnalysisSettingsClient } from "@/components/ai-analysis-settings";
 import { AircallSettingsClient } from "@/components/aircall-settings-client";
 import { BusinessHoursSettingsClient } from "@/components/business-hours-settings";
 import { MissedCallNotificationSettingsClient } from "@/components/missed-call-notification-settings";
 import { MissedCallThresholdSettingsClient } from "@/components/missed-call-threshold-settings";
 
-type TabId = "missed-calls" | "business-hours" | "ai" | "aircall";
+type TabId =
+  | "missed-calls"
+  | "agent-targets"
+  | "business-hours"
+  | "ai"
+  | "aircall";
 
 const TABS: { id: TabId; label: string; icon: typeof Clock3 }[] = [
   { id: "missed-calls", label: "שיחות שלא נענו", icon: PhoneMissed },
+  { id: "agent-targets", label: "יעדים לנציגים", icon: Target },
   { id: "business-hours", label: "שעות פעילות", icon: Clock3 },
   { id: "ai", label: "בינה מלאכותית", icon: Sparkles },
   { id: "aircall", label: "Aircall", icon: Headphones },
@@ -53,6 +60,7 @@ export function SettingsTabs() {
             <MissedCallNotificationSettingsClient />
           </>
         )}
+        {active === "agent-targets" && <AgentTargetsSettingsClient />}
         {active === "business-hours" && <BusinessHoursSettingsClient />}
         {active === "ai" && <AiAnalysisSettingsClient />}
         {active === "aircall" && <AircallSettingsClient />}

@@ -36,8 +36,22 @@ export function formatIsraelDate(iso: string | Date): string {
 
 /** Inclusive Jerusalem calendar-day bounds as UTC ISO strings. */
 export function jerusalemDayBounds(date: string, endOfDay = false): string {
-  const time = endOfDay ? "23:59:59.999" : "00:00:00.000";
-  const wallClockUtc = Date.parse(`${date}T${time}Z`);
+  return jerusalemInstant(date, endOfDay ? "23:59:59.999" : "00:00:00.000");
+}
+
+/**
+ * The UTC instant of a wall-clock time on a Jerusalem calendar date.
+ *
+ * Guess the instant as if the wall clock were UTC, ask what Jerusalem calls
+ * that instant, and subtract the difference. Two passes settle it even across
+ * the DST jump, where the first correction can land on the other side of the
+ * transition.
+ */
+export function jerusalemInstant(date: string, timeOfDay: string): string {
+  const wallClockUtc = Date.parse(`${date}T${padTimeOfDay(timeOfDay)}Z`);
+  if (Number.isNaN(wallClockUtc)) {
+    throw new Error(`invalid_jerusalem_instant:${date}T${timeOfDay}`);
+  }
   let instant = wallClockUtc;
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jerusalem",
@@ -69,6 +83,23 @@ export function jerusalemDayBounds(date: string, endOfDay = false): string {
   }
 
   return new Date(instant).toISOString();
+}
+
+/** "15:30" and "15:30:00.000" must parse the same. */
+function padTimeOfDay(timeOfDay: string): string {
+  const [hours = "0", minutes = "0", seconds = "0"] = timeOfDay.split(":");
+  const [wholeSeconds, millis = "000"] = seconds.split(".");
+  return `${hours.padStart(2, "0")}:${minutes.padStart(2, "0")}:${wholeSeconds.padStart(2, "0")}.${millis}`;
+}
+
+/** Today's date in Jerusalem as YYYY-MM-DD. */
+export function jerusalemToday(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jerusalem",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
 }
 
 export function formatDurationSeconds(totalSeconds: number): string {
