@@ -95,8 +95,17 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("to") ??
     new Date().toISOString().slice(0, 10);
 
+  // Numbers that were retired but left open in Aircall keep accepting calls
+  // that then ring nobody. Those are not call centre traffic and are dropped
+  // from the moment each line was retired — traffic from before it stays, so
+  // the months when these were the live numbers still report correctly.
+  const { data: retiredLines } = await supabase
+    .from("talk_lines")
+    .select("id,excluded_from")
+    .not("excluded_from", "is", null);
+
   const callsPage = (offset: number) => {
-    const query = supabase
+    let query = supabase
       .from("calls")
       .select(CALLS_SELECT)
       .gte("started_at", jerusalemBoundary(from))
@@ -106,9 +115,17 @@ export async function GET(request: NextRequest) {
       // repeating or skipping rows that share a timestamp.
       .order("id", { ascending: false })
       .range(offset, offset + CALLS_PAGE_SIZE - 1);
-    return departmentScope
-      ? query.eq("department_id", departmentScope)
-      : query;
+    if (departmentScope) {
+      query = query.eq("department_id", departmentScope);
+    }
+    // One clause per retired line, ANDed together: keep the row unless it is
+    // on that line *and* started after that line's cutoff.
+    for (const line of retiredLines ?? []) {
+      query = query.or(
+        `line_id.neq.${line.id},started_at.lt.${line.excluded_from}`,
+      );
+    }
+    return query;
   };
 
   let agentsQuery = supabase
