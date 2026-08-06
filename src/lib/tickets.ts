@@ -24,10 +24,27 @@ export type TicketRow = {
   updatedAt: string;
 };
 
+export type AgentTicketSummary = {
+  agentId: string | null;
+  agentName: string;
+  departmentName: string | null;
+  open: number;
+  closed: number;
+  total: number;
+};
+
 export type TicketsPayload = {
   from: string;
   to: string;
+  /** The most recent tickets matching the current filters, capped. */
   rows: TicketRow[];
+  /**
+   * Per-agent counts over the whole range, computed in the database. The list
+   * above is capped, so counting it in the browser would under-report.
+   */
+  summary: AgentTicketSummary[];
+  totals: { open: number; closed: number; total: number };
+  listLimit: number;
   truncated: boolean;
   syncedAt: string | null;
 };
@@ -55,45 +72,6 @@ export const STATUS_LABELS: Record<string, string> = {
 
 export function statusLabel(status: TicketStatus): string {
   return STATUS_LABELS[status] ?? status;
-}
-
-export type AgentTicketSummary = {
-  agentId: string | null;
-  agentName: string;
-  departmentName: string | null;
-  open: number;
-  closed: number;
-  total: number;
-};
-
-/** Per-agent open/closed counts, busiest first. */
-export function summariseByAgent(rows: TicketRow[]): AgentTicketSummary[] {
-  const byAgent = new Map<string, AgentTicketSummary>();
-
-  for (const row of rows) {
-    // Tickets nobody was assigned still need somewhere to land, otherwise the
-    // per-agent totals silently disagree with the ticket list.
-    const key = row.agentId ?? `unassigned:${row.agentName ?? ""}`;
-    let entry = byAgent.get(key);
-    if (!entry) {
-      entry = {
-        agentId: row.agentId,
-        agentName: row.agentName ?? "ללא שיוך נציג",
-        departmentName: row.departmentName,
-        open: 0,
-        closed: 0,
-        total: 0,
-      };
-      byAgent.set(key, entry);
-    }
-    entry.total += 1;
-    if (isClosed(row.status)) entry.closed += 1;
-    else entry.open += 1;
-  }
-
-  return [...byAgent.values()].sort(
-    (a, b) => b.total - a.total || a.agentName.localeCompare(b.agentName, "he"),
-  );
 }
 
 /** Israeli numbers arrive in several shapes; show them consistently. */

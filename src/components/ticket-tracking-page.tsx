@@ -1,18 +1,21 @@
 "use client";
 
 import { Inbox, LoaderCircle, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import {
   formatPhone,
   isClosed,
   statusLabel,
-  summariseByAgent,
   type TicketsPayload,
 } from "@/lib/tickets";
 
-/** Rows mounted at once; filtering still spans the whole range. */
-const MAX_TABLE_ROWS = 500;
+/**
+ * The page refreshes every 20 seconds. That is only affordable because the
+ * counts are aggregated in the database and the list is capped — a refresh
+ * moves a few hundred rows, not the whole month.
+ */
+const REFRESH_MS = 20_000;
 
 function startOfCurrentMonth() {
   return `${jerusalemToday().slice(0, 7)}-01`;
@@ -21,7 +24,7 @@ function startOfCurrentMonth() {
 export function TicketTrackingPageClient() {
   const [from, setFrom] = useState(startOfCurrentMonth);
   const [to, setTo] = useState(() => jerusalemToday());
-  const [agentFilter, setAgentFilter] = useState("");
+  const [agentId, setAgentId] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "closed">(
     "all",
   );
@@ -33,6 +36,8 @@ export function TicketTrackingPageClient() {
     setError("");
     try {
       const params = new URLSearchParams({ from, to });
+      if (agentId) params.set("agentId", agentId);
+      if (statusFilter !== "all") params.set("status", statusFilter);
       const response = await fetch(`/api/zendesk-tickets?${params}`, {
         cache: "no-store",
       });
@@ -46,41 +51,23 @@ export function TicketTrackingPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [from, to]);
+  }, [from, to, agentId, statusFilter]);
 
   useEffect(() => {
     // Deferred a tick so the synchronous setState inside load does not cascade
-    // into the render, and polled once a minute rather than on every ticket
-    // change — the same restraint the call pages needed.
+    // into the render.
     const initial = window.setTimeout(() => void load(), 0);
-    const poll = window.setInterval(() => void load(), 60_000);
+    const poll = window.setInterval(() => void load(), REFRESH_MS);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(poll);
     };
   }, [load]);
 
-  const rows = useMemo(() => data?.rows ?? [], [data]);
-
-  const agentSummaries = useMemo(() => summariseByAgent(rows), [rows]);
-
-  const visibleRows = useMemo(
-    () =>
-      rows.filter((row) => {
-        if (agentFilter && (row.agentName ?? "ללא שיוך נציג") !== agentFilter) {
-          return false;
-        }
-        if (statusFilter === "open" && isClosed(row.status)) return false;
-        if (statusFilter === "closed" && !isClosed(row.status)) return false;
-        return true;
-      }),
-    [rows, agentFilter, statusFilter],
-  );
-
-  const totals = useMemo(() => {
-    const closed = rows.filter((row) => isClosed(row.status)).length;
-    return { total: rows.length, closed, open: rows.length - closed };
-  }, [rows]);
+  const rows = data?.rows ?? [];
+  const summary = data?.summary ?? [];
+  const totals = data?.totals ?? { open: 0, closed: 0, total: 0 };
+  const selected = summary.find((row) => (row.agentId ?? "unassigned") === agentId);
 
   return (
     <div className="space-y-5">
@@ -150,7 +137,7 @@ export function TicketTrackingPageClient() {
             {data.syncedAt
               ? `סונכרן לאחרונה: ${formatIsraelDateTime(data.syncedAt)}`
               : "טרם בוצע סנכרון"}
-            {data.truncated && " · טווח ארוך — נטענו הפניות האחרונות בלבד"}
+            {" · המסך מתרענן כל 20 שניות"}
           </p>
 
           <section className="card overflow-hidden">
@@ -171,40 +158,35 @@ export function TicketTrackingPageClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {agentSummaries.map((summary) => (
-                    <tr
-                      key={summary.agentId ?? summary.agentName}
-                      className="cursor-pointer border-t border-[#edf1f3] hover:bg-[#f8fafb]"
-                      onClick={() =>
-                        setAgentFilter(
-                          agentFilter === summary.agentName
-                            ? ""
-                            : summary.agentName,
-                        )
-                      }
-                    >
-                      <td className="px-5 py-3 font-medium text-[#17242d]">
-                        {summary.agentName}
-                        {agentFilter === summary.agentName && (
-                          <span className="mr-2 text-xs text-[#158f83]">
-                            (מסונן)
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-[#718087]">
-                        {summary.departmentName ?? "—"}
-                      </td>
-                      <td className="px-4 py-3 text-center font-bold text-[#c8434c]">
-                        {summary.open}
-                      </td>
-                      <td className="px-4 py-3 text-center font-bold text-[#1f7a55]">
-                        {summary.closed}
-                      </td>
-                      <td className="px-4 py-3 text-center font-bold text-[#17242d]">
-                        {summary.total}
-                      </td>
-                    </tr>
-                  ))}
+                  {summary.map((row) => {
+                    const key = row.agentId ?? "unassigned";
+                    const active = agentId === key;
+                    return (
+                      <tr
+                        key={key}
+                        onClick={() => setAgentId(active ? "" : key)}
+                        className={`cursor-pointer border-t border-[#edf1f3] transition ${
+                          active ? "bg-[#e7f5f3]" : "hover:bg-[#f8fafb]"
+                        }`}
+                      >
+                        <td className="px-5 py-3 font-medium text-[#17242d]">
+                          {row.agentName}
+                        </td>
+                        <td className="px-4 py-3 text-[#718087]">
+                          {row.departmentName ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-[#c8434c]">
+                          {row.open}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-[#1f7a55]">
+                          {row.closed}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-[#17242d]">
+                          {row.total}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -213,7 +195,8 @@ export function TicketTrackingPageClient() {
           <section className="card overflow-hidden">
             <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1f3] bg-[#f8fafb] px-5 py-3.5">
               <h2 className="text-base font-bold text-[#17242d]">
-                כל הפניות ({visibleRows.length})
+                {selected ? `פניות של ${selected.agentName}` : "כל הפניות"} (
+                {rows.length})
               </h2>
               <div className="flex flex-wrap items-center gap-2">
                 {(["all", "open", "closed"] as const).map((value) => (
@@ -227,13 +210,17 @@ export function TicketTrackingPageClient() {
                         : "bg-white text-[#5d6d75] hover:bg-[#eef2f3]"
                     }`}
                   >
-                    {value === "all" ? "הכול" : value === "open" ? "פתוחות" : "סגורות"}
+                    {value === "all"
+                      ? "הכול"
+                      : value === "open"
+                        ? "פתוחות"
+                        : "סגורות"}
                   </button>
                 ))}
-                {agentFilter && (
+                {agentId && (
                   <button
                     type="button"
-                    onClick={() => setAgentFilter("")}
+                    onClick={() => setAgentId("")}
                     className="rounded-lg bg-[#fdebed] px-3 py-1.5 text-xs font-semibold text-[#c8434c]"
                   >
                     ניקוי סינון נציגה
@@ -254,7 +241,7 @@ export function TicketTrackingPageClient() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.slice(0, MAX_TABLE_ROWS).map((row) => (
+                  {rows.map((row) => (
                     <tr key={row.id} className="border-t border-[#edf1f3]">
                       <td className="whitespace-nowrap px-5 py-3 text-[#5d6d75]">
                         {formatIsraelDateTime(row.createdAt)}
@@ -287,10 +274,10 @@ export function TicketTrackingPageClient() {
                 </tbody>
               </table>
             </div>
-            {visibleRows.length > MAX_TABLE_ROWS && (
+            {data.truncated && (
               <p className="border-t border-[#edf1f3] px-5 py-3 text-xs text-[#a3adb1]">
-                מוצגות {MAX_TABLE_ROWS} הפניות האחרונות מתוך {visibleRows.length}.
-                צמצמו את טווח התאריכים או סננו לפי נציגה כדי לראות את השאר.
+                מוצגות {data.listLimit} הפניות האחרונות. הספירות למעלה מכסות את
+                כל הטווח; לצפייה בשאר צמצמו תאריכים או בחרו נציגה.
               </p>
             )}
           </section>
