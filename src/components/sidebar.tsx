@@ -6,6 +6,7 @@ import {
   BarChart3,
   Building2,
   Headphones,
+  Inbox,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -90,6 +91,12 @@ const items: {
     label: "יעדים לנציגים",
     pageId: "agent-targets",
     icon: Target,
+  },
+  {
+    href: "/ticket-tracking",
+    label: "מעקב פניות",
+    pageId: "ticket-tracking",
+    icon: Inbox,
   },
   {
     href: "/ai-analysis",
