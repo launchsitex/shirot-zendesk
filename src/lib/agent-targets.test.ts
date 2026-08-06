@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   attainment,
+  formatHoursMinutes,
   groupByDepartment,
   reportWindow,
   type AgentTargetRow,
@@ -13,6 +14,8 @@ const row = (over: Partial<AgentTargetRow> = {}): AgentTargetRow => ({
   agentName: "נציג",
   target: 10,
   actual: 10,
+  inboundTalkSeconds: 0,
+  outboundTalkSeconds: 0,
   ...over,
 });
 
@@ -63,6 +66,27 @@ describe("attainment", () => {
   });
 });
 
+describe("formatHoursMinutes", () => {
+  it("formats as zero-padded hours:minutes", () => {
+    expect(formatHoursMinutes(25_295)).toBe("07:01");
+    expect(formatHoursMinutes(0)).toBe("00:00");
+    expect(formatHoursMinutes(59)).toBe("00:00");
+    expect(formatHoursMinutes(60)).toBe("00:01");
+  });
+
+  it("does not roll over past 24 hours — a team total can exceed a day", () => {
+    expect(formatHoursMinutes(90_000)).toBe("25:00");
+  });
+
+  it("floors seconds rather than rounding minutes up", () => {
+    expect(formatHoursMinutes(119)).toBe("00:01");
+  });
+
+  it("treats negatives as zero", () => {
+    expect(formatHoursMinutes(-10)).toBe("00:00");
+  });
+});
+
 describe("groupByDepartment", () => {
   it("totals target and actual per department", () => {
     const groups = groupByDepartment([
@@ -72,6 +96,15 @@ describe("groupByDepartment", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].totalTarget).toBe(15);
     expect(groups[0].totalActual).toBe(15);
+  });
+
+  it("totals talk time per direction alongside the call counts", () => {
+    const groups = groupByDepartment([
+      row({ agentId: "1", inboundTalkSeconds: 3_600, outboundTalkSeconds: 600 }),
+      row({ agentId: "2", inboundTalkSeconds: 1_800, outboundTalkSeconds: 300 }),
+    ]);
+    expect(groups[0].totalInboundTalkSeconds).toBe(5_400);
+    expect(groups[0].totalOutboundTalkSeconds).toBe(900);
   });
 
   it("counts an untargeted agent's calls without inflating the target", () => {

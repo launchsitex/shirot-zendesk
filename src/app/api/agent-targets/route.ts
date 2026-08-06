@@ -23,6 +23,8 @@ type ReportRow = {
   agent_name: string;
   daily_inbound_target: number | null;
   inbound_answered: number;
+  inbound_talk_seconds: number;
+  outbound_talk_seconds: number;
 };
 
 export async function GET(request: NextRequest) {
@@ -79,6 +81,8 @@ export async function GET(request: NextRequest) {
     agentName: row.agent_name,
     target: row.daily_inbound_target,
     actual: Number(row.inbound_answered ?? 0),
+    inboundTalkSeconds: Number(row.inbound_talk_seconds ?? 0),
+    outboundTalkSeconds: Number(row.outbound_talk_seconds ?? 0),
   }));
 
   const payload: AgentTargetReport = {

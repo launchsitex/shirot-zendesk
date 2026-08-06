@@ -4,6 +4,7 @@ import { LoaderCircle, Target, TrendingDown, TrendingUp } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   attainment,
+  formatHoursMinutes,
   groupByDepartment,
   type AgentTargetReport,
 } from "@/lib/agent-targets";
@@ -122,7 +123,19 @@ export function AgentTargetsPageClient() {
                 <h2 className="text-base font-bold text-[#17242d]">
                   {group.departmentName}
                 </h2>
-                <div className="flex items-center gap-4 text-sm">
+                <div className="flex flex-wrap items-center gap-4 text-sm">
+                  <span className="text-[#718087]">
+                    זמן נכנסות{" "}
+                    <strong dir="ltr" className="tabular-nums text-[#17242d]">
+                      {formatHoursMinutes(group.totalInboundTalkSeconds)}
+                    </strong>
+                  </span>
+                  <span className="text-[#718087]">
+                    זמן יוצאות{" "}
+                    <strong dir="ltr" className="tabular-nums text-[#17242d]">
+                      {formatHoursMinutes(group.totalOutboundTalkSeconds)}
+                    </strong>
+                  </span>
                   <span className="text-[#718087]">
                     סה״כ בפועל{" "}
                     <strong className="text-[#17242d]">
@@ -157,7 +170,7 @@ export function AgentTargetsPageClient() {
               </header>
 
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[520px] border-collapse text-sm">
+                <table className="w-full min-w-[760px] border-collapse text-sm">
                   <thead>
                     <tr className="text-[#5d6d75]">
                       <th className="px-5 py-3 text-right font-semibold">
@@ -171,6 +184,12 @@ export function AgentTargetsPageClient() {
                       </th>
                       <th className="px-4 py-3 text-center font-semibold">
                         פער
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-center font-semibold">
+                        זמן שיחות נכנסות
+                      </th>
+                      <th className="whitespace-nowrap px-4 py-3 text-center font-semibold">
+                        זמן שיחות יוצאות
                       </th>
                       <th className="px-4 py-3 text-center font-semibold">
                         עמידה ביעד
@@ -212,6 +231,18 @@ export function AgentTargetsPageClient() {
                                 : rowGap > 0
                                   ? `+${rowGap}`
                                   : rowGap}
+                            </td>
+                            <td
+                              dir="ltr"
+                              className="px-4 py-3 text-center font-medium tabular-nums text-[#17242d]"
+                            >
+                              {formatHoursMinutes(row.inboundTalkSeconds)}
+                            </td>
+                            <td
+                              dir="ltr"
+                              className="px-4 py-3 text-center font-medium tabular-nums text-[#17242d]"
+                            >
+                              {formatHoursMinutes(row.outboundTalkSeconds)}
                             </td>
                             <td className="px-4 py-3">
                               {percent === null ? (

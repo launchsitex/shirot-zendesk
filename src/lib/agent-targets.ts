@@ -21,6 +21,17 @@ export type AgentTargetRow = {
   agentName: string;
   target: number | null;
   actual: number;
+  /**
+   * Seconds the agent was actually on calls in each direction in the window.
+   *
+   * Talk time, not call duration: on outbound, duration also counts dialling
+   * and ringing, so a rep who dials thirty numbers nobody answers would show
+   * hours of "call time" having spoken to no one. Unlike `actual`, these
+   * include calls the agent later transferred away — the target measures
+   * credit for handling, these measure time spent.
+   */
+  inboundTalkSeconds: number;
+  outboundTalkSeconds: number;
 };
 
 export type AgentTargetReport = {
@@ -51,6 +62,18 @@ function nextDay(date: string): string {
   const next = new Date(`${date}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
   return next.toISOString().slice(0, 10);
+}
+
+/**
+ * Seconds as hours:minutes — "07:01", not the mm:ss that formatDuration gives
+ * a single call. A day's worth of talk time is read in hours, and seconds are
+ * noise at that scale.
+ */
+export function formatHoursMinutes(seconds: number): string {
+  const safe = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
 /** Attainment as a percentage, or null when no target is set. */
@@ -84,5 +107,13 @@ export function groupByDepartment(rows: AgentTargetRow[]) {
     ...group,
     totalTarget: group.rows.reduce((sum, row) => sum + (row.target ?? 0), 0),
     totalActual: group.rows.reduce((sum, row) => sum + row.actual, 0),
+    totalInboundTalkSeconds: group.rows.reduce(
+      (sum, row) => sum + row.inboundTalkSeconds,
+      0,
+    ),
+    totalOutboundTalkSeconds: group.rows.reduce(
+      (sum, row) => sum + row.outboundTalkSeconds,
+      0,
+    ),
   }));
 }
