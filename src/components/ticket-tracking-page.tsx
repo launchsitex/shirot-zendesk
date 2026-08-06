@@ -4,6 +4,7 @@ import { Inbox, LoaderCircle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import {
+  documentationRate,
   formatPhone,
   isClosed,
   statusLabel,
@@ -28,6 +29,7 @@ export function TicketTrackingPageClient() {
   const [statusFilter, setStatusFilter] = useState<"all" | "open" | "closed">(
     "all",
   );
+  const [docFilter, setDocFilter] = useState<"all" | "yes" | "no">("all");
   const [data, setData] = useState<TicketsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -38,6 +40,7 @@ export function TicketTrackingPageClient() {
       const params = new URLSearchParams({ from, to });
       if (agentId) params.set("agentId", agentId);
       if (statusFilter !== "all") params.set("status", statusFilter);
+      if (docFilter !== "all") params.set("documented", docFilter);
       const response = await fetch(`/api/zendesk-tickets?${params}`, {
         cache: "no-store",
       });
@@ -51,7 +54,7 @@ export function TicketTrackingPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [from, to, agentId, statusFilter]);
+  }, [from, to, agentId, statusFilter, docFilter]);
 
   useEffect(() => {
     // Deferred a tick so the synchronous setState inside load does not cascade
@@ -66,7 +69,8 @@ export function TicketTrackingPageClient() {
 
   const rows = data?.rows ?? [];
   const summary = data?.summary ?? [];
-  const totals = data?.totals ?? { open: 0, closed: 0, total: 0 };
+  const totals = data?.totals ??
+    { open: 0, closed: 0, total: 0, documented: 0, undocumented: 0 };
   const selected = summary.find((row) => (row.agentId ?? "unassigned") === agentId);
 
   return (
@@ -127,10 +131,15 @@ export function TicketTrackingPageClient() {
 
       {data && (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <SummaryCard label="סה״כ פניות" value={totals.total} tone="neutral" />
             <SummaryCard label="פתוחות" value={totals.open} tone="open" />
-            <SummaryCard label="סגורות" value={totals.closed} tone="closed" />
+            <SummaryCard label="תועדו" value={totals.documented} tone="closed" />
+            <SummaryCard
+              label="לא תועדו"
+              value={totals.undocumented}
+              tone="open"
+            />
           </div>
 
           <p className="px-1 text-xs text-[#a3adb1]">
@@ -147,7 +156,7 @@ export function TicketTrackingPageClient() {
               </h2>
             </header>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] border-collapse text-sm">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
                 <thead>
                   <tr className="text-[#5d6d75]">
                     <th className="px-5 py-3 text-right font-semibold">נציגה</th>
@@ -155,6 +164,12 @@ export function TicketTrackingPageClient() {
                     <th className="px-4 py-3 text-center font-semibold">פתוחות</th>
                     <th className="px-4 py-3 text-center font-semibold">סגורות</th>
                     <th className="px-4 py-3 text-center font-semibold">סה״כ</th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center font-semibold">
+                      לא תועדו
+                    </th>
+                    <th className="whitespace-nowrap px-4 py-3 text-center font-semibold">
+                      אחוז תיעוד
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -183,6 +198,12 @@ export function TicketTrackingPageClient() {
                         </td>
                         <td className="px-4 py-3 text-center font-bold text-[#17242d]">
                           {row.total}
+                        </td>
+                        <td className="px-4 py-3 text-center font-bold text-[#c8434c]">
+                          {row.undocumented}
+                        </td>
+                        <td className="px-4 py-3">
+                          <DocumentationBar rate={documentationRate(row)} />
                         </td>
                       </tr>
                     );
@@ -217,6 +238,25 @@ export function TicketTrackingPageClient() {
                         : "סגורות"}
                   </button>
                 ))}
+                <span className="mx-1 h-4 w-px bg-[#dfe6ea]" />
+                {(["all", "no", "yes"] as const).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setDocFilter(value)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                      docFilter === value
+                        ? "bg-[#102d38] text-white"
+                        : "bg-white text-[#5d6d75] hover:bg-[#eef2f3]"
+                    }`}
+                  >
+                    {value === "all"
+                      ? "תיעוד: הכול"
+                      : value === "no"
+                        ? "לא תועדו"
+                        : "תועדו"}
+                  </button>
+                ))}
                 {agentId && (
                   <button
                     type="button"
@@ -229,7 +269,7 @@ export function TicketTrackingPageClient() {
               </div>
             </header>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] border-collapse text-sm">
+              <table className="w-full min-w-[960px] border-collapse text-sm">
                 <thead>
                   <tr className="text-[#5d6d75]">
                     <th className="px-5 py-3 text-right font-semibold">נוצרה</th>
@@ -238,6 +278,7 @@ export function TicketTrackingPageClient() {
                     <th className="px-4 py-3 text-right font-semibold">טלפון</th>
                     <th className="px-4 py-3 text-right font-semibold">נושא</th>
                     <th className="px-4 py-3 text-center font-semibold">סטטוס</th>
+                    <th className="px-4 py-3 text-center font-semibold">תועדה</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -269,6 +310,20 @@ export function TicketTrackingPageClient() {
                           {statusLabel(row.status)}
                         </span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {row.documented ? (
+                          <span
+                            title={`${row.agentNoteCount} הערות, ${row.agentReplyCount} תשובות`}
+                            className="inline-block rounded-lg bg-[#e7f6ee] px-2.5 py-1 text-xs font-bold text-[#1f7a55]"
+                          >
+                            תועדה
+                          </span>
+                        ) : (
+                          <span className="inline-block rounded-lg bg-[#fdebed] px-2.5 py-1 text-xs font-bold text-[#c8434c]">
+                            לא תועדה
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -283,6 +338,31 @@ export function TicketTrackingPageClient() {
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+function DocumentationBar({ rate }: { rate: number | null }) {
+  if (rate === null) {
+    return <span className="block text-center text-[#a3adb1]">—</span>;
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#edf1f3]">
+        <div
+          className={`h-full rounded-full ${
+            rate >= 80
+              ? "bg-[#1f7a55]"
+              : rate >= 50
+                ? "bg-[#e9b24a]"
+                : "bg-[#c8434c]"
+          }`}
+          style={{ width: `${Math.min(100, rate)}%` }}
+        />
+      </div>
+      <span className="w-12 text-left text-xs font-bold text-[#5d6d75]">
+        {rate}%
+      </span>
     </div>
   );
 }

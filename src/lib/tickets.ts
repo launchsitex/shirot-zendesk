@@ -22,6 +22,18 @@ export type TicketRow = {
   departmentName: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Whether the assigned agent wrote anything on the ticket.
+   *
+   * Not Zendesk's `replies` metric: that counts public replies, and this team
+   * writes internal notes ("הוסף הערה") through the Aircall app, so it reads
+   * zero almost everywhere. A comment counts here when its author is the
+   * ticket's own assignee — everything else on a ticket is written by the
+   * Aircall bot, a Zendesk trigger, or the customer.
+   */
+  documented: boolean;
+  agentNoteCount: number;
+  agentReplyCount: number;
 };
 
 export type AgentTicketSummary = {
@@ -31,7 +43,15 @@ export type AgentTicketSummary = {
   open: number;
   closed: number;
   total: number;
+  documented: number;
+  undocumented: number;
 };
+
+/** Share of the agent's tickets they wrote something on, 0–100. */
+export function documentationRate(row: AgentTicketSummary): number | null {
+  if (row.total <= 0) return null;
+  return Math.round((row.documented / row.total) * 100);
+}
 
 export type TicketsPayload = {
   from: string;
@@ -43,7 +63,13 @@ export type TicketsPayload = {
    * above is capped, so counting it in the browser would under-report.
    */
   summary: AgentTicketSummary[];
-  totals: { open: number; closed: number; total: number };
+  totals: {
+    open: number;
+    closed: number;
+    total: number;
+    documented: number;
+    undocumented: number;
+  };
   listLimit: number;
   truncated: boolean;
   syncedAt: string | null;

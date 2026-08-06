@@ -16,6 +16,10 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 const MAX_PAGES_PER_RUN = 20;
+// Comment events stream far heavier than tickets, so they get a smaller budget:
+// incremental exports are limited to ten requests a minute and the ticket pass
+// above already spends some of that. A backlog simply drains over several runs.
+const MAX_EVENT_PAGES_PER_RUN = 6;
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -212,6 +216,132 @@ async function sync(supabase: SupabaseClient, body: Record<string, unknown>) {
     last_start_time: cursor,
     last_run_at: new Date().toISOString(),
     last_result: result,
+  }).eq("id", 1);
+
+  const comments = await syncComments(
+    supabase,
+    { auth, base },
+    body.full === true ? Math.floor(cutoffMs / 1000) : null,
+    cutoffMs,
+  );
+
+  return { ...result, comments };
+}
+
+/**
+ * Pulls comment events and refreshes the documentation counters.
+ *
+ * Whether an agent wrote anything cannot come from Zendesk's `replies` metric:
+ * that counts public replies, and this team writes internal notes through the
+ * Aircall app, so it reads zero almost everywhere. The comment event stream
+ * gives the author of every comment, and a comment counts as documentation when
+ * its author is the ticket's own assignee.
+ */
+async function syncComments(
+  supabase: SupabaseClient,
+  api: { auth: string; base: string },
+  forcedStart: number | null,
+  cutoffMs: number,
+) {
+  const { data: state } = await supabase
+    .from("zendesk_sync_state")
+    .select("last_events_start_time")
+    .eq("id", 1)
+    .maybeSingle();
+
+  let cursor = forcedStart ??
+    state?.last_events_start_time ??
+    Math.floor(cutoffMs / 1000);
+
+  let pages = 0;
+  let stored = 0;
+  let endOfStream = false;
+  const touched = new Set<string>();
+
+  while (pages < MAX_EVENT_PAGES_PER_RUN) {
+    const url =
+      `${api.base}/incremental/ticket_events.json?start_time=${cursor}` +
+      `&include=comment_events`;
+    const response = await fetch(url, {
+      headers: { Authorization: api.auth, Accept: "application/json" },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (response.status === 429) break;
+    if (!response.ok) {
+      throw new Error(
+        `zendesk_events_${response.status}:` +
+          `${(await response.text()).slice(0, 300)}`,
+      );
+    }
+
+    const page = await response.json() as {
+      ticket_events?: Array<Record<string, unknown>>;
+      end_time?: number;
+      end_of_stream?: boolean;
+    };
+    pages += 1;
+
+    const rows: Array<Record<string, unknown>> = [];
+    for (const event of page.ticket_events ?? []) {
+      const ticketId = String(event.ticket_id ?? "");
+      if (!ticketId) continue;
+      for (
+        const child of (event.child_events ?? []) as Array<
+          Record<string, unknown>
+        >
+      ) {
+        if (child.event_type !== "Comment") continue;
+        rows.push({
+          id: String(child.id ?? `${event.id}-${child.author_id}`),
+          ticket_id: ticketId,
+          author_id: child.author_id != null ? String(child.author_id) : null,
+          is_public: child.public === true,
+          created_at: String(event.created_at ?? new Date().toISOString()),
+        });
+        touched.add(ticketId);
+      }
+    }
+
+    if (rows.length) {
+      const { error } = await supabase
+        .from("zendesk_ticket_comments")
+        .upsert(rows, { onConflict: "id" });
+      if (error) throw new Error(`comment_upsert:${error.message}`);
+      stored += rows.length;
+    }
+
+    if (page.end_time) cursor = page.end_time;
+    if (page.end_of_stream || !(page.ticket_events ?? []).length) {
+      endOfStream = true;
+      break;
+    }
+  }
+
+  // Only tickets touched this run are recomputed, in chunks so the array
+  // parameter stays a sane size.
+  let recomputed = 0;
+  const ids = [...touched];
+  for (let i = 0; i < ids.length; i += 500) {
+    const { data, error } = await supabase.rpc(
+      "recompute_ticket_documentation",
+      { p_ticket_ids: ids.slice(i, i + 500) },
+    );
+    if (error) throw new Error(`recompute:${error.message}`);
+    recomputed += Number(data ?? 0);
+  }
+
+  const result = {
+    pages,
+    comments_stored: stored,
+    tickets_touched: touched.size,
+    tickets_recomputed: recomputed,
+    end_of_stream: endOfStream,
+    cursor,
+  };
+
+  await supabase.from("zendesk_sync_state").update({
+    last_events_start_time: cursor,
+    last_events_result: result,
   }).eq("id", 1);
 
   return result;
