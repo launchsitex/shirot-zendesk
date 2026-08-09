@@ -47,6 +47,26 @@ export type AgentTicketSummary = {
   undocumented: number;
 };
 
+export type OpenTicketAgent = {
+  agentId: string | null;
+  agentName: string;
+  departmentName: string | null;
+  undocumented: number;
+};
+
+/**
+ * The "פניות פתוחות" view: tickets the assigned agent finished without writing
+ * anything in, for one day, excluding WhatsApp.
+ */
+export type OpenTicketsPayload = {
+  date: string;
+  summary: OpenTicketAgent[];
+  /** Populated only when one agent is expanded. */
+  rows: TicketRow[];
+  total: number;
+  syncedAt: string | null;
+};
+
 /** Share of the agent's tickets they wrote something on, 0–100. */
 export function documentationRate(row: AgentTicketSummary): number | null {
   if (row.total <= 0) return null;

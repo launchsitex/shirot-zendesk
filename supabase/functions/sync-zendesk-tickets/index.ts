@@ -45,6 +45,7 @@ type ZendeskTicket = {
   group_id?: number | null;
   created_at: string;
   updated_at: string;
+  via?: { channel?: string | null } | null;
 };
 
 Deno.serve(async (request) => {
@@ -182,6 +183,9 @@ async function sync(supabase: SupabaseClient, body: Record<string, unknown>) {
             ? (agentByEmail.get(assigneeEmail) ?? null)
             : null,
           group_id: ticket.group_id ? String(ticket.group_id) : null,
+          // Promoted out of raw so the open-tickets page can exclude WhatsApp
+          // with an indexed filter instead of probing JSONB on every row.
+          via_channel: ticket.via?.channel ?? null,
           zendesk_created_at: ticket.created_at,
           zendesk_updated_at: ticket.updated_at,
           raw: ticket as unknown as Record<string, unknown>,

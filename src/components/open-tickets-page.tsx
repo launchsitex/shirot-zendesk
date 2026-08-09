@@ -12,25 +12,28 @@ import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import {
   formatPhone,
   statusLabel,
-  type AgentTicketSummary,
+  type OpenTicketAgent,
+  type OpenTicketsPayload,
   type TicketRow,
-  type TicketsPayload,
 } from "@/lib/tickets";
 
 const REFRESH_MS = 30_000;
 
 /**
- * The day's undocumented tickets, by agent.
+ * Tickets the assigned agent finished without writing anything in, for one day.
  *
- * The counts come from the summary the database already aggregates, so opening
- * the page costs one small request no matter how many tickets the day holds. An
- * agent's actual tickets are fetched only when their row is expanded — a busy
- * day runs past a thousand tickets, and shipping them all up front to show a
- * handful of counts is what made the parent page slow enough to need fixing.
+ * "Finished" is solved or closed — the team's Zendesk calls solved "פתורה" and
+ * never shows closed, which is just the same ticket after Zendesk archives it
+ * days later. WhatsApp is excluded: those threads are opened by the customer's
+ * own message, not by an agent handling a call.
+ *
+ * The counts are aggregated in the database, so opening the page costs one
+ * small request however many tickets the day holds. An agent's own tickets are
+ * fetched only when their row is expanded.
  */
 export function OpenTicketsPageClient() {
   const [date, setDate] = useState(() => jerusalemToday());
-  const [summary, setSummary] = useState<AgentTicketSummary[] | null>(null);
+  const [summary, setSummary] = useState<OpenTicketAgent[] | null>(null);
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [ticketsByAgent, setTicketsByAgent] = useState<
@@ -43,11 +46,11 @@ export function OpenTicketsPageClient() {
   const loadSummary = useCallback(async () => {
     setError("");
     try {
-      const params = new URLSearchParams({ from: date, to: date });
-      const response = await fetch(`/api/zendesk-tickets?${params}`, {
+      const params = new URLSearchParams({ date });
+      const response = await fetch(`/api/open-tickets?${params}`, {
         cache: "no-store",
       });
-      const payload: TicketsPayload = await response.json();
+      const payload: OpenTicketsPayload = await response.json();
       if (!response.ok) {
         throw new Error(
           (payload as unknown as { error?: string }).error ?? "load_failed",
@@ -68,16 +71,11 @@ export function OpenTicketsPageClient() {
     async (agentKey: string) => {
       setLoadingAgent(agentKey);
       try {
-        const params = new URLSearchParams({
-          from: date,
-          to: date,
-          documented: "no",
-          agentId: agentKey,
-        });
-        const response = await fetch(`/api/zendesk-tickets?${params}`, {
+        const params = new URLSearchParams({ date, agentId: agentKey });
+        const response = await fetch(`/api/open-tickets?${params}`, {
           cache: "no-store",
         });
-        const payload: TicketsPayload = await response.json();
+        const payload: OpenTicketsPayload = await response.json();
         if (!response.ok) throw new Error("load_failed");
         setTicketsByAgent((previous) => ({
           ...previous,
@@ -124,10 +122,9 @@ export function OpenTicketsPageClient() {
     setExpanded(expanded === agentKey ? null : agentKey);
   }
 
-  // Only agents who actually left something undocumented belong on this page.
-  const offenders = (summary ?? [])
-    .filter((row) => row.undocumented > 0)
-    .sort((a, b) => b.undocumented - a.undocumented);
+  // The query already returns only agents with undocumented tickets, ordered
+  // worst first.
+  const offenders = summary ?? [];
   const totalUndocumented = offenders.reduce(
     (sum, row) => sum + row.undocumented,
     0,
@@ -142,8 +139,8 @@ export function OpenTicketsPageClient() {
         <div className="flex-1">
           <h1 className="text-lg font-bold">פניות פתוחות</h1>
           <p className="mt-0.5 text-sm text-[#718087]">
-            פניות שהנציגה לא תיעדה בהן דבר, בכל סטטוס. לחיצה על שם נציגה
-            פותחת את הפניות שלה.
+            פניות שנסגרו והנציגה לא כתבה בהן דבר. ללא פניות WhatsApp. לחיצה
+            על שם נציגה פותחת את הפניות שלה.
           </p>
         </div>
 
@@ -184,7 +181,7 @@ export function OpenTicketsPageClient() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="card p-5">
               <span className="text-sm text-[#718087]">
-                פניות ללא תיעוד ביום זה
+                פניות שנסגרו ללא תיעוד ביום זה
               </span>
               <strong className="mt-1 block text-3xl font-bold text-[#c8434c]">
                 {totalUndocumented}
@@ -214,7 +211,7 @@ export function OpenTicketsPageClient() {
 
             {offenders.length === 0 ? (
               <p className="px-5 py-10 text-center text-sm text-[#1f7a55]">
-                כל הפניות של היום תועדו.
+                כל הפניות שנסגרו היום תועדו.
               </p>
             ) : (
               <ul className="divide-y divide-[#edf1f3]">
