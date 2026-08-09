@@ -12,6 +12,7 @@ import {
   PhoneIncoming,
   PhoneMissed,
   PhoneOutgoing,
+  Timer,
   Users,
   X,
 } from "lucide-react";
@@ -61,12 +62,12 @@ function todayJerusalem(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jerusalem" });
 }
 
+function elapsedSeconds(iso: string) {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+}
+
 function elapsed(iso: string) {
-  const seconds = Math.max(
-    0,
-    Math.floor((Date.now() - new Date(iso).getTime()) / 1000),
-  );
-  return formatDuration(seconds);
+  return formatDuration(elapsedSeconds(iso));
 }
 
 export function WallboardClient() {
@@ -185,6 +186,44 @@ export function WallboardClient() {
         ),
     [businessCalls],
   );
+
+  /**
+   * Waiting calls split by department, so the two never share a number.
+   *
+   * A screen signed in as one of the department wallboard users only receives
+   * that department's calls to begin with — /api/dashboard scopes by the
+   * viewer's profile — so it sees exactly one box. An admin or manager sees the
+   * departments side by side rather than one blended figure, which is the part
+   * that would otherwise be misleading.
+   *
+   * Every active department gets a box even with nobody waiting: on a wall
+   * display a steady "0" is information, whereas a box that vanishes reads as a
+   * screen that broke.
+   */
+  const waitingByDepartment = useMemo(() => {
+    const sections = (data?.departments ?? []).map((department) => ({
+      id: department.id,
+      name: department.name,
+      calls: waitingCalls.filter(
+        (call) => call.departmentId === department.id,
+      ),
+    }));
+    // Calls that arrived without a department would otherwise be invisible
+    // here while still counting in the panel below.
+    const unassigned = waitingCalls.filter(
+      (call) =>
+        !call.departmentId ||
+        !(data?.departments ?? []).some((d) => d.id === call.departmentId),
+    );
+    if (unassigned.length) {
+      sections.push({
+        id: "__unassigned",
+        name: "ללא שיוך מחלקה",
+        calls: unassigned,
+      });
+    }
+    return sections;
+  }, [waitingCalls, data?.departments]);
 
   const liveCalls = useMemo(() => {
     // A call still "call.ringing_on_agent" in Aircall has status=in_progress
@@ -368,6 +407,22 @@ export function WallboardClient() {
           <WallMetric label="בשיחה כעת" value={liveCalls.length} tone="amber" />
         </section>
 
+        {waitingByDepartment.length > 0 && (
+          <section
+            className={`grid gap-3 ${
+              waitingByDepartment.length > 1 ? "md:grid-cols-2" : ""
+            }`}
+          >
+            {waitingByDepartment.map((section) => (
+              <WaitingTimeBox
+                key={section.id}
+                name={section.name}
+                calls={section.calls}
+              />
+            ))}
+          </section>
+        )}
+
         <section className="grid flex-1 gap-5 xl:grid-cols-[1.1fr_1fr]">
           <div className="flex flex-col gap-5">
             <article className="rounded-2xl border border-[#e1a62b]/35 bg-[#2a2112] p-3.5">
@@ -500,6 +555,80 @@ function WallMetric({
       <strong className="mt-2 block text-4xl font-bold tracking-tight xl:text-5xl">
         {value}
       </strong>
+    </article>
+  );
+}
+
+/**
+ * Live waiting time for one department.
+ *
+ * The figures are computed during render rather than in a memo so they follow
+ * the one-second clock tick — a memo keyed on the call list would freeze the
+ * numbers until a call actually started or ended.
+ */
+function WaitingTimeBox({
+  name,
+  calls,
+}: {
+  name: string;
+  calls: CallRecord[];
+}) {
+  const waits = calls.map((call) => elapsedSeconds(call.startedAt));
+  const longest = waits.length ? Math.max(...waits) : 0;
+  const average = waits.length
+    ? Math.round(waits.reduce((sum, value) => sum + value, 0) / waits.length)
+    : 0;
+
+  // Three minutes on hold is where a caller starts giving up, one minute is
+  // where it stops being routine.
+  const tone = longest >= 180
+    ? {
+      border: "border-[#e0564f]/50",
+      bg: "bg-[#3a1a18]",
+      accent: "text-[#ff8a80]",
+      label: "text-[#ff8a80]/70",
+    }
+    : longest >= 60
+      ? {
+        border: "border-[#e1a62b]/40",
+        bg: "bg-[#2a2112]",
+        accent: "text-[#f0c15a]",
+        label: "text-[#f0c15a]/70",
+      }
+      : {
+        border: "border-[#2f9e8f]/35",
+        bg: "bg-[#122a26]",
+        accent: "text-[#6ee0d0]",
+        label: "text-[#6ee0d0]/70",
+      };
+
+  return (
+    <article
+      className={`rounded-2xl border ${tone.border} ${tone.bg} px-4 py-3`}
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <Timer className={tone.accent} size={18} />
+        <h2 className="text-base font-bold">זמן המתנה · {name}</h2>
+        <strong
+          className={`mr-auto rounded-full bg-white/10 px-3 py-0.5 text-sm ${tone.accent}`}
+        >
+          {calls.length} ממתינים
+        </strong>
+      </div>
+      <div className="flex items-end gap-6">
+        <div>
+          <span className={`block text-xs ${tone.label}`}>הארוך ביותר</span>
+          <strong className={`block text-4xl font-bold ${tone.accent}`}>
+            {formatDuration(longest)}
+          </strong>
+        </div>
+        <div>
+          <span className={`block text-xs ${tone.label}`}>ממוצע</span>
+          <strong className="block text-2xl font-bold text-white/80">
+            {formatDuration(average)}
+          </strong>
+        </div>
+      </div>
     </article>
   );
 }
