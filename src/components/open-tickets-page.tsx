@@ -93,15 +93,23 @@ export function OpenTicketsPageClient() {
   );
 
   useEffect(() => {
-    // Deferred a tick so the synchronous setState inside the loader does not
+    // An agent can write their note minutes or hours after the ticket opened,
+    // and the sync picks that up within the minute. So the open dropdown has to
+    // be refreshed alongside the counts — otherwise the header would drop from
+    // 21 to 20 while the ticket that was just documented stayed on screen.
+    const refresh = () => {
+      void loadSummary();
+      if (expanded) void loadAgentTickets(expanded);
+    };
+    // Deferred a tick so the synchronous setState inside the loaders does not
     // cascade into the render.
-    const initial = window.setTimeout(() => void loadSummary(), 0);
-    const poll = window.setInterval(() => void loadSummary(), REFRESH_MS);
+    const initial = window.setTimeout(refresh, 0);
+    const poll = window.setInterval(refresh, REFRESH_MS);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(poll);
     };
-  }, [loadSummary]);
+  }, [loadSummary, loadAgentTickets, expanded]);
 
   /** Changing the day invalidates anything already fetched for the old one. */
   function changeDate(next: string) {
@@ -111,12 +119,9 @@ export function OpenTicketsPageClient() {
   }
 
   function toggle(agentKey: string) {
-    if (expanded === agentKey) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(agentKey);
-    if (!ticketsByAgent[agentKey]) void loadAgentTickets(agentKey);
+    // Expanding is enough: the refresh effect above keys off `expanded` and
+    // fetches immediately, so loading here too would double the request.
+    setExpanded(expanded === agentKey ? null : agentKey);
   }
 
   // Only agents who actually left something undocumented belong on this page.
