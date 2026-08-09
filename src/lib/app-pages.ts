@@ -13,6 +13,11 @@ export const APP_PAGES = [
   { id: "status-report", href: "/status-report", label: "זמני סטטוס נציגים" },
   { id: "agent-targets", href: "/agent-targets", label: "יעדים לנציגים" },
   { id: "ticket-tracking", href: "/ticket-tracking", label: "מעקב פניות" },
+  {
+    id: "ticket-tracking-open",
+    href: "/ticket-tracking/open",
+    label: "פניות פתוחות",
+  },
   { id: "ai-analysis", href: "/ai-analysis", label: "ניתוח AI" },
   {
     id: "agent-ai-analysis",

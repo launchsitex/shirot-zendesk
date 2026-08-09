@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BarChart3,
   Building2,
+  FileWarning,
   Headphones,
   Inbox,
   LayoutDashboard,
@@ -42,6 +43,8 @@ const items: {
   pageId: AppPageId;
   icon: typeof LayoutDashboard;
   requiresFeature?: "aiCallAnalysis";
+  /** Rendered indented beneath the entry above it. */
+  child?: boolean;
 }[] = [
   {
     href: "/dashboard",
@@ -97,6 +100,13 @@ const items: {
     label: "מעקב פניות",
     pageId: "ticket-tracking",
     icon: Inbox,
+  },
+  {
+    href: "/ticket-tracking/open",
+    label: "פניות פתוחות",
+    pageId: "ticket-tracking-open",
+    icon: FileWarning,
+    child: true,
   },
   {
     href: "/ai-analysis",
@@ -290,13 +300,15 @@ function Sidebar({
                 onClick={() => {
                   if (!isDesktop) onOpenChange(false);
                 }}
-                className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition ${
+                className={`flex items-center gap-3 rounded-xl py-3 text-sm transition ${
+                  item.child ? "mr-4 border-r border-white/15 pr-4" : "px-3"
+                } ${
                   active
                     ? "bg-white text-[#102d38] shadow"
                     : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
               >
-                <item.icon size={19} />
+                <item.icon size={item.child ? 17 : 19} />
                 {item.label}
               </Link>
             );
