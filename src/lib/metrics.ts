@@ -95,11 +95,21 @@ export type DepartmentWaitStats = {
   totalWaitSeconds: number;
   /** Mean wait of the calls that were answered; null when none were. */
   averageWaitSeconds: number | null;
+  /** Share of inbound calls that were answered at all, 0–100. */
+  answerRatePct: number | null;
   /** Share of answered calls picked up within the target, 0–100. */
   answeredWithinTargetPct: number | null;
+  /** Share of every inbound call that waited longer than the target, 0–100. */
+  waitedOverTargetPct: number | null;
   /** Share of all waiting time that belongs to this department, 0–100. */
   shareOfWaitPct: number;
 };
+
+/** One decimal, so 72.4% and 19.7% do not collapse into 72% and 20%. */
+function pct(part: number, whole: number): number | null {
+  if (!whole) return null;
+  return Math.round((part / whole) * 1000) / 10;
+}
 
 /**
  * How long customers waited on inbound calls, split by department.
@@ -119,7 +129,11 @@ export function waitStatsByDepartment(
 ): DepartmentWaitStats[] {
   const groups = new Map<
     string,
-    DepartmentWaitStats & { withinTarget: number; answeredWaitSeconds: number }
+    DepartmentWaitStats & {
+      withinTarget: number;
+      overTarget: number;
+      answeredWaitSeconds: number;
+    }
   >();
 
   for (const call of calls) {
@@ -139,9 +153,12 @@ export function waitStatsByDepartment(
         answered: 0,
         totalWaitSeconds: 0,
         averageWaitSeconds: null,
+        answerRatePct: null,
         answeredWithinTargetPct: null,
+        waitedOverTargetPct: null,
         shareOfWaitPct: 0,
         withinTarget: 0,
+        overTarget: 0,
         answeredWaitSeconds: 0,
       };
       groups.set(key, entry);
@@ -149,6 +166,10 @@ export function waitStatsByDepartment(
 
     entry.inbound += 1;
     entry.totalWaitSeconds += wait;
+    // Counted over every inbound call, answered or not: a customer who gave up
+    // after four minutes waited just as long as one who was eventually picked
+    // up, and the point of this figure is how often people are kept waiting.
+    if (wait > targetSeconds) entry.overTarget += 1;
     if (call.status === "answered") {
       entry.answered += 1;
       entry.answeredWaitSeconds += wait;
@@ -162,17 +183,17 @@ export function waitStatsByDepartment(
   );
 
   return [...groups.values()]
-    .map(({ withinTarget, answeredWaitSeconds, ...entry }) => ({
+    .map(({ withinTarget, overTarget, answeredWaitSeconds, ...entry }) => ({
       ...entry,
       averageWaitSeconds: entry.answered
         ? Math.round(answeredWaitSeconds / entry.answered)
         : null,
-      answeredWithinTargetPct: entry.answered
-        ? Math.round((withinTarget / entry.answered) * 100)
-        : null,
-      shareOfWaitPct: totalWait
-        ? Math.round((entry.totalWaitSeconds / totalWait) * 100)
-        : 0,
+      answerRatePct: pct(entry.answered, entry.inbound),
+      // Measured against answered calls only: a call nobody picked up waited a
+      // long time, but no one was slow to answer it.
+      answeredWithinTargetPct: pct(withinTarget, entry.answered),
+      waitedOverTargetPct: pct(overTarget, entry.inbound),
+      shareOfWaitPct: pct(entry.totalWaitSeconds, totalWait) ?? 0,
     }))
     .sort((a, b) => b.totalWaitSeconds - a.totalWaitSeconds);
 }

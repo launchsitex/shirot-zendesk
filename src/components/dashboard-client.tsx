@@ -37,6 +37,7 @@ import {
   inclusiveDayCount,
   isShortNoAnswer,
   waitStatsByDepartment,
+  type DepartmentWaitStats,
 } from "@/lib/metrics";
 import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import type {
@@ -48,6 +49,79 @@ import type {
 } from "@/lib/types";
 /** Answering inside a minute is the service level this desk works to. */
 const WAIT_TARGET_SECONDS = 60;
+
+/**
+ * Rows of the waiting-time comparison, defined once so every department is
+ * rendered from the same definition and the columns cannot drift apart.
+ */
+const WAIT_ROWS: {
+  label: string;
+  value: (stat: DepartmentWaitStats) => string;
+  tone: (stat: DepartmentWaitStats) => string;
+}[] = [
+  {
+    label: "שיחות נכנסות",
+    value: (stat) => String(stat.inbound),
+    tone: () => "text-[#17242d]",
+  },
+  {
+    label: "אחוז מענה",
+    value: (stat) =>
+      stat.answerRatePct === null ? "—" : `${stat.answerRatePct}%`,
+    tone: (stat) =>
+      stat.answerRatePct === null
+        ? "text-[#a3adb1]"
+        : stat.answerRatePct >= 90
+          ? "text-[#1f7a55]"
+          : stat.answerRatePct >= 75
+            ? "text-[#b47a16]"
+            : "text-[#c8434c]",
+  },
+  {
+    label: "נתח מזמן ההמתנה",
+    value: (stat) => `${stat.shareOfWaitPct}%`,
+    tone: () => "text-[#5d6d75]",
+  },
+  {
+    label: "המתנה ממוצעת (שנענו)",
+    value: (stat) =>
+      stat.averageWaitSeconds === null
+        ? "—"
+        : formatDuration(stat.averageWaitSeconds),
+    tone: (stat) =>
+      stat.averageWaitSeconds !== null && stat.averageWaitSeconds > 180
+        ? "text-[#c8434c]"
+        : "text-[#17242d]",
+  },
+  {
+    label: `נענו תוך פחות מ-${WAIT_TARGET_SECONDS} שניות`,
+    value: (stat) =>
+      stat.answeredWithinTargetPct === null
+        ? "—"
+        : `${stat.answeredWithinTargetPct}%`,
+    tone: (stat) =>
+      stat.answeredWithinTargetPct === null
+        ? "text-[#a3adb1]"
+        : stat.answeredWithinTargetPct >= 80
+          ? "text-[#1f7a55]"
+          : stat.answeredWithinTargetPct >= 50
+            ? "text-[#b47a16]"
+            : "text-[#c8434c]",
+  },
+  {
+    label: `חיכו מעל ${WAIT_TARGET_SECONDS} שניות`,
+    value: (stat) =>
+      stat.waitedOverTargetPct === null ? "—" : `${stat.waitedOverTargetPct}%`,
+    tone: (stat) =>
+      stat.waitedOverTargetPct === null
+        ? "text-[#a3adb1]"
+        : stat.waitedOverTargetPct >= 50
+          ? "text-[#c8434c]"
+          : stat.waitedOverTargetPct >= 25
+            ? "text-[#b47a16]"
+            : "text-[#1f7a55]",
+  },
+];
 
 const stateLabels: Record<AgentState, string> = {
   available: "זמין",
@@ -506,66 +580,54 @@ export function DashboardClient() {
       </section>
 
       {waitStats.length > 0 && (
-        <section className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {waitStats.map((stat) => (
-            <article
-              key={stat.departmentId ?? "none"}
-              className="card p-4"
-            >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-base font-bold text-[#17242d]">
-                  זמן המתנה · {stat.departmentName}
-                </h3>
-                <span className="rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-semibold text-[#5d6d75]">
-                  {stat.inbound} נכנסות
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <span className="block text-xs text-[#718087]">ממוצע</span>
-                  <strong className="block text-xl font-bold text-[#17242d]">
-                    {stat.averageWaitSeconds === null
-                      ? "—"
-                      : formatDuration(stat.averageWaitSeconds)}
-                  </strong>
-                </div>
-                <div>
-                  <span className="block whitespace-nowrap text-xs text-[#718087]">
-                    נענו עד {WAIT_TARGET_SECONDS} שנ׳
-                  </span>
-                  <strong
-                    className={`block text-xl font-bold ${
-                      stat.answeredWithinTargetPct === null
-                        ? "text-[#a3adb1]"
-                        : stat.answeredWithinTargetPct >= 80
-                          ? "text-[#1f7a55]"
-                          : stat.answeredWithinTargetPct >= 50
-                            ? "text-[#b47a16]"
-                            : "text-[#c8434c]"
-                    }`}
-                  >
-                    {stat.answeredWithinTargetPct === null
-                      ? "—"
-                      : `${stat.answeredWithinTargetPct}%`}
-                  </strong>
-                </div>
-                <div>
-                  <span className="block whitespace-nowrap text-xs text-[#718087]">
-                    נתח מההמתנה
-                  </span>
-                  <strong className="block text-xl font-bold text-[#5d6d75]">
-                    {stat.shareOfWaitPct}%
-                  </strong>
-                </div>
-              </div>
-              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#edf1f3]">
-                <div
-                  className="h-full rounded-full bg-[#158f83]"
-                  style={{ width: `${Math.min(100, stat.shareOfWaitPct)}%` }}
-                />
-              </div>
-            </article>
-          ))}
+        <section className="card mb-4 overflow-hidden">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1f3] p-4">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e7f5f3] text-[#158f83]">
+                <Clock3 size={20} />
+              </span>
+              <h2 className="text-base font-bold text-[#17242d]">
+                זמן המתנה של לקוחות · שיחות נכנסות
+              </h2>
+            </div>
+            <span className="text-xs text-[#a3adb1]">
+              יעד מענה: עד {WAIT_TARGET_SECONDS} שניות
+            </span>
+          </header>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-[#f8fafb] text-[#5d6d75]">
+                  <th className="px-4 py-3 text-right font-semibold">מדד</th>
+                  {waitStats.map((stat) => (
+                    <th
+                      key={stat.departmentId ?? "none"}
+                      className="px-4 py-3 text-center font-bold text-[#17242d]"
+                    >
+                      {stat.departmentName}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {WAIT_ROWS.map((row) => (
+                  <tr key={row.label} className="border-t border-[#edf1f3]">
+                    <td className="whitespace-nowrap px-4 py-3 text-[#5d6d75]">
+                      {row.label}
+                    </td>
+                    {waitStats.map((stat) => (
+                      <td
+                        key={stat.departmentId ?? "none"}
+                        className={`px-4 py-3 text-center font-bold tabular-nums ${row.tone(stat)}`}
+                      >
+                        {row.value(stat)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

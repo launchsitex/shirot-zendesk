@@ -319,4 +319,33 @@ describe("waitStatsByDepartment", () => {
     expect(stats[0].averageWaitSeconds).toBeNull();
     expect(stats[0].answeredWithinTargetPct).toBeNull();
   });
+  it("reports the answer rate and the share kept waiting past the target", () => {
+    const stats = waitStatsByDepartment(
+      [
+        make({ waitTimeSeconds: 30 }),
+        make({ waitTimeSeconds: 90 }),
+        make({ waitTimeSeconds: 120 }),
+        make({ status: "missed", agentId: null, waitTimeSeconds: 200 }),
+      ],
+      60,
+    );
+    // 3 of 4 answered, and 3 of 4 waited longer than a minute.
+    expect(stats[0].answerRatePct).toBe(75);
+    expect(stats[0].waitedOverTargetPct).toBe(75);
+    // Only one of the three answered calls was picked up inside the target.
+    expect(stats[0].answeredWithinTargetPct).toBeCloseTo(33.3, 1);
+  });
+
+  it("keeps one decimal so close shares stay distinguishable", () => {
+    const stats = waitStatsByDepartment([
+      make({ waitTimeSeconds: 724 }),
+      make({
+        departmentId: "service",
+        departmentName: "שירות",
+        waitTimeSeconds: 276,
+      }),
+    ]);
+    expect(stats[0].shareOfWaitPct).toBe(72.4);
+    expect(stats[1].shareOfWaitPct).toBe(27.6);
+  });
 });
