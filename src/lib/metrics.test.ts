@@ -11,6 +11,7 @@ import {
   isShortNoAnswer,
   previousEqualPeriod,
   shiftCalendarDate,
+  waitStatsByDepartment,
 } from "@/lib/metrics";
 import type { CallRecord } from "@/lib/types";
 
@@ -216,5 +217,106 @@ describe("filters and formatting", () => {
   it("formats durations consistently", () => {
     expect(formatDuration(65)).toBe("01:05");
     expect(formatDuration(3661)).toBe("01:01:01");
+  });
+});
+
+describe("waitStatsByDepartment", () => {
+  const make = (over: Partial<CallRecord>): CallRecord => ({
+    id: Math.random().toString(36).slice(2),
+    direction: "inbound",
+    status: "answered",
+    agentId: "a1",
+    agentName: "נציג",
+    transferredByAgentId: null,
+    transferredByAgentName: null,
+    departmentId: "deliveries",
+    departmentName: "אספקות",
+    customerNumber: "050",
+    startedAt: "2026-08-09T07:00:00.000Z",
+    endedAt: "2026-08-09T07:05:00.000Z",
+    durationSeconds: 300,
+    talkTimeSeconds: 240,
+    waitTimeSeconds: 30,
+    ...over,
+  });
+
+  it("keeps departments apart instead of blending them", () => {
+    const stats = waitStatsByDepartment([
+      make({ waitTimeSeconds: 100 }),
+      make({
+        departmentId: "service",
+        departmentName: "שירות",
+        waitTimeSeconds: 20,
+      }),
+    ]);
+    expect(stats).toHaveLength(2);
+    expect(stats.map((row) => row.departmentName)).toEqual(["אספקות", "שירות"]);
+    expect(stats[0].averageWaitSeconds).toBe(100);
+    expect(stats[1].averageWaitSeconds).toBe(20);
+  });
+
+  it("splits the share of total waiting time between them", () => {
+    const stats = waitStatsByDepartment([
+      make({ waitTimeSeconds: 75 }),
+      make({
+        departmentId: "service",
+        departmentName: "שירות",
+        waitTimeSeconds: 25,
+      }),
+    ]);
+    expect(stats[0].shareOfWaitPct).toBe(75);
+    expect(stats[1].shareOfWaitPct).toBe(25);
+  });
+
+  it("measures the target against answered calls only", () => {
+    const stats = waitStatsByDepartment(
+      [
+        make({ waitTimeSeconds: 30 }),
+        make({ waitTimeSeconds: 90 }),
+        // A missed call waited far past the target but was never answered, so
+        // it must not drag the service level down as if somebody was slow.
+        make({ status: "missed", agentId: null, waitTimeSeconds: 600 }),
+      ],
+      60,
+    );
+    expect(stats[0].inbound).toBe(3);
+    expect(stats[0].answered).toBe(2);
+    expect(stats[0].answeredWithinTargetPct).toBe(50);
+  });
+
+  it("ignores outbound calls", () => {
+    const stats = waitStatsByDepartment([
+      make({ direction: "outbound", waitTimeSeconds: 500 }),
+      make({ waitTimeSeconds: 10 }),
+    ]);
+    expect(stats).toHaveLength(1);
+    expect(stats[0].inbound).toBe(1);
+    expect(stats[0].totalWaitSeconds).toBe(10);
+  });
+
+  it("leaves calls still ringing out of the average", () => {
+    const stats = waitStatsByDepartment([
+      make({ waitTimeSeconds: 40 }),
+      make({ status: "in_progress", agentId: null, waitTimeSeconds: 0 }),
+    ]);
+    expect(stats[0].inbound).toBe(1);
+    expect(stats[0].averageWaitSeconds).toBe(40);
+  });
+
+  it("labels calls that arrived without a department", () => {
+    const stats = waitStatsByDepartment([
+      make({ departmentId: null, departmentName: null, waitTimeSeconds: 5 }),
+    ]);
+    expect(stats[0].departmentName).toBe("ללא שיוך מחלקה");
+    expect(stats[0].departmentId).toBeNull();
+  });
+
+  it("reports no percentage when nothing was answered", () => {
+    const stats = waitStatsByDepartment([
+      make({ status: "missed", agentId: null, waitTimeSeconds: 200 }),
+    ]);
+    expect(stats[0].answered).toBe(0);
+    expect(stats[0].averageWaitSeconds).toBeNull();
+    expect(stats[0].answeredWithinTargetPct).toBeNull();
   });
 });

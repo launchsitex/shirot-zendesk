@@ -36,6 +36,7 @@ import {
   formatDuration,
   inclusiveDayCount,
   isShortNoAnswer,
+  waitStatsByDepartment,
 } from "@/lib/metrics";
 import { formatPhoneDisplay, phoneSearchText } from "@/lib/phone";
 import type {
@@ -45,6 +46,8 @@ import type {
   DashboardData,
   DashboardFilters,
 } from "@/lib/types";
+/** Answering inside a minute is the service level this desk works to. */
+const WAIT_TARGET_SECONDS = 60;
 
 const stateLabels: Record<AgentState, string> = {
   available: "זמין",
@@ -284,6 +287,17 @@ export function DashboardClient() {
   );
   const kpis = calculateKpis(visibleCalls, thresholdSeconds);
 
+  /**
+   * Customer waiting time on inbound calls, per department, over whatever the
+   * filters currently select. Kept separate from the KPI strip because those
+   * are single totals while this is a per-department comparison — blending the
+   * departments into one average hides that one of them is far slower.
+   */
+  const waitStats = useMemo(
+    () => waitStatsByDepartment(visibleCalls, WAIT_TARGET_SECONDS),
+    [visibleCalls],
+  );
+
   function setPreset(preset: DashboardFilters["preset"]) {
     setFilters((current) => ({
       ...current,
@@ -490,6 +504,70 @@ export function DashboardClient() {
           tone="amber"
         />
       </section>
+
+      {waitStats.length > 0 && (
+        <section className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {waitStats.map((stat) => (
+            <article
+              key={stat.departmentId ?? "none"}
+              className="card p-4"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-base font-bold text-[#17242d]">
+                  זמן המתנה · {stat.departmentName}
+                </h3>
+                <span className="rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-semibold text-[#5d6d75]">
+                  {stat.inbound} נכנסות
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <span className="block text-xs text-[#718087]">ממוצע</span>
+                  <strong className="block text-xl font-bold text-[#17242d]">
+                    {stat.averageWaitSeconds === null
+                      ? "—"
+                      : formatDuration(stat.averageWaitSeconds)}
+                  </strong>
+                </div>
+                <div>
+                  <span className="block whitespace-nowrap text-xs text-[#718087]">
+                    נענו עד {WAIT_TARGET_SECONDS} שנ׳
+                  </span>
+                  <strong
+                    className={`block text-xl font-bold ${
+                      stat.answeredWithinTargetPct === null
+                        ? "text-[#a3adb1]"
+                        : stat.answeredWithinTargetPct >= 80
+                          ? "text-[#1f7a55]"
+                          : stat.answeredWithinTargetPct >= 50
+                            ? "text-[#b47a16]"
+                            : "text-[#c8434c]"
+                    }`}
+                  >
+                    {stat.answeredWithinTargetPct === null
+                      ? "—"
+                      : `${stat.answeredWithinTargetPct}%`}
+                  </strong>
+                </div>
+                <div>
+                  <span className="block whitespace-nowrap text-xs text-[#718087]">
+                    נתח מההמתנה
+                  </span>
+                  <strong className="block text-xl font-bold text-[#5d6d75]">
+                    {stat.shareOfWaitPct}%
+                  </strong>
+                </div>
+              </div>
+              <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#edf1f3]">
+                <div
+                  className="h-full rounded-full bg-[#158f83]"
+                  style={{ width: `${Math.min(100, stat.shareOfWaitPct)}%` }}
+                />
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
 
       <section className="card mb-4 overflow-hidden border-r-4 border-r-[#e1a62b]">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf1f3] p-4">

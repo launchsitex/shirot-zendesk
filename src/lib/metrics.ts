@@ -87,6 +87,96 @@ export function calculateKpis(
   };
 }
 
+export type DepartmentWaitStats = {
+  departmentId: string | null;
+  departmentName: string;
+  inbound: number;
+  answered: number;
+  totalWaitSeconds: number;
+  /** Mean wait of the calls that were answered; null when none were. */
+  averageWaitSeconds: number | null;
+  /** Share of answered calls picked up within the target, 0–100. */
+  answeredWithinTargetPct: number | null;
+  /** Share of all waiting time that belongs to this department, 0–100. */
+  shareOfWaitPct: number;
+};
+
+/**
+ * How long customers waited on inbound calls, split by department.
+ *
+ * Two different percentages, because they say different things. The share of
+ * total waiting time shows where the pain is concentrated, but it mostly
+ * follows call volume — a busy department will always dominate it. The share
+ * answered inside the target is the performance figure: it is independent of
+ * volume, so a small department cannot hide behind a big one.
+ *
+ * Wait comes from inboundWaitSeconds so this agrees with the rest of the app,
+ * including its fallbacks for rows where Aircall left wait_time_seconds at 0.
+ */
+export function waitStatsByDepartment(
+  calls: CallRecord[],
+  targetSeconds = 60,
+): DepartmentWaitStats[] {
+  const groups = new Map<
+    string,
+    DepartmentWaitStats & { withinTarget: number; answeredWaitSeconds: number }
+  >();
+
+  for (const call of calls) {
+    if (call.direction !== "inbound") continue;
+    const wait = inboundWaitSeconds(call);
+    // in_progress calls have no final wait yet; counting them would drag the
+    // average toward whatever happens to be ringing right now.
+    if (wait === null) continue;
+
+    const key = call.departmentId ?? "";
+    let entry = groups.get(key);
+    if (!entry) {
+      entry = {
+        departmentId: call.departmentId ?? null,
+        departmentName: call.departmentName ?? "ללא שיוך מחלקה",
+        inbound: 0,
+        answered: 0,
+        totalWaitSeconds: 0,
+        averageWaitSeconds: null,
+        answeredWithinTargetPct: null,
+        shareOfWaitPct: 0,
+        withinTarget: 0,
+        answeredWaitSeconds: 0,
+      };
+      groups.set(key, entry);
+    }
+
+    entry.inbound += 1;
+    entry.totalWaitSeconds += wait;
+    if (call.status === "answered") {
+      entry.answered += 1;
+      entry.answeredWaitSeconds += wait;
+      if (wait <= targetSeconds) entry.withinTarget += 1;
+    }
+  }
+
+  const totalWait = [...groups.values()].reduce(
+    (sum, entry) => sum + entry.totalWaitSeconds,
+    0,
+  );
+
+  return [...groups.values()]
+    .map(({ withinTarget, answeredWaitSeconds, ...entry }) => ({
+      ...entry,
+      averageWaitSeconds: entry.answered
+        ? Math.round(answeredWaitSeconds / entry.answered)
+        : null,
+      answeredWithinTargetPct: entry.answered
+        ? Math.round((withinTarget / entry.answered) * 100)
+        : null,
+      shareOfWaitPct: totalWait
+        ? Math.round((entry.totalWaitSeconds / totalWait) * 100)
+        : 0,
+    }))
+    .sort((a, b) => b.totalWaitSeconds - a.totalWaitSeconds);
+}
+
 export function isCallInRange(
   call: CallRecord,
   from: string,
