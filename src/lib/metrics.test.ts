@@ -319,6 +319,37 @@ describe("waitStatsByDepartment", () => {
     expect(stats[0].averageWaitSeconds).toBeNull();
     expect(stats[0].answeredWithinTargetPct).toBeNull();
   });
+  it("matches the KPI answer rate by dropping short abandons from the base", () => {
+    // 2 answered, 1 real miss, 1 customer who hung up inside the threshold.
+    const calls = [
+      make({ waitTimeSeconds: 20 }),
+      make({ waitTimeSeconds: 40 }),
+      make({ status: "missed", agentId: null, waitTimeSeconds: 300 }),
+      make({ status: "missed", agentId: null, waitTimeSeconds: 5 }),
+    ];
+    const stats = waitStatsByDepartment(calls, 60, 10);
+    // 2 of 3, not 2 of 4 — the 5-second abandon is not a failure to answer.
+    expect(stats[0].answerRatePct).toBeCloseTo(66.7, 1);
+    // The headline tile and this table must never disagree on the same screen.
+    expect(Math.round(stats[0].answerRatePct ?? 0)).toBe(
+      calculateKpis(calls, 10).answerRate,
+    );
+    // Every inbound call is still counted, so the tile above still agrees.
+    expect(stats[0].inbound).toBe(4);
+  });
+
+  it("counts every inbound call when no short-abandon threshold is set", () => {
+    const stats = waitStatsByDepartment(
+      [
+        make({ waitTimeSeconds: 20 }),
+        make({ status: "missed", agentId: null, waitTimeSeconds: 5 }),
+      ],
+      60,
+      0,
+    );
+    expect(stats[0].answerRatePct).toBe(50);
+  });
+
   it("reports the answer rate and the share kept waiting past the target", () => {
     const stats = waitStatsByDepartment(
       [

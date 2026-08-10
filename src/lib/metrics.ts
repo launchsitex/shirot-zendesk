@@ -95,7 +95,15 @@ export type DepartmentWaitStats = {
   totalWaitSeconds: number;
   /** Mean wait of the calls that were answered; null when none were. */
   averageWaitSeconds: number | null;
-  /** Share of inbound calls that were answered at all, 0–100. */
+  /**
+   * Share of inbound calls that were answered, 0–100.
+   *
+   * The denominator drops calls the customer abandoned inside the configured
+   * short-no-answer threshold, exactly as the KPI strip's answer rate does.
+   * Dividing by every inbound call instead put a second, lower "אחוז מענה" on
+   * the same screen as the headline one — 76.5% against 81% — with no visible
+   * reason for the gap.
+   */
   answerRatePct: number | null;
   /** Share of answered calls picked up within the target, 0–100. */
   answeredWithinTargetPct: number | null;
@@ -126,12 +134,14 @@ function pct(part: number, whole: number): number | null {
 export function waitStatsByDepartment(
   calls: CallRecord[],
   targetSeconds = 60,
+  shortNoAnswerSeconds = 0,
 ): DepartmentWaitStats[] {
   const groups = new Map<
     string,
     DepartmentWaitStats & {
       withinTarget: number;
       overTarget: number;
+      shortAbandons: number;
       answeredWaitSeconds: number;
     }
   >();
@@ -159,6 +169,7 @@ export function waitStatsByDepartment(
         shareOfWaitPct: 0,
         withinTarget: 0,
         overTarget: 0,
+        shortAbandons: 0,
         answeredWaitSeconds: 0,
       };
       groups.set(key, entry);
@@ -170,6 +181,7 @@ export function waitStatsByDepartment(
     // after four minutes waited just as long as one who was eventually picked
     // up, and the point of this figure is how often people are kept waiting.
     if (wait > targetSeconds) entry.overTarget += 1;
+    if (isShortNoAnswer(call, shortNoAnswerSeconds)) entry.shortAbandons += 1;
     if (call.status === "answered") {
       entry.answered += 1;
       entry.answeredWaitSeconds += wait;
@@ -183,12 +195,14 @@ export function waitStatsByDepartment(
   );
 
   return [...groups.values()]
-    .map(({ withinTarget, overTarget, answeredWaitSeconds, ...entry }) => ({
+    .map((
+      { withinTarget, overTarget, shortAbandons, answeredWaitSeconds, ...entry },
+    ) => ({
       ...entry,
       averageWaitSeconds: entry.answered
         ? Math.round(answeredWaitSeconds / entry.answered)
         : null,
-      answerRatePct: pct(entry.answered, entry.inbound),
+      answerRatePct: pct(entry.answered, entry.inbound - shortAbandons),
       // Measured against answered calls only: a call nobody picked up waited a
       // long time, but no one was slow to answer it.
       answeredWithinTargetPct: pct(withinTarget, entry.answered),

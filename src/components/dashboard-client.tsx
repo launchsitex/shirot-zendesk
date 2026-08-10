@@ -368,8 +368,13 @@ export function DashboardClient() {
    * departments into one average hides that one of them is far slower.
    */
   const waitStats = useMemo(
-    () => waitStatsByDepartment(visibleCalls, WAIT_TARGET_SECONDS),
-    [visibleCalls],
+    () =>
+      waitStatsByDepartment(
+        visibleCalls,
+        WAIT_TARGET_SECONDS,
+        thresholdSeconds,
+      ),
+    [visibleCalls, thresholdSeconds],
   );
 
   function setPreset(preset: DashboardFilters["preset"]) {
@@ -591,7 +596,8 @@ export function DashboardClient() {
               </h2>
             </div>
             <span className="text-xs text-[#a3adb1]">
-              יעד מענה: עד {WAIT_TARGET_SECONDS} שניות
+              יעד מענה: עד {WAIT_TARGET_SECONDS} שניות · אחוז המענה אינו כולל
+              ניתוקים מהירים (עד {thresholdSeconds} שנ׳)
             </span>
           </header>
           <div className="overflow-x-auto">
