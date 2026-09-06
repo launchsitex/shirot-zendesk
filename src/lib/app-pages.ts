@@ -18,6 +18,12 @@ export const APP_PAGES = [
     href: "/ticket-tracking/open",
     label: "פניות פתוחות",
   },
+  { id: "wa-dashboard", href: "/wa-dashboard", label: "דשבורד WA" },
+  {
+    id: "wa-dashboard-tv",
+    href: "/wa-dashboard/tv",
+    label: "דשבורד TV WA",
+  },
   { id: "ai-analysis", href: "/ai-analysis", label: "ניתוח AI" },
   {
     id: "agent-ai-analysis",
