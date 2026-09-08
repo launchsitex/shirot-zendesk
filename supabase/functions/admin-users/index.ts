@@ -16,6 +16,11 @@ const ALL_PAGES = [
   "agents",
   "analytics",
   "status-report",
+  "agent-targets",
+  "ticket-tracking",
+  "ticket-tracking-open",
+  "wa-dashboard",
+  "wa-dashboard-tv",
   "ai-analysis",
   "agent-ai-analysis",
   "system-logs",
@@ -405,6 +410,16 @@ function pageLabel(id: PageKey) {
       return "דוחות וניתוח";
     case "status-report":
       return "זמני סטטוס נציגים";
+    case "agent-targets":
+      return "יעדים לנציגים";
+    case "ticket-tracking":
+      return "מעקב פניות";
+    case "ticket-tracking-open":
+      return "פניות פתוחות";
+    case "wa-dashboard":
+      return "דשבורד WA";
+    case "wa-dashboard-tv":
+      return "דשבורד TV WA";
     case "ai-analysis":
       return "ניתוח AI";
     case "agent-ai-analysis":
