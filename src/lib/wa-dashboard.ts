@@ -68,13 +68,57 @@ export type WaDashboardPayload = {
 };
 
 /**
- * A ticket still awaiting its first agent reply has gone this long since the
- * customer's message — the point past which it is highlighted as urgent.
+ * Escalation tiers for a customer still waiting on a first reply — the figure
+ * the account owner called more important than the close-time stats, since it
+ * is the one a manager can act on right now by nudging a specific agent.
  */
-export const STALE_THRESHOLD_SECONDS = 600;
+export const WAITING_TIER_MINUTES = [3, 7, 10] as const;
+export type WaitingTierMinutes = (typeof WAITING_TIER_MINUTES)[number];
 
-export function isStale(waitingSeconds: number): boolean {
-  return waitingSeconds >= STALE_THRESHOLD_SECONDS;
+export type WaitingTicket = WaTicketRow & { waitedSeconds: number };
+
+/**
+ * Tickets with no agent reply yet and not closed, each carrying how long the
+ * customer has been waiting as of `now` — recomputed on every call rather
+ * than stored, since it grows every second the page is open.
+ */
+export function currentlyWaiting(
+  rows: WaTicketRow[],
+  now: Date,
+): WaitingTicket[] {
+  const nowMs = now.getTime();
+  return rows
+    .filter((row) => row.firstResponseSeconds == null && !row.closed)
+    .map((row) => ({
+      ...row,
+      waitedSeconds: Math.max(
+        0,
+        Math.floor((nowMs - new Date(row.createdAt).getTime()) / 1000),
+      ),
+    }))
+    .sort((a, b) => b.waitedSeconds - a.waitedSeconds);
+}
+
+/** How many currently-waiting tickets have crossed each escalation tier. */
+export function waitingTierCounts(
+  waiting: { waitedSeconds: number }[],
+): Record<WaitingTierMinutes, number> {
+  const counts = {} as Record<WaitingTierMinutes, number>;
+  for (const minutes of WAITING_TIER_MINUTES) {
+    counts[minutes] = waiting.filter(
+      (ticket) => ticket.waitedSeconds >= minutes * 60,
+    ).length;
+  }
+  return counts;
+}
+
+/** The highest escalation tier (in minutes) a wait has crossed, or null. */
+export function waitingTier(waitedSeconds: number): WaitingTierMinutes | null {
+  let crossed: WaitingTierMinutes | null = null;
+  for (const minutes of WAITING_TIER_MINUTES) {
+    if (waitedSeconds >= minutes * 60) crossed = minutes;
+  }
+  return crossed;
 }
 
 function average(values: number[]): number | null {

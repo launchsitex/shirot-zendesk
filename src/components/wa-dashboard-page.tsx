@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   ChevronDown,
   ChevronLeft,
   LoaderCircle,
@@ -9,9 +10,17 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
-import { formatSecondsLabel } from "@/lib/metrics";
+import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
 import { formatPhone, statusLabel } from "@/lib/tickets";
-import type { WaDashboardPayload, WaTicketRow } from "@/lib/wa-dashboard";
+import {
+  currentlyWaiting,
+  waitingTier,
+  waitingTierCounts,
+  WAITING_TIER_MINUTES,
+  type WaDashboardPayload,
+  type WaitingTierMinutes,
+  type WaTicketRow,
+} from "@/lib/wa-dashboard";
 
 const REFRESH_MS = 30_000;
 
@@ -19,9 +28,42 @@ function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
 }
 
+function tierClasses(minutes: WaitingTierMinutes | null): string {
+  switch (minutes) {
+    case 10:
+      return "bg-[#fdebed] text-[#c8434c]";
+    case 7:
+      return "bg-[#fdeee0] text-[#c1651f]";
+    case 3:
+      return "bg-[#fdf6df] text-[#9c7a1a]";
+    default:
+      return "bg-[#eef2f3] text-[#5d6d75]";
+  }
+}
+
+function TierTile({ minutes, count }: { minutes: WaitingTierMinutes; count: number }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-1 px-4 py-4">
+      <strong
+        className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl font-bold ${tierClasses(minutes)}`}
+      >
+        {count}
+      </strong>
+      <span className="text-xs font-semibold text-[#718087]">מעל {minutes} דק&apos;</span>
+    </div>
+  );
+}
+
 /**
  * Same-day WhatsApp performance: how long it took an agent to send a first
  * reply, and how long a ticket stayed open before reaching solved/closed.
+ *
+ * The headline figure is "לקוחות ממתינים לתגובה כרגע" — customers with no
+ * agent reply yet, right now, broken into 3/7/10-minute escalation tiers with
+ * who they're assigned to. The account owner asked for this ahead of the
+ * close-time stats: it is the one number a manager can act on immediately by
+ * nudging a specific agent, so it leads the page and ticks live every second
+ * rather than waiting for the next 30-second poll.
  *
  * "First reply" and "closed" follow the definitions already established
  * elsewhere in this app: a comment counts once its author is the ticket's own
@@ -36,6 +78,7 @@ export function WaDashboardPageClient() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [now, setNow] = useState(() => new Date());
 
   const load = useCallback(async () => {
     setError("");
@@ -63,9 +106,11 @@ export function WaDashboardPageClient() {
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
     const poll = window.setInterval(() => void load(), REFRESH_MS);
+    const clock = window.setInterval(() => setNow(new Date()), 1_000);
     return () => {
       window.clearTimeout(initial);
       window.clearInterval(poll);
+      window.clearInterval(clock);
     };
   }, [load]);
 
@@ -85,6 +130,12 @@ export function WaDashboardPageClient() {
     return map;
   }, [data]);
 
+  const waiting = useMemo(
+    () => currentlyWaiting(data?.rows ?? [], now),
+    [data?.rows, now],
+  );
+  const tiers = useMemo(() => waitingTierCounts(waiting), [waiting]);
+
   function toggle(agentKey: string) {
     setExpanded(expanded === agentKey ? null : agentKey);
   }
@@ -101,8 +152,8 @@ export function WaDashboardPageClient() {
         <div className="flex-1">
           <h1 className="text-lg font-bold">דשבורד WA</h1>
           <p className="mt-0.5 text-sm text-[#718087]">
-            פניות וואטסאפ מ-Zendesk ליום זה: זמן תגובה ראשונה של הנציגה
-            וזמן עד שהפנייה נפתרה/נסגרה.
+            פניות וואטסאפ מ-Zendesk ליום זה: מי ממתין לתגובה כרגע, זמן
+            תגובה ראשונה וזמן עד שהפנייה נפתרה/נסגרה.
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -139,7 +190,70 @@ export function WaDashboardPageClient() {
 
       {data && (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <section className="card overflow-hidden border-2 border-[#f3c1c6]">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#fdebed] px-5 py-3.5">
+              <h2 className="flex items-center gap-2 text-base font-bold text-[#8a2b32]">
+                <AlertTriangle size={18} />
+                לקוחות ממתינים לתגובה כרגע
+              </h2>
+              <strong className="text-lg font-bold text-[#8a2b32]">
+                {waiting.length} ממתינים
+              </strong>
+            </header>
+
+            <div className="grid grid-cols-3 divide-x divide-x-reverse divide-[#edf1f3] border-b border-[#edf1f3]">
+              {WAITING_TIER_MINUTES.map((minutes) => (
+                <TierTile key={minutes} minutes={minutes} count={tiers[minutes]} />
+              ))}
+            </div>
+
+            {waiting.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-[#1f7a55]">
+                כל הפניות של {isToday ? "היום" : date} קיבלו תגובה ראשונה.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] border-collapse text-sm">
+                  <thead>
+                    <tr className="text-[#5d6d75]">
+                      <th className="px-4 py-2 text-right font-semibold">לקוח</th>
+                      <th className="px-4 py-2 text-right font-semibold">טלפון</th>
+                      <th className="px-4 py-2 text-right font-semibold">נציגה משויכת</th>
+                      <th className="px-4 py-2 text-right font-semibold">מחלקה</th>
+                      <th className="px-4 py-2 text-center font-semibold">ממתין</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {waiting.map((ticket) => (
+                      <tr key={ticket.id} className="border-t border-[#edf1f3]">
+                        <td className="px-4 py-2.5 text-[#17242d]">
+                          {ticket.customerName ?? "—"}
+                        </td>
+                        <td dir="ltr" className="px-4 py-2.5 text-right text-[#5d6d75]">
+                          {formatPhone(ticket.customerPhone)}
+                        </td>
+                        <td className="px-4 py-2.5 font-semibold text-[#17242d]">
+                          {ticket.agentName ?? "ללא שיוך נציג"}
+                        </td>
+                        <td className="px-4 py-2.5 text-[#5d6d75]">
+                          {ticket.departmentName ?? "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span
+                            className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(ticket.waitedSeconds))}`}
+                          >
+                            {formatDuration(ticket.waitedSeconds)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="card p-5">
               <span className="text-sm text-[#718087]">פניות וואטסאפ</span>
               <strong className="mt-1 block text-3xl font-bold text-[#17242d]">
@@ -158,12 +272,6 @@ export function WaDashboardPageClient() {
                 {seconds(data.totals.avgTimeToCloseSeconds)}
               </strong>
             </div>
-            <div className="card p-5">
-              <span className="text-sm text-[#718087]">טרם נענו</span>
-              <strong className="mt-1 block text-3xl font-bold text-[#c8434c]">
-                {data.totals.awaitingFirstResponse}
-              </strong>
-            </div>
           </div>
 
           <p className="px-1 text-xs text-[#a3adb1]">
@@ -171,7 +279,7 @@ export function WaDashboardPageClient() {
               ? `סונכרן לאחרונה: ${formatIsraelDateTime(data.syncedAt)}`
               : "טרם בוצע סנכרון"}
             {" · שעון ישראל"}
-            {isToday && " · המסך מתרענן כל 30 שניות"}
+            {isToday && " · הרשימה למעלה מתעדכנת כל שנייה, שאר הנתונים כל 30 שניות"}
           </p>
 
           {data.byDepartment.length > 0 && (
@@ -303,46 +411,58 @@ export function WaDashboardPageClient() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {tickets.map((ticket) => (
-                                    <tr key={ticket.id} className="border-t border-[#edf1f3]">
-                                      <td dir="ltr" className="px-3 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
-                                        #{ticket.id}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-[#17242d]">
-                                        {ticket.customerName ?? "—"}
-                                      </td>
-                                      <td dir="ltr" className="px-3 py-2.5 text-right text-[#5d6d75]">
-                                        {formatPhone(ticket.customerPhone)}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-center">
-                                        {ticket.firstResponseSeconds != null ? (
+                                  {tickets.map((ticket) => {
+                                    const stillWaiting =
+                                      ticket.firstResponseSeconds == null && !ticket.closed;
+                                    const liveWaitedSeconds = stillWaiting
+                                      ? Math.max(
+                                          0,
+                                          Math.floor(
+                                            (now.getTime() - new Date(ticket.createdAt).getTime()) / 1000,
+                                          ),
+                                        )
+                                      : null;
+                                    return (
+                                      <tr key={ticket.id} className="border-t border-[#edf1f3]">
+                                        <td dir="ltr" className="px-3 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
+                                          #{ticket.id}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-[#17242d]">
+                                          {ticket.customerName ?? "—"}
+                                        </td>
+                                        <td dir="ltr" className="px-3 py-2.5 text-right text-[#5d6d75]">
+                                          {formatPhone(ticket.customerPhone)}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center">
+                                          {ticket.firstResponseSeconds != null ? (
+                                            <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
+                                              {formatSecondsLabel(ticket.firstResponseSeconds)}
+                                            </span>
+                                          ) : liveWaitedSeconds != null ? (
+                                            <span
+                                              className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(liveWaitedSeconds))}`}
+                                            >
+                                              ממתין {formatDuration(liveWaitedSeconds)}
+                                            </span>
+                                          ) : (
+                                            <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
+                                              נסגרה ללא תגובה
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center">
                                           <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
-                                            {formatSecondsLabel(ticket.firstResponseSeconds)}
+                                            {statusLabel(ticket.status)}
                                           </span>
-                                        ) : (
-                                          <span
-                                            className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${
-                                              !ticket.closed
-                                                ? "bg-[#fdebed] text-[#c8434c]"
-                                                : "bg-[#eef2f3] text-[#5d6d75]"
-                                            }`}
-                                          >
-                                            טרם נענתה
-                                          </span>
-                                        )}
-                                      </td>
-                                      <td className="px-3 py-2.5 text-center">
-                                        <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
-                                          {statusLabel(ticket.status)}
-                                        </span>
-                                      </td>
-                                      <td className="px-3 py-2.5 text-center text-[#5d6d75]">
-                                        {ticket.timeToCloseSeconds != null
-                                          ? formatSecondsLabel(ticket.timeToCloseSeconds)
-                                          : "עדיין פתוחה"}
-                                      </td>
-                                    </tr>
-                                  ))}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center text-[#5d6d75]">
+                                          {ticket.timeToCloseSeconds != null
+                                            ? formatSecondsLabel(ticket.timeToCloseSeconds)
+                                            : "עדיין פתוחה"}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                             </div>

@@ -18,22 +18,44 @@ import {
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
 import { formatPhone } from "@/lib/tickets";
-import { STALE_THRESHOLD_SECONDS, type WaDashboardPayload } from "@/lib/wa-dashboard";
+import {
+  currentlyWaiting,
+  waitingTier,
+  waitingTierCounts,
+  type WaDashboardPayload,
+  type WaitingTierMinutes,
+} from "@/lib/wa-dashboard";
 
 const REFRESH_MS = 30_000;
-
-function elapsedSeconds(iso: string, now: Date) {
-  return Math.max(0, Math.floor((now.getTime() - new Date(iso).getTime()) / 1000));
-}
+const WAITING_LIST_CAP = 24;
 
 function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
+}
+
+function tierTone(minutes: WaitingTierMinutes | null) {
+  switch (minutes) {
+    case 10:
+      return { bg: "bg-[#3a1a18]", text: "text-[#ff8a80]" };
+    case 7:
+      return { bg: "bg-[#3a2712]", text: "text-[#ffb066]" };
+    case 3:
+      return { bg: "bg-[#33300f]", text: "text-[#f0d15a]" };
+    default:
+      return { bg: "bg-white/8", text: "text-white/80" };
+  }
 }
 
 /**
  * TV wallboard for today's WhatsApp tickets — the WhatsApp counterpart to
  * "מסך מוקד (TV)" ([[wallboard-client]]). Always today (Israel time), unlike
  * the regular "דשבורד WA" page which lets a viewer pick another day.
+ *
+ * Leads with the 3/7/10-minute escalation tiers for customers still waiting
+ * on a first reply — the account owner asked for this ahead of the
+ * close-time stats, since it is what a manager acts on in the moment. The
+ * avg response/close-time figures move to the department boxes instead of
+ * the headline row.
  *
  * Deliberately polling-only, no Supabase Realtime channel: the underlying
  * Zendesk sync itself only runs once a minute (a cron job, not a webhook), so
@@ -107,19 +129,26 @@ export function WaWallboardClient() {
     }
   }
 
-  // Tickets still waiting for the assignee's first reply, oldest first — the
-  // one figure on this screen that benefits from ticking live between polls,
-  // the same reasoning as the calls wallboard's WaitingTimeBox.
-  const awaitingFirstResponse = useMemo(
-    () =>
-      (data?.rows ?? [])
-        .filter((row) => row.firstResponseSeconds == null && !row.closed)
-        .sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        )
-        .slice(0, 12),
-    [data?.rows],
+  // Tickets still waiting for the assignee's first reply, longest first —
+  // recomputed every second (via `now`) rather than only on each poll, the
+  // same reasoning as the calls wallboard's WaitingTimeBox.
+  const waiting = useMemo(
+    () => currentlyWaiting(data?.rows ?? [], now),
+    [data?.rows, now],
   );
+  const tiers = useMemo(() => waitingTierCounts(waiting), [waiting]);
+
+  // The most critical tier (10+ minutes) per department, for the department
+  // boxes below — the tier row above already gives the org-wide picture.
+  const over10ByDepartment = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const ticket of waiting) {
+      if (ticket.waitedSeconds < 10 * 60) continue;
+      const key = ticket.departmentName ?? "ללא שיוך מחלקה";
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [waiting]);
 
   if (!data && !error) {
     return (
@@ -203,18 +232,10 @@ export function WaWallboardClient() {
         )}
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <WallMetric label="מעל 10 דק׳ ללא תגובה" value={tiers[10]} tone="red" />
+          <WallMetric label="מעל 7 דק׳ ללא תגובה" value={tiers[7]} tone="orange" />
+          <WallMetric label="מעל 3 דק׳ ללא תגובה" value={tiers[3]} tone="amber" />
           <WallMetric label="פניות היום" value={data?.totals.ticketCount ?? 0} tone="teal" />
-          <WallMetric
-            label="תגובה ראשונה ממוצעת"
-            value={seconds(data?.totals.avgFirstResponseSeconds ?? null)}
-            tone="blue"
-          />
-          <WallMetric
-            label="זמן עד סגירה ממוצע"
-            value={seconds(data?.totals.avgTimeToCloseSeconds ?? null)}
-            tone="amber"
-          />
-          <WallMetric label="טרם נענו" value={data?.totals.awaitingFirstResponse ?? 0} tone="red" />
         </section>
 
         {(data?.byDepartment.length ?? 0) > 0 && (
@@ -230,7 +251,7 @@ export function WaWallboardClient() {
                 ticketCount={dept.ticketCount}
                 avgFirstResponseSeconds={dept.avgFirstResponseSeconds}
                 avgTimeToCloseSeconds={dept.avgTimeToCloseSeconds}
-                awaitingFirstResponse={dept.awaitingFirstResponse}
+                over10={over10ByDepartment.get(dept.departmentName) ?? 0}
               />
             ))}
           </section>
@@ -242,21 +263,16 @@ export function WaWallboardClient() {
               <AlertTriangle className="text-[#f0c15a]" size={24} />
               <h2 className="text-xl font-bold">ממתינים לתגובה ראשונה</h2>
             </div>
-            <strong className="text-2xl text-[#f0c15a]">
-              {data?.totals.awaitingFirstResponse ?? 0}
-            </strong>
+            <strong className="text-2xl text-[#f0c15a]">{waiting.length}</strong>
           </div>
-          {awaitingFirstResponse.length ? (
+          {waiting.length ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {awaitingFirstResponse.map((ticket) => {
-                const waited = elapsedSeconds(ticket.createdAt, now);
-                const stale = waited >= STALE_THRESHOLD_SECONDS;
+              {waiting.slice(0, WAITING_LIST_CAP).map((ticket) => {
+                const tone = tierTone(waitingTier(ticket.waitedSeconds));
                 return (
                   <div
                     key={ticket.id}
-                    className={`flex items-center justify-between rounded-2xl px-4 py-3 ${
-                      stale ? "bg-[#3a1a18]" : "bg-white/8"
-                    }`}
+                    className={`flex items-center justify-between rounded-2xl px-4 py-3 ${tone.bg}`}
                   >
                     <div className="min-w-0">
                       <strong className="block truncate text-base">
@@ -267,12 +283,8 @@ export function WaWallboardClient() {
                         {ticket.departmentName ?? "—"}
                       </span>
                     </div>
-                    <span
-                      className={`text-xl font-bold ${
-                        stale ? "text-[#ff8a80]" : "text-white/80"
-                      }`}
-                    >
-                      {formatDuration(waited)}
+                    <span className={`text-xl font-bold ${tone.text}`}>
+                      {formatDuration(ticket.waitedSeconds)}
                     </span>
                   </div>
                 );
@@ -296,11 +308,12 @@ function WallMetric({
 }: {
   label: string;
   value: string | number;
-  tone: "teal" | "red" | "blue" | "amber";
+  tone: "teal" | "red" | "orange" | "blue" | "amber";
 }) {
   const tones = {
     teal: "from-[#134e48] to-[#0f3a36] border-[#1da99b]/35",
     red: "from-[#4a1d24] to-[#351418] border-[#f07178]/35",
+    orange: "from-[#4a2e14] to-[#34200e] border-[#ffb066]/35",
     blue: "from-[#1a3358] to-[#13243f] border-[#7eb6ff]/35",
     amber: "from-[#4a3814] to-[#34270e] border-[#f0c15a]/35",
   };
@@ -319,20 +332,20 @@ function DepartmentBox({
   ticketCount,
   avgFirstResponseSeconds,
   avgTimeToCloseSeconds,
-  awaitingFirstResponse,
+  over10,
 }: {
   name: string;
   ticketCount: number;
   avgFirstResponseSeconds: number | null;
   avgTimeToCloseSeconds: number | null;
-  awaitingFirstResponse: number;
+  over10: number;
 }) {
-  const tone = awaitingFirstResponse > 0
+  const tone = over10 > 0
     ? {
-      border: "border-[#e1a62b]/40",
-      bg: "bg-[#2a2112]",
-      accent: "text-[#f0c15a]",
-      label: "text-[#f0c15a]/70",
+      border: "border-[#e0564f]/50",
+      bg: "bg-[#3a1a18]",
+      accent: "text-[#ff8a80]",
+      label: "text-[#ff8a80]/70",
     }
     : {
       border: "border-[#2f9e8f]/35",
@@ -363,11 +376,11 @@ function DepartmentBox({
             {seconds(avgTimeToCloseSeconds)}
           </strong>
         </div>
-        {awaitingFirstResponse > 0 && (
+        {over10 > 0 && (
           <div>
-            <span className={`block text-xs ${tone.label}`}>טרם נענו</span>
+            <span className={`block text-xs ${tone.label}`}>מעל 10 דק&apos;</span>
             <strong className={`block text-2xl font-bold ${tone.accent}`}>
-              {awaitingFirstResponse}
+              {over10}
             </strong>
           </div>
         )}
