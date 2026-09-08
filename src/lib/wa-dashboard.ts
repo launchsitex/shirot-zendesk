@@ -4,7 +4,9 @@
  *
  * - first response time: from the customer's first message
  *   (`createdAt`) to the assignee's first comment (`firstResponseSeconds`,
- *   null until the assignee has written anything).
+ *   null until the assignee has written anything). A one-time, historical
+ *   figure — it does not change once the agent has replied once, even if the
+ *   customer writes again later.
  * - time to close: from `createdAt` to `updatedAt`, only once the ticket
  *   reached solved or closed — the same "finished" definition used
  *   everywhere else in this app (see CLOSED_STATUSES in
@@ -12,6 +14,12 @@
  *   status is an automatic archival step days after an agent resolves a
  *   ticket, not something an agent chooses, so it is not a meaningful
  *   same-day figure.
+ *
+ * A third, separate concept drives the live "currently waiting" section:
+ * `awaitingReplySince` tracks the customer's *most recent* message, not just
+ * the first — a ticket the agent already answered once still counts as
+ * waiting again the moment the customer writes back and nobody has replied to
+ * that. See `currentlyWaiting` below for exactly how that is derived.
  */
 
 export type WaTicketRow = {
@@ -21,6 +29,7 @@ export type WaTicketRow = {
   customerPhone: string | null;
   agentId: string | null;
   agentName: string | null;
+  departmentId: string | null;
   departmentName: string | null;
   status: string;
   createdAt: string;
@@ -30,13 +39,23 @@ export type WaTicketRow = {
   closed: boolean;
   /** Seconds from createdAt to updatedAt; only set once `closed` is true. */
   timeToCloseSeconds: number | null;
+  /**
+   * When this ticket started waiting on a reply to the customer's most
+   * recent message; null if closed or already answered. Set by the API route
+   * to `createdAt` when the agent has never replied, or to `updatedAt` when
+   * the ticket was touched again after the agent's last comment (a proxy for
+   * "the customer wrote back" — Zendesk's ticket export has no per-message
+   * timestamp, only this ticket-level one).
+   */
+  awaitingReplySince: string | null;
 };
 
 export type WaGroupStats = {
   ticketCount: number;
   respondedCount: number;
   avgFirstResponseSeconds: number | null;
-  awaitingFirstResponse: number;
+  /** Tickets currently awaiting a reply to the customer's latest message. */
+  awaitingReply: number;
   closedCount: number;
   avgTimeToCloseSeconds: number | null;
 };
@@ -78,9 +97,10 @@ export type WaitingTierMinutes = (typeof WAITING_TIER_MINUTES)[number];
 export type WaitingTicket = WaTicketRow & { waitedSeconds: number };
 
 /**
- * Tickets with no agent reply yet and not closed, each carrying how long the
- * customer has been waiting as of `now` — recomputed on every call rather
- * than stored, since it grows every second the page is open.
+ * Tickets currently awaiting a reply to the customer's most recent message
+ * (`awaitingReplySince` set), each carrying how long that has been as of
+ * `now` — recomputed on every call rather than stored, since it grows every
+ * second the page is open.
  */
 export function currentlyWaiting(
   rows: WaTicketRow[],
@@ -88,12 +108,12 @@ export function currentlyWaiting(
 ): WaitingTicket[] {
   const nowMs = now.getTime();
   return rows
-    .filter((row) => row.firstResponseSeconds == null && !row.closed)
+    .filter((row) => row.awaitingReplySince != null)
     .map((row) => ({
       ...row,
       waitedSeconds: Math.max(
         0,
-        Math.floor((nowMs - new Date(row.createdAt).getTime()) / 1000),
+        Math.floor((nowMs - new Date(row.awaitingReplySince!).getTime()) / 1000),
       ),
     }))
     .sort((a, b) => b.waitedSeconds - a.waitedSeconds);
@@ -138,9 +158,7 @@ export function summarizeTickets(rows: WaTicketRow[]): WaGroupStats {
     ticketCount: rows.length,
     respondedCount: responseTimes.length,
     avgFirstResponseSeconds: average(responseTimes),
-    awaitingFirstResponse: rows.filter(
-      (row) => row.firstResponseSeconds == null && !row.closed,
-    ).length,
+    awaitingReply: rows.filter((row) => row.awaitingReplySince != null).length,
     closedCount: rows.filter((row) => row.closed).length,
     avgTimeToCloseSeconds: average(closeTimes),
   };

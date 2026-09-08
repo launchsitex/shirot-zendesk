@@ -24,8 +24,14 @@ const NO_STORE_HEADERS = { "Cache-Control": "no-store, must-revalidate" };
 // than through a database-side rollup function.
 const ROWS_LIMIT = 1000;
 
+// Scoped to Customer Service only, at the account owner's request — Deliveries'
+// WhatsApp traffic is a different workflow and was drowning out the figures
+// that matter here. Filtered by the department's stable id, not its display
+// name, matching how department filters work everywhere else in this app.
+const DEPARTMENT_FILTER_ID = "customer-service";
+
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,first_agent_comment_at,agents(name,departments(name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,first_agent_comment_at,last_agent_comment_at,agents(name,departments(id,name))";
 
 type Row = {
   id: string;
@@ -38,6 +44,7 @@ type Row = {
   zendesk_created_at: string;
   zendesk_updated_at: string;
   first_agent_comment_at: string | null;
+  last_agent_comment_at: string | null;
   agents: unknown;
 };
 
@@ -110,34 +117,61 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const rows: WaTicketRow[] = ((rowsResult.data ?? []) as Row[]).map((row) => {
-    const agent = (Array.isArray(row.agents) ? row.agents[0] : row.agents) as
-      | { name?: string; departments?: { name?: string } | { name?: string }[] }
-      | null;
-    const department = Array.isArray(agent?.departments)
-      ? agent?.departments[0]
-      : agent?.departments;
-    const closed = CLOSED_STATUSES.has(row.status);
-    return {
-      id: row.id,
-      subject: row.subject,
-      customerName: row.requester_name,
-      customerPhone: row.requester_phone,
-      agentId: row.agent_id,
-      agentName: agent?.name ?? row.assignee_name ?? null,
-      departmentName: department?.name ?? null,
-      status: row.status,
-      createdAt: row.zendesk_created_at,
-      updatedAt: row.zendesk_updated_at,
-      firstResponseSeconds: row.first_agent_comment_at
-        ? secondsBetween(row.zendesk_created_at, row.first_agent_comment_at)
-        : null,
-      closed,
-      timeToCloseSeconds: closed
-        ? secondsBetween(row.zendesk_created_at, row.zendesk_updated_at)
-        : null,
-    };
-  });
+  const rows: WaTicketRow[] = ((rowsResult.data ?? []) as Row[])
+    .map((row) => {
+      const agent = (Array.isArray(row.agents) ? row.agents[0] : row.agents) as
+        | {
+            name?: string;
+            departments?:
+              | { id?: string; name?: string }
+              | { id?: string; name?: string }[];
+          }
+        | null;
+      const department = Array.isArray(agent?.departments)
+        ? agent?.departments[0]
+        : agent?.departments;
+      const closed = CLOSED_STATUSES.has(row.status);
+      // A ticket is currently awaiting a reply to the customer's most recent
+      // message — not just its first — whenever the ticket was touched more
+      // recently than the assignee's own last comment. That covers both a
+      // ticket never replied to at all (last_agent_comment_at is null, so
+      // it's been waiting since it was created) and one where the agent
+      // replied once but the customer has since written again (the ticket's
+      // updated_at moved past the agent's last comment). zendesk_updated_at
+      // is a ticket-level timestamp, not a per-message one, so this is a
+      // proxy — as with every other timing figure here — but it is the
+      // closest signal Zendesk's ticket export exposes.
+      const awaitingReplySince = closed
+        ? null
+        : !row.last_agent_comment_at
+          ? row.zendesk_created_at
+          : new Date(row.zendesk_updated_at).getTime() >
+              new Date(row.last_agent_comment_at).getTime()
+            ? row.zendesk_updated_at
+            : null;
+      return {
+        id: row.id,
+        subject: row.subject,
+        customerName: row.requester_name,
+        customerPhone: row.requester_phone,
+        agentId: row.agent_id,
+        agentName: agent?.name ?? row.assignee_name ?? null,
+        departmentId: department?.id ?? null,
+        departmentName: department?.name ?? null,
+        status: row.status,
+        createdAt: row.zendesk_created_at,
+        updatedAt: row.zendesk_updated_at,
+        firstResponseSeconds: row.first_agent_comment_at
+          ? secondsBetween(row.zendesk_created_at, row.first_agent_comment_at)
+          : null,
+        closed,
+        timeToCloseSeconds: closed
+          ? secondsBetween(row.zendesk_created_at, row.zendesk_updated_at)
+          : null,
+        awaitingReplySince,
+      };
+    })
+    .filter((row) => row.departmentId === DEPARTMENT_FILTER_ID);
 
   function group(rows: WaTicketRow[], key: (row: WaTicketRow) => string) {
     const map = new Map<string, WaTicketRow[]>();
@@ -178,7 +212,7 @@ export async function GET(request: NextRequest) {
     }))
     .sort(
       (a, b) =>
-        b.awaitingFirstResponse - a.awaitingFirstResponse ||
+        b.awaitingReply - a.awaitingReply ||
         b.ticketCount - a.ticketCount,
     );
 
@@ -189,7 +223,7 @@ export async function GET(request: NextRequest) {
     }))
     .sort(
       (a, b) =>
-        b.awaitingFirstResponse - a.awaitingFirstResponse ||
+        b.awaitingReply - a.awaitingReply ||
         b.ticketCount - a.ticketCount,
     );
 

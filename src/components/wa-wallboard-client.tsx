@@ -52,10 +52,14 @@ function tierTone(minutes: WaitingTierMinutes | null) {
  * the regular "דשבורד WA" page which lets a viewer pick another day.
  *
  * Leads with the 3/7/10-minute escalation tiers for customers still waiting
- * on a first reply — the account owner asked for this ahead of the
- * close-time stats, since it is what a manager acts on in the moment. The
- * avg response/close-time figures move to the department boxes instead of
- * the headline row.
+ * on a reply to their most recent message — the account owner asked for this
+ * ahead of the close-time stats, since it is what a manager acts on in the
+ * moment. The avg response/close-time figures move to the department boxes
+ * instead of the headline row.
+ *
+ * Scoped server-side to the Customer Service department only (excludes
+ * Deliveries) — see DEPARTMENT_FILTER_ID in the shared /api/wa-dashboard
+ * route.
  *
  * Deliberately polling-only, no Supabase Realtime channel: the underlying
  * Zendesk sync itself only runs once a minute (a cron job, not a webhook), so
@@ -261,7 +265,7 @@ export function WaWallboardClient() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <AlertTriangle className="text-[#f0c15a]" size={24} />
-              <h2 className="text-xl font-bold">ממתינים לתגובה ראשונה</h2>
+              <h2 className="text-xl font-bold">ממתינים לתגובה</h2>
             </div>
             <strong className="text-2xl text-[#f0c15a]">{waiting.length}</strong>
           </div>
@@ -278,9 +282,9 @@ export function WaWallboardClient() {
                       <strong className="block truncate text-base">
                         {ticket.customerName ?? formatPhone(ticket.customerPhone)}
                       </strong>
-                      <span className="text-xs text-white/45">
+                      <span className="block text-xs text-white/45">
                         {ticket.agentName ?? "ללא שיוך נציג"} ·{" "}
-                        {ticket.departmentName ?? "—"}
+                        <span dir="ltr">#{ticket.id}</span>
                       </span>
                     </div>
                     <span className={`text-xl font-bold ${tone.text}`}>

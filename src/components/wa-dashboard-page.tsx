@@ -71,6 +71,10 @@ function TierTile({ minutes, count }: { minutes: WaitingTierMinutes; count: numb
  * this team writes through the Aircall app), and "closed" means solved OR
  * closed, since this Zendesk only auto-archives to literal `closed` days
  * later.
+ *
+ * Scoped server-side to the Customer Service department only (excludes
+ * Deliveries), at the account owner's request — see DEPARTMENT_FILTER_ID in
+ * the API route.
  */
 export function WaDashboardPageClient() {
   const [date, setDate] = useState(() => jerusalemToday());
@@ -213,19 +217,22 @@ export function WaDashboardPageClient() {
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] border-collapse text-sm">
+                <table className="w-full min-w-[680px] border-collapse text-sm">
                   <thead>
                     <tr className="text-[#5d6d75]">
+                      <th className="px-4 py-2 text-right font-semibold">מס&apos; פנייה</th>
                       <th className="px-4 py-2 text-right font-semibold">לקוח</th>
                       <th className="px-4 py-2 text-right font-semibold">טלפון</th>
                       <th className="px-4 py-2 text-right font-semibold">נציגה משויכת</th>
-                      <th className="px-4 py-2 text-right font-semibold">מחלקה</th>
                       <th className="px-4 py-2 text-center font-semibold">ממתין</th>
                     </tr>
                   </thead>
                   <tbody>
                     {waiting.map((ticket) => (
                       <tr key={ticket.id} className="border-t border-[#edf1f3]">
+                        <td dir="ltr" className="px-4 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
+                          #{ticket.id}
+                        </td>
                         <td className="px-4 py-2.5 text-[#17242d]">
                           {ticket.customerName ?? "—"}
                         </td>
@@ -234,9 +241,6 @@ export function WaDashboardPageClient() {
                         </td>
                         <td className="px-4 py-2.5 font-semibold text-[#17242d]">
                           {ticket.agentName ?? "ללא שיוך נציג"}
-                        </td>
-                        <td className="px-4 py-2.5 text-[#5d6d75]">
-                          {ticket.departmentName ?? "—"}
                         </td>
                         <td className="px-4 py-2.5 text-center">
                           <span
@@ -307,11 +311,11 @@ export function WaDashboardPageClient() {
                         {seconds(dept.avgTimeToCloseSeconds)}
                       </strong>
                     </div>
-                    {dept.awaitingFirstResponse > 0 && (
+                    {dept.awaitingReply > 0 && (
                       <div>
-                        <span className="block text-[11px] text-[#a3adb1]">טרם נענו</span>
+                        <span className="block text-[11px] text-[#a3adb1]">ממתינים כרגע</span>
                         <strong className="text-xl font-bold text-[#c8434c]">
-                          {dept.awaitingFirstResponse}
+                          {dept.awaitingReply}
                         </strong>
                       </div>
                     )}
@@ -388,9 +392,9 @@ export function WaDashboardPageClient() {
                         <span className="min-w-[3.5rem] rounded-lg bg-[#eef2f3] px-3 py-1 text-center text-sm font-bold text-[#5d6d75]">
                           {row.ticketCount}
                         </span>
-                        {row.awaitingFirstResponse > 0 && (
+                        {row.awaitingReply > 0 && (
                           <span className="min-w-[3.5rem] rounded-lg bg-[#fdebed] px-3 py-1 text-center text-sm font-bold text-[#c8434c]">
-                            {row.awaitingFirstResponse}
+                            {row.awaitingReply}
                           </span>
                         )}
                       </button>
@@ -405,20 +409,22 @@ export function WaDashboardPageClient() {
                                     <th className="px-3 py-2 text-right font-semibold">מס׳ פנייה</th>
                                     <th className="px-3 py-2 text-right font-semibold">שם הלקוח</th>
                                     <th className="px-3 py-2 text-right font-semibold">טלפון</th>
-                                    <th className="px-3 py-2 text-center font-semibold">תגובה ראשונה</th>
+                                    <th className="px-3 py-2 text-center font-semibold">מצב תגובה</th>
                                     <th className="px-3 py-2 text-center font-semibold">סטטוס</th>
                                     <th className="px-3 py-2 text-center font-semibold">עד סגירה</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {tickets.map((ticket) => {
-                                    const stillWaiting =
-                                      ticket.firstResponseSeconds == null && !ticket.closed;
-                                    const liveWaitedSeconds = stillWaiting
+                                    // Live-ticking whenever the customer's most recent
+                                    // message (not just the first) is unanswered — a
+                                    // ticket the agent already replied to once still
+                                    // shows this if the customer wrote back since.
+                                    const liveWaitedSeconds = ticket.awaitingReplySince
                                       ? Math.max(
                                           0,
                                           Math.floor(
-                                            (now.getTime() - new Date(ticket.createdAt).getTime()) / 1000,
+                                            (now.getTime() - new Date(ticket.awaitingReplySince).getTime()) / 1000,
                                           ),
                                         )
                                       : null;
@@ -434,15 +440,15 @@ export function WaDashboardPageClient() {
                                           {formatPhone(ticket.customerPhone)}
                                         </td>
                                         <td className="px-3 py-2.5 text-center">
-                                          {ticket.firstResponseSeconds != null ? (
-                                            <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
-                                              {formatSecondsLabel(ticket.firstResponseSeconds)}
-                                            </span>
-                                          ) : liveWaitedSeconds != null ? (
+                                          {liveWaitedSeconds != null ? (
                                             <span
                                               className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(liveWaitedSeconds))}`}
                                             >
                                               ממתין {formatDuration(liveWaitedSeconds)}
+                                            </span>
+                                          ) : ticket.firstResponseSeconds != null ? (
+                                            <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
+                                              נענתה תוך {formatSecondsLabel(ticket.firstResponseSeconds)}
                                             </span>
                                           ) : (
                                             <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
