@@ -10,8 +10,9 @@
 // keyed on *updated* time, so a run picks up status changes on tickets it has
 // already seen — which is what keeps the open/closed counts honest.
 //
-// Only tickets created on or after the configured cutoff are stored, so the
-// table holds the current month as asked rather than the full 27k history.
+// Only tickets created on or after the configured cutoff are added, so the
+// table holds the current month as asked rather than the full 27k history —
+// but a ticket already stored keeps being updated past the month boundary.
 
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 
@@ -158,8 +159,22 @@ async function sync(supabase: SupabaseClient, body: Record<string, unknown>) {
     const tickets = page.tickets ?? [];
     seen += tickets.length;
 
+    // New tickets are stored only from the cutoff on, but a ticket already in
+    // the table keeps receiving updates whatever its age. Without this, every
+    // ticket froze at whatever it looked like on the last day of its month:
+    // on 2026-09-09 a hundred August tickets still read "new / unassigned"
+    // days after they had been put on hold in Zendesk.
+    const pageIds = tickets.map((ticket) => String(ticket.id));
+    const { data: known } = pageIds.length
+      ? await supabase.from("zendesk_tickets").select("id").in("id", pageIds)
+      : { data: [] as { id: string }[] };
+    const knownIds = new Set((known ?? []).map((row) => String(row.id)));
+
     const rows = tickets
-      .filter((ticket) => Date.parse(ticket.created_at) >= cutoffMs)
+      .filter((ticket) =>
+        Date.parse(ticket.created_at) >= cutoffMs ||
+        knownIds.has(String(ticket.id))
+      )
       .map((ticket) => {
         const requester = ticket.requester_id
           ? usersById.get(ticket.requester_id)

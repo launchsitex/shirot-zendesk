@@ -117,12 +117,15 @@ export async function GET(request: NextRequest) {
       .lte("zendesk_created_at", dayEnd)
       .order("zendesk_created_at", { ascending: true })
       .limit(ROWS_LIMIT),
-    // The queue: open, and nobody assigned at all — not even the bot, which
-    // holds the assignment while it handles the start of a conversation, so
-    // `assignee_id is null` is precisely "handed to the agents, not picked
-    // up". Whatever day it was opened on; departments are split in the
-    // payload. The wait runs from the handoff, or the ticket's start if the
-    // sync has no handoff event for it.
+    // The queue: status "new" — the status the bot leaves a ticket in when it
+    // hands it to the agents, and one agents cannot set themselves — with
+    // nobody assigned at all (the bot holds the assignment while it handles
+    // the start of a conversation). Only "new", at the account owner's
+    // request: an unassigned ticket in any other status (open after a
+    // customer reply, on hold) is not a customer waiting for pickup. Whatever
+    // day it was opened on; departments are split in the payload. The wait
+    // runs from the handoff, or the ticket's start if the sync has no handoff
+    // event for it.
     supabase
       .from("zendesk_tickets")
       .select(
@@ -130,7 +133,7 @@ export async function GET(request: NextRequest) {
       )
       .eq("via_channel", "whatsapp")
       .is("assignee_id", null)
-      .not("status", "in", "(solved,closed,deleted)")
+      .eq("status", "new")
       .order("zendesk_created_at", { ascending: true })
       .limit(QUEUE_LIMIT),
     supabase
