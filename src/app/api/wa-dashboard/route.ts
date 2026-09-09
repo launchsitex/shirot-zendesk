@@ -30,8 +30,10 @@ const ROWS_LIMIT = 1000;
 // name, matching how department filters work everywhere else in this app.
 const DEPARTMENT_FILTER_ID = "customer-service";
 
+// The *_message_at columns come from the Messaging trigger's tag flips, not
+// from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,first_agent_comment_at,last_agent_comment_at,agents(name,departments(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,agents(name,departments(id,name))";
 
 type Row = {
   id: string;
@@ -43,8 +45,9 @@ type Row = {
   status: string;
   zendesk_created_at: string;
   zendesk_updated_at: string;
-  first_agent_comment_at: string | null;
-  last_agent_comment_at: string | null;
+  first_agent_message_at: string | null;
+  last_agent_message_at: string | null;
+  last_customer_message_at: string | null;
   agents: unknown;
 };
 
@@ -131,24 +134,17 @@ export async function GET(request: NextRequest) {
         ? agent?.departments[0]
         : agent?.departments;
       const closed = CLOSED_STATUSES.has(row.status);
-      // A ticket is currently awaiting a reply to the customer's most recent
-      // message — not just its first — whenever the ticket was touched more
-      // recently than the assignee's own last comment. That covers both a
-      // ticket never replied to at all (last_agent_comment_at is null, so
-      // it's been waiting since it was created) and one where the agent
-      // replied once but the customer has since written again (the ticket's
-      // updated_at moved past the agent's last comment). zendesk_updated_at
-      // is a ticket-level timestamp, not a per-message one, so this is a
-      // proxy — as with every other timing figure here — but it is the
-      // closest signal Zendesk's ticket export exposes.
-      const awaitingReplySince = closed
-        ? null
-        : !row.last_agent_comment_at
-          ? row.zendesk_created_at
-          : new Date(row.zendesk_updated_at).getTime() >
-              new Date(row.last_agent_comment_at).getTime()
-            ? row.zendesk_updated_at
-            : null;
+      const lastAgent = row.last_agent_message_at;
+      const lastCustomer = row.last_customer_message_at;
+      // The customer is waiting when nobody from the team has written yet, or
+      // when the customer's latest message came after the agent's. The wait
+      // is counted from the agent's last message (the account owner's
+      // definition), or from the ticket's start if there is none.
+      const customerWroteLast = lastCustomer != null &&
+        (lastAgent == null ||
+          new Date(lastCustomer).getTime() > new Date(lastAgent).getTime());
+      const waiting = !closed && (lastAgent == null || customerWroteLast);
+      const waitingSince = waiting ? (lastAgent ?? row.zendesk_created_at) : null;
       return {
         id: row.id,
         subject: row.subject,
@@ -161,14 +157,16 @@ export async function GET(request: NextRequest) {
         status: row.status,
         createdAt: row.zendesk_created_at,
         updatedAt: row.zendesk_updated_at,
-        firstResponseSeconds: row.first_agent_comment_at
-          ? secondsBetween(row.zendesk_created_at, row.first_agent_comment_at)
+        firstResponseSeconds: row.first_agent_message_at
+          ? secondsBetween(row.zendesk_created_at, row.first_agent_message_at)
           : null,
         closed,
         timeToCloseSeconds: closed
           ? secondsBetween(row.zendesk_created_at, row.zendesk_updated_at)
           : null,
-        awaitingReplySince,
+        lastAgentMessageAt: lastAgent,
+        lastCustomerMessageAt: lastCustomer,
+        waitingSince,
       };
     })
     .filter((row) => row.departmentId === DEPARTMENT_FILTER_ID);

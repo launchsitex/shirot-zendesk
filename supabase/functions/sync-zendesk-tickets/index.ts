@@ -259,8 +259,10 @@ async function syncComments(
 
   let pages = 0;
   let stored = 0;
+  let messagesStored = 0;
   let endOfStream = false;
   const touched = new Set<string>();
+  const touchedWhatsapp = new Set<string>();
 
   while (pages < MAX_EVENT_PAGES_PER_RUN) {
     const url =
@@ -286,23 +288,43 @@ async function syncComments(
     pages += 1;
 
     const rows: Array<Record<string, unknown>> = [];
+    const messages: Array<Record<string, unknown>> = [];
     for (const event of page.ticket_events ?? []) {
       const ticketId = String(event.ticket_id ?? "");
       if (!ticketId) continue;
+      const at = String(event.created_at ?? new Date().toISOString());
       for (
         const child of (event.child_events ?? []) as Array<
           Record<string, unknown>
         >
       ) {
-        if (child.event_type !== "Comment") continue;
-        rows.push({
-          id: String(child.id ?? `${event.id}-${child.author_id}`),
-          ticket_id: ticketId,
-          author_id: child.author_id != null ? String(child.author_id) : null,
-          is_public: child.public === true,
-          created_at: String(event.created_at ?? new Date().toISOString()),
-        });
-        touched.add(ticketId);
+        if (child.event_type === "Comment") {
+          rows.push({
+            id: String(child.id ?? `${event.id}-${child.author_id}`),
+            ticket_id: ticketId,
+            author_id: child.author_id != null ? String(child.author_id) : null,
+            is_public: child.public === true,
+            created_at: at,
+          });
+          touched.add(ticketId);
+          continue;
+        }
+        // WhatsApp runs on Zendesk Messaging, where messages are not comments
+        // while the chat is live — the whole session lands as one transcript
+        // later. A Messaging trigger does flip a tag on every message, though,
+        // so a tag change that *adds* one of these is a message with a
+        // direction and a time. See 20260909120000_zendesk_whatsapp_messages.
+        if (child.event_type === "Change") {
+          const direction = whatsappFlip(child);
+          if (!direction) continue;
+          messages.push({
+            id: String(child.id ?? `${event.id}-${direction}`),
+            ticket_id: ticketId,
+            direction,
+            at,
+          });
+          touchedWhatsapp.add(ticketId);
+        }
       }
     }
 
@@ -312,6 +334,14 @@ async function syncComments(
         .upsert(rows, { onConflict: "id" });
       if (error) throw new Error(`comment_upsert:${error.message}`);
       stored += rows.length;
+    }
+
+    if (messages.length) {
+      const { error } = await supabase
+        .from("zendesk_whatsapp_messages")
+        .upsert(messages, { onConflict: "id" });
+      if (error) throw new Error(`whatsapp_upsert:${error.message}`);
+      messagesStored += messages.length;
     }
 
     if (page.end_time) cursor = page.end_time;
@@ -334,11 +364,24 @@ async function syncComments(
     recomputed += Number(data ?? 0);
   }
 
+  let whatsappRecomputed = 0;
+  const whatsappIds = [...touchedWhatsapp];
+  for (let i = 0; i < whatsappIds.length; i += 500) {
+    const { data, error } = await supabase.rpc(
+      "recompute_whatsapp_activity",
+      { p_ticket_ids: whatsappIds.slice(i, i + 500) },
+    );
+    if (error) throw new Error(`recompute_whatsapp:${error.message}`);
+    whatsappRecomputed += Number(data ?? 0);
+  }
+
   const result = {
     pages,
     comments_stored: stored,
     tickets_touched: touched.size,
     tickets_recomputed: recomputed,
+    whatsapp_messages_stored: messagesStored,
+    whatsapp_tickets_recomputed: whatsappRecomputed,
     end_of_stream: endOfStream,
     cursor,
   };
@@ -349,6 +392,39 @@ async function syncComments(
   }).eq("id", 1);
 
   return result;
+}
+
+const WHATSAPP_FLIP_TAGS = {
+  agent: "last_whatsapp_reply_agent",
+  customer: "last_whatsapp_reply_customer",
+} as const;
+
+/**
+ * Which side wrote, if this Change child event is one of the Messaging
+ * trigger's flips — i.e. it *added* a last_whatsapp_reply_* tag.
+ *
+ * In the incremental ticket_events export a tag change is not a
+ * field_name/value/previous_value triple like in ticket audits: the child
+ * carries `tags` (the full list after the change) plus `added_tags` and
+ * `removed_tags`, and `via: "Messaging Trigger"`. Verified on a live page
+ * on 2026-09-09. A change that merely carries the tag along (triage adding
+ * an intent tag, say) has it in `tags` but not in `added_tags`, and is
+ * ignored.
+ */
+function whatsappFlip(
+  child: Record<string, unknown>,
+): "agent" | "customer" | null {
+  const asTags = (input: unknown): string[] =>
+    Array.isArray(input)
+      ? input.map(String)
+      : typeof input === "string"
+      ? input.split(/\s+/).filter(Boolean)
+      : [];
+  const added = asTags(child.added_tags);
+  for (const direction of ["agent", "customer"] as const) {
+    if (added.includes(WHATSAPP_FLIP_TAGS[direction])) return direction;
+  }
+  return null;
 }
 
 /** First instant of the current month, Asia/Jerusalem, as an ISO string. */

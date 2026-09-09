@@ -265,7 +265,13 @@ export function WaWallboardClient() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <AlertTriangle className="text-[#f0c15a]" size={24} />
-              <h2 className="text-xl font-bold">ממתינים לתגובה</h2>
+              <div>
+                <h2 className="text-xl font-bold">ממתינים לתגובה</h2>
+                <p className="text-xs text-white/45">
+                  הזמן הגדול — מאז ההודעה האחרונה של הנציגה · הקטן — סה״כ מאז
+                  פתיחת הפנייה
+                </p>
+              </div>
             </div>
             <strong className="text-2xl text-[#f0c15a]">{waiting.length}</strong>
           </div>
@@ -287,9 +293,14 @@ export function WaWallboardClient() {
                         <span dir="ltr">#{ticket.id}</span>
                       </span>
                     </div>
-                    <span className={`text-xl font-bold ${tone.text}`}>
-                      {formatDuration(ticket.waitedSeconds)}
-                    </span>
+                    <div className="shrink-0 text-left">
+                      <span className={`block text-xl font-bold ${tone.text}`}>
+                        {formatDuration(ticket.waitedSeconds)}
+                      </span>
+                      <span className="block font-mono text-xs text-white/40">
+                        סה״כ {formatDuration(ticket.totalSeconds)}
+                      </span>
+                    </div>
                   </div>
                 );
               })}

@@ -23,7 +23,9 @@ function ticket(overrides: Partial<WaTicketRow>): WaTicketRow {
     firstResponseSeconds: null,
     closed: false,
     timeToCloseSeconds: null,
-    awaitingReplySince: null,
+    lastAgentMessageAt: null,
+    lastCustomerMessageAt: null,
+    waitingSince: null,
     ...overrides,
   };
 }
@@ -46,52 +48,61 @@ describe("waitingTier", () => {
 });
 
 describe("currentlyWaiting", () => {
-  it("excludes a ticket with no awaitingReplySince — already answered and no follow-up", () => {
+  it("excludes a ticket that is not waiting — the agent wrote last", () => {
     const rows = [
-      ticket({ id: "1", firstResponseSeconds: 30, awaitingReplySince: null }),
+      ticket({
+        id: "1",
+        firstResponseSeconds: 30,
+        lastAgentMessageAt: "2026-09-06T08:00:30.000Z",
+        waitingSince: null,
+      }),
     ];
     expect(currentlyWaiting(rows, NOW)).toEqual([]);
   });
 
-  it("excludes closed tickets even without a tracked reply", () => {
-    const rows = [ticket({ id: "1", closed: true, awaitingReplySince: null })];
+  it("excludes closed tickets", () => {
+    const rows = [ticket({ id: "1", closed: true, waitingSince: null })];
     expect(currentlyWaiting(rows, NOW)).toEqual([]);
   });
 
-  it("includes a ticket never replied to, waiting since it was created", () => {
+  it("counts a never-answered ticket from its start, with total equal to the wait", () => {
     const rows = [
       ticket({
         id: "1",
         createdAt: "2026-09-06T08:00:00.000Z",
-        awaitingReplySince: "2026-09-06T08:00:00.000Z",
+        waitingSince: "2026-09-06T08:00:00.000Z",
       }),
     ];
     const waiting = currentlyWaiting(rows, NOW);
     expect(waiting).toHaveLength(1);
     expect(waiting[0].waitedSeconds).toBe(12 * 60);
+    expect(waiting[0].totalSeconds).toBe(12 * 60);
   });
 
-  it("includes a ticket the agent already answered once, waiting again since the customer's follow-up — not since the first message", () => {
-    // Agent replied at 08:01 (fast first response); customer wrote again at
-    // 08:10, unanswered since. The wait must be measured from 08:10, not from
-    // createdAt at 08:00 — that was the bug being fixed here.
+  it("counts from the agent's LAST message once the customer has written back — not from the customer's first message", () => {
+    // Opened 08:00; agent replied 08:01; customer wrote again 08:10 and is
+    // waiting. Per the account owner's definition the wait is measured from
+    // the agent's 08:01 message (11 min), while the total age is 12 min.
     const rows = [
       ticket({
         id: "1",
         createdAt: "2026-09-06T08:00:00.000Z",
         firstResponseSeconds: 60,
-        awaitingReplySince: "2026-09-06T08:10:00.000Z",
+        lastAgentMessageAt: "2026-09-06T08:01:00.000Z",
+        lastCustomerMessageAt: "2026-09-06T08:10:00.000Z",
+        waitingSince: "2026-09-06T08:01:00.000Z",
       }),
     ];
     const waiting = currentlyWaiting(rows, NOW);
     expect(waiting).toHaveLength(1);
-    expect(waiting[0].waitedSeconds).toBe(2 * 60);
+    expect(waiting[0].waitedSeconds).toBe(11 * 60);
+    expect(waiting[0].totalSeconds).toBe(12 * 60);
   });
 
   it("sorts longest-waiting first", () => {
     const rows = [
-      ticket({ id: "recent", awaitingReplySince: "2026-09-06T08:10:00.000Z" }), // 2 min
-      ticket({ id: "oldest", awaitingReplySince: "2026-09-06T08:00:00.000Z" }), // 12 min
+      ticket({ id: "recent", waitingSince: "2026-09-06T08:10:00.000Z" }), // 2 min
+      ticket({ id: "oldest", waitingSince: "2026-09-06T08:00:00.000Z" }), // 12 min
     ];
     expect(currentlyWaiting(rows, NOW).map((t) => t.id)).toEqual([
       "oldest",
@@ -124,24 +135,24 @@ describe("summarizeTickets", () => {
     });
   });
 
-  it("averages only tickets that have a value, and counts awaitingReplySince toward awaitingReply", () => {
+  it("averages only tickets that have a value, and counts waitingSince toward awaitingReply", () => {
     const rows = [
-      ticket({ id: "1", firstResponseSeconds: 100, awaitingReplySince: null }),
-      ticket({ id: "2", firstResponseSeconds: 300, awaitingReplySince: null }),
-      // Never responded to and still open — awaiting a reply.
+      ticket({ id: "1", firstResponseSeconds: 100, waitingSince: null }),
+      ticket({ id: "2", firstResponseSeconds: 300, waitingSince: null }),
+      // Never responded to and still open — waiting.
       ticket({
         id: "3",
         firstResponseSeconds: null,
         closed: false,
-        awaitingReplySince: "2026-09-06T08:00:00.000Z",
+        waitingSince: "2026-09-06T08:00:00.000Z",
       }),
-      // Closed without ever having a tracked agent reply — not "awaiting".
+      // Closed without ever having an agent message — not waiting.
       ticket({
         id: "4",
         firstResponseSeconds: null,
         closed: true,
         timeToCloseSeconds: 900,
-        awaitingReplySince: null,
+        waitingSince: null,
       }),
     ];
 

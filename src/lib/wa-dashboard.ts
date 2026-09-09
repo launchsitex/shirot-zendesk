@@ -1,25 +1,30 @@
 /**
  * Vocabulary for "דשבורד WA" / "דשבורד TV WA" — WhatsApp tickets from Zendesk
- * for a single Israel calendar day, scored on two figures:
+ * for a single Israel calendar day.
  *
- * - first response time: from the customer's first message
- *   (`createdAt`) to the assignee's first comment (`firstResponseSeconds`,
- *   null until the assignee has written anything). A one-time, historical
- *   figure — it does not change once the agent has replied once, even if the
- *   customer writes again later.
+ * WhatsApp here runs on Zendesk Messaging, where messages are not ticket
+ * comments while the chat is live. What the sync does see is a Messaging
+ * trigger flipping a tag on every message — agent or customer — and those
+ * flips are the message timeline (see 20260909120000_zendesk_whatsapp_messages
+ * and `last_*_message_at` on the ticket). Everything below is derived from
+ * them:
+ *
+ * - first response time: from the customer's first message (`createdAt`) to
+ *   the agent's first WhatsApp message (`firstResponseSeconds`, null until an
+ *   agent has written). A person, not the bot — the bot does not fire the
+ *   trigger.
+ * - waiting: a ticket where the customer wrote last (or nobody from the team
+ *   has written at all) and the ticket is still open. `waitingSince` is the
+ *   agent's *last* message — the account owner's explicit definition: once
+ *   an agent has written, the clock counts from that message, not from the
+ *   customer's first one. With no agent message yet it counts from
+ *   `createdAt`. Null when the agent wrote last or the ticket is finished.
  * - time to close: from `createdAt` to `updatedAt`, only once the ticket
  *   reached solved or closed — the same "finished" definition used
- *   everywhere else in this app (see CLOSED_STATUSES in
- *   [[tickets]]). Not literal `closed` alone: on this team's Zendesk that
- *   status is an automatic archival step days after an agent resolves a
- *   ticket, not something an agent chooses, so it is not a meaningful
+ *   everywhere else in this app (see CLOSED_STATUSES in [[tickets]]). Not
+ *   literal `closed` alone: on this Zendesk that is an automatic archival
+ *   step days after an agent resolves a ticket, so it is not a meaningful
  *   same-day figure.
- *
- * A third, separate concept drives the live "currently waiting" section:
- * `awaitingReplySince` tracks the customer's *most recent* message, not just
- * the first — a ticket the agent already answered once still counts as
- * waiting again the moment the customer writes back and nobody has replied to
- * that. See `currentlyWaiting` below for exactly how that is derived.
  */
 
 export type WaTicketRow = {
@@ -34,20 +39,21 @@ export type WaTicketRow = {
   status: string;
   createdAt: string;
   updatedAt: string;
-  /** Seconds from createdAt to the assignee's first comment; null if none yet. */
+  /** Seconds from createdAt to the agent's first WhatsApp message; null if none yet. */
   firstResponseSeconds: number | null;
   closed: boolean;
   /** Seconds from createdAt to updatedAt; only set once `closed` is true. */
   timeToCloseSeconds: number | null;
+  /** The agent's most recent WhatsApp message, if any. */
+  lastAgentMessageAt: string | null;
+  /** The customer's most recent WhatsApp message, if any. */
+  lastCustomerMessageAt: string | null;
   /**
-   * When this ticket started waiting on a reply to the customer's most
-   * recent message; null if closed or already answered. Set by the API route
-   * to `createdAt` when the agent has never replied, or to `updatedAt` when
-   * the ticket was touched again after the agent's last comment (a proxy for
-   * "the customer wrote back" — Zendesk's ticket export has no per-message
-   * timestamp, only this ticket-level one).
+   * The moment the customer's current wait is counted from: the agent's last
+   * message, or `createdAt` if no agent has written yet. Null when the agent
+   * wrote last or the ticket is finished — i.e. the customer is not waiting.
    */
-  awaitingReplySince: string | null;
+  waitingSince: string | null;
 };
 
 export type WaGroupStats = {
@@ -87,20 +93,28 @@ export type WaDashboardPayload = {
 };
 
 /**
- * Escalation tiers for a customer still waiting on a first reply — the figure
+ * Escalation tiers for a customer currently waiting on an agent — the figure
  * the account owner called more important than the close-time stats, since it
  * is the one a manager can act on right now by nudging a specific agent.
  */
 export const WAITING_TIER_MINUTES = [3, 7, 10] as const;
 export type WaitingTierMinutes = (typeof WAITING_TIER_MINUTES)[number];
 
-export type WaitingTicket = WaTicketRow & { waitedSeconds: number };
+export type WaitingTicket = WaTicketRow & {
+  /** Since the agent's last message (or the ticket's start), as of `now`. */
+  waitedSeconds: number;
+  /** Since the ticket was opened, as of `now`. */
+  totalSeconds: number;
+};
+
+function secondsSince(iso: string, nowMs: number): number {
+  return Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 1000));
+}
 
 /**
- * Tickets currently awaiting a reply to the customer's most recent message
- * (`awaitingReplySince` set), each carrying how long that has been as of
- * `now` — recomputed on every call rather than stored, since it grows every
- * second the page is open.
+ * Tickets whose customer is currently waiting (`waitingSince` set), each
+ * carrying how long that has been as of `now` — recomputed on every call
+ * rather than stored, since it grows every second the page is open.
  */
 export function currentlyWaiting(
   rows: WaTicketRow[],
@@ -108,13 +122,11 @@ export function currentlyWaiting(
 ): WaitingTicket[] {
   const nowMs = now.getTime();
   return rows
-    .filter((row) => row.awaitingReplySince != null)
+    .filter((row) => row.waitingSince != null)
     .map((row) => ({
       ...row,
-      waitedSeconds: Math.max(
-        0,
-        Math.floor((nowMs - new Date(row.awaitingReplySince!).getTime()) / 1000),
-      ),
+      waitedSeconds: secondsSince(row.waitingSince!, nowMs),
+      totalSeconds: secondsSince(row.createdAt, nowMs),
     }))
     .sort((a, b) => b.waitedSeconds - a.waitedSeconds);
 }
@@ -158,7 +170,7 @@ export function summarizeTickets(rows: WaTicketRow[]): WaGroupStats {
     ticketCount: rows.length,
     respondedCount: responseTimes.length,
     avgFirstResponseSeconds: average(responseTimes),
-    awaitingReply: rows.filter((row) => row.awaitingReplySince != null).length,
+    awaitingReply: rows.filter((row) => row.waitingSince != null).length,
     closedCount: rows.filter((row) => row.closed).length,
     avgTimeToCloseSeconds: average(closeTimes),
   };

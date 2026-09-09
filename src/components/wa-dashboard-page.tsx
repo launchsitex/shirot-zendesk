@@ -196,10 +196,16 @@ export function WaDashboardPageClient() {
         <>
           <section className="card overflow-hidden border-2 border-[#f3c1c6]">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#fdebed] px-5 py-3.5">
-              <h2 className="flex items-center gap-2 text-base font-bold text-[#8a2b32]">
-                <AlertTriangle size={18} />
-                לקוחות ממתינים לתגובה כרגע
-              </h2>
+              <div>
+                <h2 className="flex items-center gap-2 text-base font-bold text-[#8a2b32]">
+                  <AlertTriangle size={18} />
+                  לקוחות ממתינים לתגובה כרגע
+                </h2>
+                <p className="mt-0.5 text-xs text-[#8a2b32]/70">
+                  הזמן נספר מההודעה האחרונה של הנציגה (או מפתיחת הפנייה אם עוד
+                  לא ענתה). הודעות בוט לא נספרות.
+                </p>
+              </div>
               <strong className="text-lg font-bold text-[#8a2b32]">
                 {waiting.length} ממתינים
               </strong>
@@ -213,18 +219,21 @@ export function WaDashboardPageClient() {
 
             {waiting.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-[#1f7a55]">
-                כל הפניות של {isToday ? "היום" : date} קיבלו תגובה ראשונה.
+                {isToday
+                  ? "אין לקוחות שממתינים לתגובה כרגע."
+                  : `אין לקוחות שממתינים לתגובה בפניות של ${date}.`}
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[680px] border-collapse text-sm">
+                <table className="w-full min-w-[760px] border-collapse text-sm">
                   <thead>
                     <tr className="text-[#5d6d75]">
                       <th className="px-4 py-2 text-right font-semibold">מס&apos; פנייה</th>
                       <th className="px-4 py-2 text-right font-semibold">לקוח</th>
                       <th className="px-4 py-2 text-right font-semibold">טלפון</th>
                       <th className="px-4 py-2 text-right font-semibold">נציגה משויכת</th>
-                      <th className="px-4 py-2 text-center font-semibold">ממתין</th>
+                      <th className="px-4 py-2 text-center font-semibold">ממתין מאז הנציגה</th>
+                      <th className="px-4 py-2 text-center font-semibold">סה&quot;כ בפנייה</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -248,6 +257,9 @@ export function WaDashboardPageClient() {
                           >
                             {formatDuration(ticket.waitedSeconds)}
                           </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-center font-mono text-xs text-[#5d6d75]">
+                          {formatDuration(ticket.totalSeconds)}
                         </td>
                       </tr>
                     ))}
@@ -420,11 +432,11 @@ export function WaDashboardPageClient() {
                                     // message (not just the first) is unanswered — a
                                     // ticket the agent already replied to once still
                                     // shows this if the customer wrote back since.
-                                    const liveWaitedSeconds = ticket.awaitingReplySince
+                                    const liveWaitedSeconds = ticket.waitingSince
                                       ? Math.max(
                                           0,
                                           Math.floor(
-                                            (now.getTime() - new Date(ticket.awaitingReplySince).getTime()) / 1000,
+                                            (now.getTime() - new Date(ticket.waitingSince).getTime()) / 1000,
                                           ),
                                         )
                                       : null;
