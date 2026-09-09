@@ -120,6 +120,9 @@ export type WaDashboardPayload = {
   hourly: WaHourlyBucket[];
   rows: WaTicketRow[];
   queue: WaQueueTicket[];
+  /** The department this payload is scoped to, and all the ones a viewer can pick. */
+  department: { id: string; name: string };
+  departments: { id: string; name: string }[];
   syncedAt: string | null;
 };
 

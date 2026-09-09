@@ -25,11 +25,10 @@ const NO_STORE_HEADERS = { "Cache-Control": "no-store, must-revalidate" };
 // than through a database-side rollup function.
 const ROWS_LIMIT = 1000;
 
-// Scoped to Customer Service only, at the account owner's request — Deliveries'
-// WhatsApp traffic is a different workflow and was drowning out the figures
-// that matter here. Filtered by the department's stable id, not its display
-// name, matching how department filters work everywhere else in this app.
-const DEPARTMENT_FILTER_ID = "customer-service";
+// One dashboard per department, at the account owner's request: `?department=`
+// picks which, by the department's stable id (the way department filters work
+// everywhere else in this app), defaulting to Customer Service.
+const DEFAULT_DEPARTMENT_ID = "customer-service";
 
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
@@ -105,8 +104,10 @@ export async function GET(request: NextRequest) {
   }
   const dayStart = jerusalemDayBounds(date);
   const dayEnd = jerusalemDayBounds(date, true);
+  const departmentId =
+    request.nextUrl.searchParams.get("department") ?? DEFAULT_DEPARTMENT_ID;
 
-  const [rowsResult, queueResult, groupsResult, syncResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, syncResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -134,17 +135,33 @@ export async function GET(request: NextRequest) {
       .from("zendesk_group_departments")
       .select("group_id,departments(id,name)"),
     supabase
+      .from("departments")
+      .select("id,name")
+      .eq("active", true)
+      .order("sort_order", { ascending: true }),
+    supabase
       .from("zendesk_sync_state")
       .select("last_run_at")
       .eq("id", 1)
       .maybeSingle(),
   ]);
 
-  const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error;
+  const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
+    departmentsResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
       { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  const departments = ((departmentsResult.data ?? []) as { id: string; name: string }[])
+    .map((row) => ({ id: row.id, name: row.name }));
+  const department = departments.find((item) => item.id === departmentId);
+  if (!department) {
+    return NextResponse.json(
+      { error: "unknown_department" },
+      { status: 400, headers: NO_STORE_HEADERS },
     );
   }
 
@@ -228,7 +245,7 @@ export async function GET(request: NextRequest) {
         waitingSince,
       };
     })
-    .filter((row) => row.departmentId === DEPARTMENT_FILTER_ID);
+    .filter((row) => row.departmentId === departmentId);
 
   const payload: WaDashboardPayload = {
     date,
@@ -237,7 +254,14 @@ export async function GET(request: NextRequest) {
     byDepartment: summarizeByDepartment(rows),
     hourly: hourlyBuckets(rows),
     rows,
-    queue,
+    // This department's queue, plus anything in a group nobody has mapped to
+    // a department yet — shown on every department's dashboard rather than on
+    // none, so an unmapped routing group cannot hide a waiting customer.
+    queue: queue.filter(
+      (ticket) => ticket.departmentId === departmentId || ticket.departmentId == null,
+    ),
+    department,
+    departments,
     syncedAt: syncResult.data?.last_run_at ?? null,
   };
 

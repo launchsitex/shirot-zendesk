@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getHomeHref, type AppProfile } from "@/lib/app-pages";
 import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
@@ -31,6 +32,7 @@ import {
 
 const REFRESH_MS = 30_000;
 const WAITING_LIST_CAP = 24;
+const DEFAULT_DEPARTMENT_ID = "customer-service";
 
 function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
@@ -60,9 +62,9 @@ function tierTone(minutes: WaitingTierMinutes | null) {
  * moment. The avg response/close-time figures move to the department boxes
  * instead of the headline row.
  *
- * Scoped server-side to the Customer Service department only (excludes
- * Deliveries) — see DEPARTMENT_FILTER_ID in the shared /api/wa-dashboard
- * route.
+ * One screen per department, chosen by `?department=<id>` in the URL and
+ * passed through to the shared /api/wa-dashboard route; defaults to Customer
+ * Service.
  *
  * Deliberately polling-only, no Supabase Realtime channel: the underlying
  * Zendesk sync itself only runs once a minute (a cron job, not a webhook), so
@@ -77,9 +79,16 @@ export function WaWallboardClient() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [profile, setProfile] = useState<AppProfile | null>(null);
 
+  // One wall screen per department: the department comes from the URL, so a
+  // TV for deliveries is simply /wa-dashboard/tv?department=deliveries.
+  const departmentId = useSearchParams().get("department") ?? DEFAULT_DEPARTMENT_ID;
+
   const loadData = useCallback(async () => {
     try {
-      const response = await fetch("/api/wa-dashboard", { cache: "no-store" });
+      const params = new URLSearchParams({ department: departmentId });
+      const response = await fetch(`/api/wa-dashboard?${params}`, {
+        cache: "no-store",
+      });
       if (!response.ok) throw new Error("לא ניתן לטעון את נתוני הוואטסאפ");
       const result = (await response.json()) as WaDashboardPayload;
       setData(result);
@@ -87,7 +96,7 @@ export function WaWallboardClient() {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "אירעה שגיאה");
     }
-  }, []);
+  }, [departmentId]);
 
   useEffect(() => {
     fetch("/api/me", { cache: "no-store" })
@@ -194,7 +203,7 @@ export function WaWallboardClient() {
                 </span>
               </div>
               <p className="mt-1 text-sm text-white/55">
-                פניות וואטסאפ מ-Zendesk · היום
+                פניות וואטסאפ מ-Zendesk · {data?.department.name ?? "…"} · היום
               </p>
             </div>
           </div>

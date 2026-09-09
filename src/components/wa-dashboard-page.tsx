@@ -11,6 +11,7 @@ import {
   Timer,
   UsersRound,
 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
@@ -31,8 +32,10 @@ import {
 } from "@/lib/wa-dashboard";
 
 const REFRESH_MS = 30_000;
-// Which agents the viewer has taken out of the figures. Kept per browser so
-// a manager who only follows their own team does not re-tick it every visit.
+const DEFAULT_DEPARTMENT_ID = "customer-service";
+// Which agents the viewer has taken out of the figures, per department. Kept
+// per browser so a manager who only follows their own team does not re-tick
+// it every visit.
 const EXCLUDED_AGENTS_KEY = "wa-dashboard:excluded-agents";
 
 function seconds(value: number | null): string {
@@ -65,9 +68,9 @@ function TierTile({ minutes, count }: { minutes: WaitingTierMinutes; count: numb
   );
 }
 
-function readExcludedAgents(): string[] {
+function readExcludedAgents(departmentId: string): string[] {
   try {
-    const raw = window.localStorage.getItem(EXCLUDED_AGENTS_KEY);
+    const raw = window.localStorage.getItem(`${EXCLUDED_AGENTS_KEY}:${departmentId}`);
     const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     return Array.isArray(parsed) ? parsed.map(String) : [];
   } catch {
@@ -90,10 +93,14 @@ function readExcludedAgents(): string[] {
  * drop out of the averages, tiers, lists and charts alike, recomputed
  * client-side from the same rows the API returns.
  *
- * Definitions live in src/lib/wa-dashboard.ts. Scoped server-side to the
- * Customer Service department — see DEPARTMENT_FILTER_ID in the API route.
+ * One dashboard per department: the tabs at the top switch `?department=`
+ * in the URL, which the API scopes by. Definitions live in
+ * src/lib/wa-dashboard.ts.
  */
 export function WaDashboardPageClient() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const departmentId = useSearchParams().get("department") ?? DEFAULT_DEPARTMENT_ID;
   const [date, setDate] = useState(() => jerusalemToday());
   const [data, setData] = useState<WaDashboardPayload | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -105,7 +112,7 @@ export function WaDashboardPageClient() {
   const load = useCallback(async () => {
     setError("");
     try {
-      const params = new URLSearchParams({ date });
+      const params = new URLSearchParams({ date, department: departmentId });
       const response = await fetch(`/api/wa-dashboard?${params}`, {
         cache: "no-store",
       });
@@ -123,16 +130,24 @@ export function WaDashboardPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, departmentId]);
 
   useEffect(() => {
-    // Read after mount so the server render and the first client render match.
-    const stored = readExcludedAgents();
-    if (stored.length) {
-      const timer = window.setTimeout(() => setExcluded(stored), 0);
-      return () => window.clearTimeout(timer);
-    }
-  }, []);
+    // Read after mount so the server render and the first client render
+    // match; re-read when the department changes since the choice is per
+    // department.
+    const stored = readExcludedAgents(departmentId);
+    const timer = window.setTimeout(() => setExcluded(stored), 0);
+    return () => window.clearTimeout(timer);
+  }, [departmentId]);
+
+  function changeDepartment(next: string) {
+    if (next === departmentId) return;
+    setExpanded(null);
+    setData(null);
+    setLoading(true);
+    router.replace(`${pathname}?department=${encodeURIComponent(next)}`);
+  }
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
@@ -155,7 +170,10 @@ export function WaDashboardPageClient() {
   function updateExcluded(next: string[]) {
     setExcluded(next);
     try {
-      window.localStorage.setItem(EXCLUDED_AGENTS_KEY, JSON.stringify(next));
+      window.localStorage.setItem(
+        `${EXCLUDED_AGENTS_KEY}:${departmentId}`,
+        JSON.stringify(next),
+      );
     } catch {
       // Storage unavailable — the choice simply lasts until the next visit.
     }
@@ -229,11 +247,36 @@ export function WaDashboardPageClient() {
           <MessageCircle size={20} />
         </span>
         <div className="flex-1">
-          <h1 className="text-lg font-bold">דשבורד WA</h1>
+          <h1 className="text-lg font-bold">
+            דשבורד WA{data ? ` · ${data.department.name}` : ""}
+          </h1>
           <p className="mt-0.5 text-sm text-[#718087]">
             פניות וואטסאפ מ-Zendesk ליום זה: מי ממתין לתגובה כרגע, זמן
             תגובה ראשונה מרגע ההעברה מהבוט, וזמן עד שהפנייה נפתרה/נסגרה.
           </p>
+          {data && data.departments.length > 1 && (
+            <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="מחלקה">
+              {data.departments.map((item) => {
+                const active = item.id === data.department.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => changeDepartment(item.id)}
+                    className={`rounded-xl px-3.5 py-1.5 text-sm font-semibold transition ${
+                      active
+                        ? "bg-[#102d38] text-white"
+                        : "bg-[#eef2f3] text-[#5d6d75] hover:bg-[#e1e8eb]"
+                    }`}
+                  >
+                    {item.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
         <label className="flex items-center gap-2 text-sm">
           <span className="font-semibold text-[#5d6d75]">תאריך</span>
@@ -335,7 +378,7 @@ export function WaDashboardPageClient() {
                 </h2>
                 <p className="mt-0.5 text-xs text-[#7a5a0f]/70">
                   הבוט העביר לנציגות ואף אחת עוד לא לקחה את הפנייה. הזמן נספר
-                  מרגע ההעברה. כל המחלקות, ללא קשר לבורר הנציגות.
+                  מרגע ההעברה. לא מושפע מבורר הנציגות.
                 </p>
               </div>
               <strong className="text-lg font-bold text-[#7a5a0f]">
