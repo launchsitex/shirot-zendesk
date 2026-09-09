@@ -41,11 +41,13 @@ export type WaTicketRow = {
   createdAt: string;
   updatedAt: string;
   /**
-   * When the bot handed the conversation to the agents (Zendesk's
-   * OfferedToEvent). The first-response clock starts here, not at createdAt:
-   * the bot handles the start of every conversation. Null if the sync has no
-   * handoff for this ticket, in which case createdAt stands in and
-   * `firstResponseFromHandoff` is false.
+   * When the bot handed the conversation to the agents' queue: the status
+   * open→new transition it makes as it lets go (not OfferedToEvent, which is
+   * the later moment an available agent is offered the chat). The
+   * first-response clock starts here, not at createdAt: the bot handles the
+   * start of every conversation. Null if the sync has no handoff for this
+   * ticket, in which case createdAt stands in and `firstResponseFromHandoff`
+   * is false.
    */
   handedToAgentAt: string | null;
   firstResponseFromHandoff: boolean;
@@ -97,10 +99,11 @@ export type WaHourlyBucket = {
 };
 
 /**
- * A ticket the bot has handed to the agents that nobody has picked up yet.
- * It has no assignee, so its department comes from Zendesk's routing group
- * (zendesk_group_departments), not from the agent roster. Not limited to the
- * dashboard's day or department: a queue is "right now", whatever it holds.
+ * A ticket the bot has handed to the agents that nobody has picked up yet:
+ * open, with no assignee at all (the bot holds the assignment while it is
+ * handling the conversation). Its department comes from Zendesk's routing
+ * group (zendesk_group_departments), not from the agent roster. Not limited
+ * to the dashboard's day: a queue is "right now", whatever it holds.
  */
 export type WaQueueTicket = {
   id: string;

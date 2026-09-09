@@ -59,7 +59,7 @@ type QueueRow = {
   requester_phone: string | null;
   group_id: string | null;
   zendesk_created_at: string;
-  handed_to_agent_at: string;
+  handed_to_agent_at: string | null;
 };
 
 type GroupRow = {
@@ -116,20 +116,21 @@ export async function GET(request: NextRequest) {
       .lte("zendesk_created_at", dayEnd)
       .order("zendesk_created_at", { ascending: true })
       .limit(ROWS_LIMIT),
-    // The queue: handed off by the bot, open, nobody assigned. Whatever day it
-    // was opened on and whatever department — it is grouped by department in
-    // the payload rather than filtered, since a manager wants to see any
-    // customer nobody has picked up.
+    // The queue: open, and nobody assigned at all — not even the bot, which
+    // holds the assignment while it handles the start of a conversation, so
+    // `assignee_id is null` is precisely "handed to the agents, not picked
+    // up". Whatever day it was opened on; departments are split in the
+    // payload. The wait runs from the handoff, or the ticket's start if the
+    // sync has no handoff event for it.
     supabase
       .from("zendesk_tickets")
       .select(
         "id,requester_name,requester_phone,group_id,zendesk_created_at,handed_to_agent_at",
       )
       .eq("via_channel", "whatsapp")
-      .is("agent_id", null)
-      .not("handed_to_agent_at", "is", null)
+      .is("assignee_id", null)
       .not("status", "in", "(solved,closed)")
-      .order("handed_to_agent_at", { ascending: true })
+      .order("zendesk_created_at", { ascending: true })
       .limit(QUEUE_LIMIT),
     supabase
       .from("zendesk_group_departments")
@@ -184,7 +185,7 @@ export async function GET(request: NextRequest) {
         departmentId: department?.id ?? null,
         departmentName: department?.name ?? "ללא שיוך מחלקה",
         createdAt: row.zendesk_created_at,
-        handedToAgentAt: row.handed_to_agent_at,
+        handedToAgentAt: row.handed_to_agent_at ?? row.zendesk_created_at,
       };
     },
   );

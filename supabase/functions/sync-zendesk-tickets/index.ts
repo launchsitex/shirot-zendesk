@@ -314,14 +314,17 @@ async function syncComments(
         // later. A Messaging trigger does flip a tag on every message, though,
         // so a tag change that *adds* one of these is a message with a
         // direction and a time. See 20260909120000_zendesk_whatsapp_messages.
-        // The bot handles the start of every conversation; OfferedToEvent is
-        // the moment it hands the customer to the agents, which is where the
-        // first-response clock starts (20260909160000_zendesk_whatsapp_handoff).
-        const direction = child.event_type === "OfferedToEvent"
+        // The bot handles the start of every conversation and hands it to the
+        // agents' queue by clearing its own assignment and moving the status
+        // open→new (agents cannot set "new" themselves). That transition is
+        // where the first-response clock starts. Not OfferedToEvent: that
+        // fires when the routing offers the chat to an available agent, which
+        // can be minutes later (20260909200000_zendesk_whatsapp_handoff_is_status_new).
+        const direction = child.event_type !== "Change"
+          ? null
+          : child.status === "new" && child.previous_value === "open"
           ? "handoff"
-          : child.event_type === "Change"
-          ? whatsappFlip(child)
-          : null;
+          : whatsappFlip(child);
         if (!direction) continue;
         messages.push({
           id: String(child.id ?? `${event.id}-${direction}`),
