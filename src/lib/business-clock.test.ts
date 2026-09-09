@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   businessClockLabel,
+  businessOpenAt,
   businessSecondsBetween,
 } from "@/lib/business-clock";
 import { normalizeSchedule } from "@/lib/business-hours";
@@ -126,6 +127,24 @@ describe("israelHolidayOn", () => {
     expect(israelHolidayOn("2026-09-09")).toBeNull();
     expect(israelHolidayOn("2026-09-28")).toBeNull(); // Chol HaMoed Sukkot
     expect(israelHolidayOn("2026-03-03")).toBeNull(); // Purim
+  });
+});
+
+describe("businessOpenAt", () => {
+  it("is open inside the hours on a working day", () => {
+    expect(businessOpenAt("2026-09-09T07:00:00Z", officeHours)).toBe(true); // Wed 10:00
+    expect(businessOpenAt("2026-09-09T05:00:00Z", officeHours)).toBe(true); // Wed 08:00 sharp
+  });
+
+  it("is closed after hours, on the weekend and on holidays", () => {
+    expect(businessOpenAt("2026-09-09T12:00:00Z", officeHours)).toBe(false); // Wed 15:00
+    expect(businessOpenAt("2026-09-09T17:00:00Z", officeHours)).toBe(false); // Wed 20:00
+    expect(businessOpenAt("2026-09-11T07:00:00Z", officeHours)).toBe(false); // Friday
+    expect(businessOpenAt("2026-09-21T07:00:00Z", officeHours)).toBe(false); // Yom Kippur (Monday)
+  });
+
+  it("never closes without a schedule", () => {
+    expect(businessOpenAt("2026-09-11T22:00:00Z", null)).toBe(true);
   });
 });
 

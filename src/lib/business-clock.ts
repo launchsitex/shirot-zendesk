@@ -1,4 +1,9 @@
-import { WEEKDAY_LABELS, type DaySchedule, type Weekday } from "@/lib/business-hours";
+import {
+  isWithinBusinessHours,
+  WEEKDAY_LABELS,
+  type DaySchedule,
+  type Weekday,
+} from "@/lib/business-hours";
 import { israelHolidayOn } from "@/lib/israel-holidays";
 import { formatIsraelDate, jerusalemInstant } from "@/lib/israel-time";
 
@@ -88,6 +93,18 @@ export function businessSecondsBetween(
     day = shiftDate(day, 1);
   }
   return Math.floor(totalMs / 1000);
+}
+
+/**
+ * Whether the business clock is running at this instant: inside an open
+ * window of the weekly schedule and not on a holiday. Always true without a
+ * usable schedule (the wall clock never stops).
+ */
+export function businessOpenAt(instant: Date | string, clock: BusinessClock): boolean {
+  if (!hasOpenDays(clock)) return true;
+  const date = typeof instant === "string" ? new Date(instant) : instant;
+  if (israelHolidayOn(formatIsraelDate(date))) return false;
+  return isWithinBusinessHours(date, clock!);
 }
 
 /**

@@ -20,7 +20,7 @@ import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
-import { businessClockLabel } from "@/lib/business-clock";
+import { businessClockLabel, businessOpenAt } from "@/lib/business-clock";
 import { formatPhone } from "@/lib/tickets";
 import {
   agentKey,
@@ -204,6 +204,9 @@ export function WaWallboardClient() {
   // recorded ones in the rows already do, server-side).
   const clock = data?.businessHours ?? null;
   const clockLabel = businessClockLabel(clock);
+  // After hours nobody is expected to pick the queue up, so the queue is
+  // titled for what it is then: customers waiting for the next shift.
+  const openNow = businessOpenAt(now, clock);
   const waiting = useMemo(
     () => currentlyWaiting(visibleRows, now, clock),
     [visibleRows, now, clock],
@@ -442,9 +445,13 @@ export function WaWallboardClient() {
           <div className="mb-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Inbox className="text-[#f0c15a]" size={20} />
-              <h2 className="text-base font-bold">ממתינים לשיוך נציגה</h2>
+              <h2 className="text-base font-bold">
+                {openNow ? "ממתינים לשיוך נציגה" : "ממתינים אחרי שעות הפעילות"}
+              </h2>
               <span className="text-xs text-[#f0c15a]/60">
-                הבוט העביר, אף אחת עוד לא לקחה · לפי מחלקה
+                {openNow
+                  ? "הבוט העביר, אף אחת עוד לא לקחה · לפי מחלקה"
+                  : "הבוט העביר מחוץ לשעות הפעילות, ייענו במשמרת הבאה · לפי מחלקה"}
               </span>
             </div>
             <strong className="rounded-full bg-[#f0c15a] px-3 py-1 text-lg text-[#2a2112]">

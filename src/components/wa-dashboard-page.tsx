@@ -36,7 +36,7 @@ import {
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
 import { readExcludedAgents, writeExcludedAgents } from "@/lib/wa-agent-filter";
-import { businessClockLabel } from "@/lib/business-clock";
+import { businessClockLabel, businessOpenAt } from "@/lib/business-clock";
 
 const REFRESH_MS = 30_000;
 const DEFAULT_DEPARTMENT_ID = "customer-service";
@@ -243,6 +243,9 @@ export function WaDashboardPageClient() {
   // recorded ones in the rows already do, server-side).
   const clock = data?.businessHours ?? null;
   const clockLabel = businessClockLabel(clock);
+  // After hours nobody is expected to pick the queue up, so the queue is
+  // titled for what it is then: customers waiting for the next shift.
+  const openNow = businessOpenAt(now, clock);
   const waiting = useMemo(
     () => currentlyWaiting(visibleRows, now, clock),
     [visibleRows, now, clock],
@@ -480,11 +483,12 @@ export function WaDashboardPageClient() {
               <div>
                 <h2 className="flex items-center gap-2 text-base font-bold text-[#7a5a0f]">
                   <Inbox size={18} />
-                  ממתינים לשיוך נציגה
+                  {openNow ? "ממתינים לשיוך נציגה" : "ממתינים אחרי שעות הפעילות"}
                 </h2>
                 <p className="mt-0.5 text-xs text-[#7a5a0f]/70">
-                  הבוט העביר לנציגות ואף אחת עוד לא לקחה את הפנייה. הזמן נספר
-                  מרגע ההעברה. לא מושפע מבורר הנציגות.
+                  {openNow
+                    ? "הבוט העביר לנציגות ואף אחת עוד לא לקחה את הפנייה. הזמן נספר מרגע ההעברה. לא מושפע מבורר הנציגות."
+                    : "הבוט העביר מחוץ לשעות הפעילות; ייענו במשמרת הבאה. הזמן נספר מרגע ההעברה. לא מושפע מבורר הנציגות."}
                 </p>
               </div>
               <strong className="text-lg font-bold text-[#7a5a0f]">
