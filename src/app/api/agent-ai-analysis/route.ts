@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await access.supabase
     .from("agents")
-    .select("id,name,departments(name)")
+    .select("id,name,departments!department_id(name)")
     .eq("active", true)
     .order("name");
   if (error) {

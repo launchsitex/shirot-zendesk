@@ -37,7 +37,7 @@ const DEFAULT_DEPARTMENT_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents!agent_id(name,departments(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents!agent_id(name,departments!department_id(id,name))";
 
 type Row = {
   id: string;
@@ -173,12 +173,12 @@ export async function GET(request: NextRequest) {
       .order("sort_order", { ascending: true }),
     // Names for agents credited with a first response or a closure on a
     // ticket that has since moved to somebody else.
-    supabase.from("agents").select("id,name,departments(name)"),
+    supabase.from("agents").select("id,name,departments!department_id(name)"),
     // Live status and messaging load, refreshed by the sync every minute.
     supabase
       .from("zendesk_agent_availability")
       .select(
-        "agent_id,status_name,status_updated_at,messaging_work_items,messaging_max_capacity,synced_at,agents!agent_id(name,department_id,departments(name))",
+        "agent_id,status_name,status_updated_at,messaging_work_items,messaging_max_capacity,synced_at,agents!agent_id(name,department_id,departments!department_id(name))",
       )
       .not("agent_id", "is", null),
     supabase

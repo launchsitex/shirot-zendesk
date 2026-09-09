@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
   let agentsQuery = supabase
     .from("agents")
     .select(
-      "id,name,department_id,departments(name),agent_live_status(state,state_since,current_call_started_at)",
+      "id,name,department_id,departments!department_id(name),agent_live_status(state,state_since,current_call_started_at)",
     )
     .eq("active", true)
     .order("name");

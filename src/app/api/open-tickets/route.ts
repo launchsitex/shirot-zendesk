@@ -27,7 +27,7 @@ const FINISHED = ["solved", "closed"];
 const EXCLUDED_CHANNEL = "whatsapp";
 
 const SELECT =
-  "id,subject,status,requester_name,requester_phone,assignee_name,agent_id,zendesk_created_at,zendesk_updated_at,documented,agent_note_count,agent_reply_count,via_channel,agents!agent_id(name,departments(name))";
+  "id,subject,status,requester_name,requester_phone,assignee_name,agent_id,zendesk_created_at,zendesk_updated_at,documented,agent_note_count,agent_reply_count,via_channel,agents!agent_id(name,departments!department_id(name))";
 
 type Row = {
   id: string;

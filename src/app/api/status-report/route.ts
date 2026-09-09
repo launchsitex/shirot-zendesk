@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
   let historyQuery = supabase
     .from("agent_status_history")
     .select(
-      "id,agent_id,state,started_at,ended_at,source_event,agents!agent_id(id,name,department_id,departments(id,name))",
+      "id,agent_id,state,started_at,ended_at,source_event,agents!agent_id(id,name,department_id,departments!department_id(id,name))",
     )
     .lte("started_at", rangeEnd)
     .or(`ended_at.is.null,ended_at.gte."${rangeStart}"`)
