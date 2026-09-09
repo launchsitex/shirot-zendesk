@@ -36,6 +36,7 @@ import {
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
 import { readExcludedAgents, writeExcludedAgents } from "@/lib/wa-agent-filter";
+import { businessClockLabel } from "@/lib/business-clock";
 
 const REFRESH_MS = 30_000;
 const DEFAULT_DEPARTMENT_ID = "customer-service";
@@ -238,9 +239,13 @@ export function WaDashboardPageClient() {
     return map;
   }, [visibleRows]);
 
+  // Every live duration runs on the department's business clock (the
+  // recorded ones in the rows already do, server-side).
+  const clock = data?.businessHours ?? null;
+  const clockLabel = businessClockLabel(clock);
   const waiting = useMemo(
-    () => currentlyWaiting(visibleRows, now),
-    [visibleRows, now],
+    () => currentlyWaiting(visibleRows, now, clock),
+    [visibleRows, now, clock],
   );
   const queue = useMemo(
     () => queueByDepartment(data?.queue ?? [], now),
@@ -251,8 +256,8 @@ export function WaDashboardPageClient() {
     [data?.availability],
   );
   const firstResponseTiers = useMemo(
-    () => firstResponseTierCounts(visibleRows, now),
-    [visibleRows, now],
+    () => firstResponseTierCounts(visibleRows, now, clock),
+    [visibleRows, now, clock],
   );
   const underThree = useMemo(
     () => firstResponseUnderCount(visibleRows, WAITING_TIER_MINUTES[0]),
@@ -684,6 +689,9 @@ export function WaDashboardPageClient() {
               ? `סונכרן לאחרונה: ${formatIsraelDateTime(data.syncedAt)}`
               : "טרם בוצע סנכרון"}
             {" · שעון ישראל"}
+            {clockLabel
+              ? ` · כל הזמנים נמדדים בשעות הפעילות בלבד (${clockLabel}, ללא ערבי חג וחגים)`
+              : " · הזמנים נמדדים מסביב לשעון: לא הוגדרו שעות פעילות למחלקה"}
             {isToday && " · הזמנים החיים מתעדכנים כל שנייה, שאר הנתונים כל 30 שניות"}
           </p>
 
@@ -846,7 +854,7 @@ export function WaDashboardPageClient() {
                                 </thead>
                                 <tbody>
                                   {tickets.map((ticket) => {
-                                    const firstResponse = firstResponseElapsed(ticket, now);
+                                    const firstResponse = firstResponseElapsed(ticket, now, clock);
                                     const liveWaitedSeconds = ticket.waitingSince
                                       ? Math.max(
                                           0,

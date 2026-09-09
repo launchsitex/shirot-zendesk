@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { businessClockFor, businessSecondsBetween } from "@/lib/business-clock";
+import { normalizeSchedule } from "@/lib/business-hours";
 import { jerusalemDayBounds, jerusalemToday } from "@/lib/israel-time";
 import {
   createSupabaseServerClient,
@@ -101,13 +103,6 @@ type GroupRow = {
 
 const QUEUE_LIMIT = 200;
 
-function secondsBetween(from: string, to: string): number {
-  return Math.max(
-    0,
-    Math.round((new Date(to).getTime() - new Date(from).getTime()) / 1000),
-  );
-}
-
 export async function GET(request: NextRequest) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json(
@@ -139,7 +134,7 @@ export async function GET(request: NextRequest) {
   const departmentId =
     request.nextUrl.searchParams.get("department") ?? DEFAULT_DEPARTMENT_ID;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -191,10 +186,21 @@ export async function GET(request: NextRequest) {
       .select("last_run_at")
       .eq("id", 1)
       .maybeSingle(),
+    // The department's business hours from settings: every duration below
+    // runs on this clock (see WaDashboardPayload.businessHours). Used
+    // whenever a schedule is configured, independently of the after-hours
+    // call-routing switch — the account owner wants agents measured on
+    // working time regardless of how calls are routed.
+    supabase
+      .from("department_business_hours")
+      .select("schedule")
+      .eq("department_id", departmentId)
+      .maybeSingle(),
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
-    departmentsResult.error ?? agentsResult.error ?? availabilityResult.error;
+    departmentsResult.error ?? agentsResult.error ?? availabilityResult.error ??
+    hoursResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
@@ -234,6 +240,10 @@ export async function GET(request: NextRequest) {
         handedToAgentAt: row.handed_to_agent_at ?? row.zendesk_created_at,
       };
     },
+  );
+
+  const clock = businessClockFor(
+    hoursResult.data ? normalizeSchedule(hoursResult.data.schedule) : null,
   );
 
   const rows: WaTicketRow[] = ((rowsResult.data ?? []) as Row[])
@@ -289,11 +299,11 @@ export async function GET(request: NextRequest) {
         handedToAgentAt: row.handed_to_agent_at,
         firstResponseFromHandoff: row.handed_to_agent_at != null,
         firstResponseSeconds: row.first_agent_message_at
-          ? secondsBetween(clockStart, row.first_agent_message_at)
+          ? businessSecondsBetween(clockStart, row.first_agent_message_at, clock)
           : null,
         closed,
         timeToCloseSeconds: closed
-          ? secondsBetween(row.zendesk_created_at, closedAt)
+          ? businessSecondsBetween(row.zendesk_created_at, closedAt, clock)
           : null,
         solvedAt: row.solved_at,
         firstResponseAgentId: row.first_response_agent_id ??
@@ -336,6 +346,7 @@ export async function GET(request: NextRequest) {
 
   const payload: WaDashboardPayload = {
     date,
+    businessHours: clock,
     totals: summarizeTickets(rows),
     byAgent: summarizeByAgent(rows, agents),
     byDepartment: summarizeByDepartment(rows),

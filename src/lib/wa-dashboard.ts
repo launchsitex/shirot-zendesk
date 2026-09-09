@@ -1,3 +1,4 @@
+import { businessSecondsBetween, type BusinessClock } from "@/lib/business-clock";
 /**
  * Vocabulary for "דשבורד WA" / "דשבורד TV WA" — WhatsApp tickets from Zendesk
  * for a single Israel calendar day.
@@ -186,6 +187,13 @@ export function sortAvailability(
 
 export type WaDashboardPayload = {
   date: string;
+  /**
+   * The department's business hours, when configured: every duration on the
+   * screens — recorded in `rows` and live on the client — runs on this
+   * clock, standing still outside working hours and on Israeli holidays
+   * ([[business-clock]]). Null means the wall clock.
+   */
+  businessHours: BusinessClock;
   totals: WaGroupStats;
   byAgent: WaAgentSummary[];
   byDepartment: WaDepartmentSummary[];
@@ -265,6 +273,7 @@ export type WaitingTicket = WaTicketRow & {
   totalSeconds: number;
 };
 
+/** Wall-clock seconds — the queue's clock, since pickup is wanted now, not in business hours. */
 function secondsSince(iso: string, nowMs: number): number {
   return Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 1000));
 }
@@ -277,14 +286,14 @@ function secondsSince(iso: string, nowMs: number): number {
 export function currentlyWaiting(
   rows: WaTicketRow[],
   now: Date,
+  clock: BusinessClock = null,
 ): WaitingTicket[] {
-  const nowMs = now.getTime();
   return rows
     .filter((row) => row.waitingSince != null)
     .map((row) => ({
       ...row,
-      waitedSeconds: secondsSince(row.waitingSince!, nowMs),
-      totalSeconds: secondsSince(row.createdAt, nowMs),
+      waitedSeconds: businessSecondsBetween(row.waitingSince!, now, clock),
+      totalSeconds: businessSecondsBetween(row.createdAt, now, clock),
     }))
     .sort((a, b) => b.waitedSeconds - a.waitedSeconds);
 }
@@ -311,19 +320,21 @@ export function waitingTierCounts(
 export function firstResponseElapsed(
   row: WaTicketRow,
   now: Date,
+  clock: BusinessClock = null,
 ): number | null {
   if (row.firstResponseSeconds != null) return row.firstResponseSeconds;
   if (row.closed) return null;
-  return secondsSince(row.handedToAgentAt ?? row.createdAt, now.getTime());
+  return businessSecondsBetween(row.handedToAgentAt ?? row.createdAt, now, clock);
 }
 
 /** How many tickets' first response took (or has so far taken) over each tier. */
 export function firstResponseTierCounts(
   rows: WaTicketRow[],
   now: Date,
+  clock: BusinessClock = null,
 ): Record<WaitingTierMinutes, number> {
   const elapsed = rows
-    .map((row) => firstResponseElapsed(row, now))
+    .map((row) => firstResponseElapsed(row, now, clock))
     .filter((value): value is number => value != null);
   const counts = {} as Record<WaitingTierMinutes, number>;
   for (const minutes of WAITING_TIER_MINUTES) {

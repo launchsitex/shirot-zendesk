@@ -20,6 +20,7 @@ import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
+import { businessClockLabel } from "@/lib/business-clock";
 import { formatPhone } from "@/lib/tickets";
 import {
   agentKey,
@@ -199,9 +200,13 @@ export function WaWallboardClient() {
   // Tickets still waiting for the assignee's first reply, longest first —
   // recomputed every second (via `now`) rather than only on each poll, the
   // same reasoning as the calls wallboard's WaitingTimeBox.
+  // Every live duration runs on the department's business clock (the
+  // recorded ones in the rows already do, server-side).
+  const clock = data?.businessHours ?? null;
+  const clockLabel = businessClockLabel(clock);
   const waiting = useMemo(
-    () => currentlyWaiting(visibleRows, now),
-    [visibleRows, now],
+    () => currentlyWaiting(visibleRows, now, clock),
+    [visibleRows, now, clock],
   );
   const queue = useMemo(
     () => queueByDepartment(data?.queue ?? [], now),
@@ -238,8 +243,8 @@ export function WaWallboardClient() {
   // First response — from the bot's handoff to the agent's first message —
   // as how many tickets crossed each tier today (unanswered ones count live).
   const tiers = useMemo(
-    () => firstResponseTierCounts(visibleRows, now),
-    [visibleRows, now],
+    () => firstResponseTierCounts(visibleRows, now, clock),
+    [visibleRows, now, clock],
   );
   const underThree = useMemo(
     () => firstResponseUnderCount(visibleRows, 3),
@@ -251,13 +256,13 @@ export function WaWallboardClient() {
   const over10ByDepartment = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of visibleRows) {
-      const elapsed = firstResponseElapsed(row, now);
+      const elapsed = firstResponseElapsed(row, now, clock);
       if (elapsed == null || elapsed < 10 * 60) continue;
       const key = row.departmentName ?? "ללא שיוך מחלקה";
       map.set(key, (map.get(key) ?? 0) + 1);
     }
     return map;
-  }, [visibleRows, now]);
+  }, [visibleRows, now, clock]);
 
   if (!data && !error) {
     return (
@@ -287,6 +292,7 @@ export function WaWallboardClient() {
               </div>
               <p className="mt-1 text-sm text-white/55">
                 פניות וואטסאפ מ-Zendesk · {data?.department.name ?? "…"} · היום
+                {clockLabel && ` · שעון עסקי ${clockLabel}, ללא ערבי חג וחגים`}
               </p>
             </div>
           </div>
