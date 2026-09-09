@@ -24,6 +24,11 @@ export const APP_PAGES = [
     href: "/wa-dashboard/tv",
     label: "דשבורד TV WA",
   },
+  {
+    id: "wa-dashboard-history",
+    href: "/wa-dashboard/history",
+    label: "ביצועי WA",
+  },
   { id: "ai-analysis", href: "/ai-analysis", label: "ניתוח AI" },
   {
     id: "agent-ai-analysis",

@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Mic2,
   Monitor,
+  CalendarRange,
   MonitorSmartphone,
   Moon,
   PhoneCall,
@@ -121,6 +122,13 @@ const items: {
     label: "דשבורד TV WA",
     pageId: "wa-dashboard-tv",
     icon: MonitorSmartphone,
+    child: true,
+  },
+  {
+    href: "/wa-dashboard/history",
+    label: "ביצועי WA",
+    pageId: "wa-dashboard-history",
+    icon: CalendarRange,
     child: true,
   },
   {

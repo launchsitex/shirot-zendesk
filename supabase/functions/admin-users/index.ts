@@ -21,6 +21,7 @@ const ALL_PAGES = [
   "ticket-tracking-open",
   "wa-dashboard",
   "wa-dashboard-tv",
+  "wa-dashboard-history",
   "ai-analysis",
   "agent-ai-analysis",
   "system-logs",
@@ -420,6 +421,8 @@ function pageLabel(id: PageKey) {
       return "דשבורד WA";
     case "wa-dashboard-tv":
       return "דשבורד TV WA";
+    case "wa-dashboard-history":
+      return "ביצועי WA";
     case "ai-analysis":
       return "ניתוח AI";
     case "agent-ai-analysis":
