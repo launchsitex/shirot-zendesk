@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Inbox,
   LoaderCircle,
   LogOut,
   Maximize2,
@@ -22,6 +23,7 @@ import {
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
+  queueByDepartment,
   waitingTier,
   type WaDashboardPayload,
   type WaitingTierMinutes,
@@ -141,6 +143,10 @@ export function WaWallboardClient() {
     () => currentlyWaiting(data?.rows ?? [], now),
     [data?.rows, now],
   );
+  const queue = useMemo(
+    () => queueByDepartment(data?.queue ?? [], now),
+    [data?.queue, now],
+  );
   // First response — from the bot's handoff to the agent's first message —
   // as how many tickets crossed each tier today (unanswered ones count live).
   const tiers = useMemo(
@@ -248,6 +254,60 @@ export function WaWallboardClient() {
           <WallMetric label="מעל 3 דק׳ לתגובה ראשונה" value={tiers[3]} tone="amber" />
           <WallMetric label="פניות היום" value={data?.totals.ticketCount ?? 0} tone="teal" />
         </section>
+
+        <article className="rounded-2xl border border-[#e1a62b]/35 bg-[#2a2112] p-3.5">
+          <div className="mb-2.5 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Inbox className="text-[#f0c15a]" size={20} />
+              <h2 className="text-base font-bold">ממתינים לשיוך נציגה</h2>
+              <span className="text-xs text-[#f0c15a]/60">
+                הבוט העביר, אף אחת עוד לא לקחה · לפי מחלקה
+              </span>
+            </div>
+            <strong className="rounded-full bg-[#f0c15a] px-3 py-1 text-lg text-[#2a2112]">
+              {data?.queue.length ?? 0}
+            </strong>
+          </div>
+          {queue.length ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {queue.map((group) => (
+                <div key={group.departmentName} className="rounded-xl bg-[#3a2e14]/60 p-2.5">
+                  <div className="mb-2 flex items-center justify-between px-1">
+                    <strong className="text-sm">{group.departmentName}</strong>
+                    <span className="text-sm font-bold text-[#f0c15a]">
+                      {group.tickets.length}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {group.tickets.map((ticket) => {
+                      const tone = tierTone(waitingTier(ticket.waitedSeconds));
+                      return (
+                        <div
+                          key={ticket.id}
+                          className={`flex items-center justify-between rounded-xl px-3 py-2 ${tone.bg}`}
+                        >
+                          <div className="min-w-0">
+                            <strong className="block truncate text-sm">
+                              {ticket.customerName ?? formatPhone(ticket.customerPhone)}
+                            </strong>
+                            <span dir="ltr" className="text-xs text-white/45">#{ticket.id}</span>
+                          </div>
+                          <span className={`shrink-0 text-base font-bold ${tone.text}`}>
+                            {formatDuration(ticket.waitedSeconds)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="py-2 text-center text-sm text-[#f0c15a]/70">
+              אין פניות שממתינות לשיוך
+            </p>
+          )}
+        </article>
 
         {(data?.byDepartment.length ?? 0) > 0 && (
           <section

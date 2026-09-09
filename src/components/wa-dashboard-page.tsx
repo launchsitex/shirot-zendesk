@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronLeft,
+  Inbox,
   LoaderCircle,
   MessageCircle,
   RefreshCw,
@@ -19,6 +20,7 @@ import {
   firstResponseElapsed,
   firstResponseTierCounts,
   hourlyBuckets,
+  queueByDepartment,
   summarizeByDepartment,
   summarizeTickets,
   waitingTier,
@@ -200,6 +202,10 @@ export function WaDashboardPageClient() {
     () => currentlyWaiting(visibleRows, now),
     [visibleRows, now],
   );
+  const queue = useMemo(
+    () => queueByDepartment(data?.queue ?? [], now),
+    [data?.queue, now],
+  );
   const firstResponseTiers = useMemo(
     () => firstResponseTierCounts(visibleRows, now),
     [visibleRows, now],
@@ -319,6 +325,70 @@ export function WaDashboardPageClient() {
               </div>
             </section>
           )}
+
+          <section className="card overflow-hidden border-2 border-[#f3d9a4]">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#fdf3dc] px-5 py-3.5">
+              <div>
+                <h2 className="flex items-center gap-2 text-base font-bold text-[#7a5a0f]">
+                  <Inbox size={18} />
+                  ממתינים לשיוך נציגה
+                </h2>
+                <p className="mt-0.5 text-xs text-[#7a5a0f]/70">
+                  הבוט העביר לנציגות ואף אחת עוד לא לקחה את הפנייה. הזמן נספר
+                  מרגע ההעברה. כל המחלקות, ללא קשר לבורר הנציגות.
+                </p>
+              </div>
+              <strong className="text-lg font-bold text-[#7a5a0f]">
+                {data.queue.length} בתור
+              </strong>
+            </header>
+            {queue.length === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-[#1f7a55]">
+                אין פניות שממתינות לשיוך.
+              </p>
+            ) : (
+              <div className="divide-y divide-[#edf1f3]">
+                {queue.map((group) => (
+                  <div key={group.departmentName}>
+                    <div className="flex items-center justify-between bg-[#fbfcfd] px-5 py-2">
+                      <strong className="text-sm font-bold text-[#17242d]">
+                        {group.departmentName}
+                      </strong>
+                      <span className="rounded-lg bg-[#fdf3dc] px-2.5 py-0.5 text-xs font-bold text-[#7a5a0f]">
+                        {group.tickets.length}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[560px] border-collapse text-sm">
+                        <tbody>
+                          {group.tickets.map((ticket) => (
+                            <tr key={ticket.id} className="border-t border-[#edf1f3]">
+                              <td dir="ltr" className="w-28 px-4 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
+                                #{ticket.id}
+                              </td>
+                              <td className="px-4 py-2.5 text-[#17242d]">
+                                {ticket.customerName ?? "—"}
+                              </td>
+                              <td dir="ltr" className="px-4 py-2.5 text-right text-[#5d6d75]">
+                                {formatPhone(ticket.customerPhone)}
+                              </td>
+                              <td className="w-40 px-4 py-2.5 text-center">
+                                <span
+                                  className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(ticket.waitedSeconds))}`}
+                                >
+                                  {formatDuration(ticket.waitedSeconds)}
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           <section className="card overflow-hidden border-2 border-[#f3c1c6]">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#fdebed] px-5 py-3.5">

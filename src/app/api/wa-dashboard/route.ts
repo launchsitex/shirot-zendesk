@@ -11,6 +11,7 @@ import {
   summarizeByDepartment,
   summarizeTickets,
   type WaDashboardPayload,
+  type WaQueueTicket,
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
 
@@ -53,6 +54,22 @@ type Row = {
   agents: unknown;
 };
 
+type QueueRow = {
+  id: string;
+  requester_name: string | null;
+  requester_phone: string | null;
+  group_id: string | null;
+  zendesk_created_at: string;
+  handed_to_agent_at: string;
+};
+
+type GroupRow = {
+  group_id: string;
+  departments: { id?: string; name?: string } | { id?: string; name?: string }[] | null;
+};
+
+const QUEUE_LIMIT = 200;
+
 function secondsBetween(from: string, to: string): number {
   return Math.max(
     0,
@@ -89,7 +106,7 @@ export async function GET(request: NextRequest) {
   const dayStart = jerusalemDayBounds(date);
   const dayEnd = jerusalemDayBounds(date, true);
 
-  const [rowsResult, syncResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, syncResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -98,6 +115,24 @@ export async function GET(request: NextRequest) {
       .lte("zendesk_created_at", dayEnd)
       .order("zendesk_created_at", { ascending: true })
       .limit(ROWS_LIMIT),
+    // The queue: handed off by the bot, open, nobody assigned. Whatever day it
+    // was opened on and whatever department — it is grouped by department in
+    // the payload rather than filtered, since a manager wants to see any
+    // customer nobody has picked up.
+    supabase
+      .from("zendesk_tickets")
+      .select(
+        "id,requester_name,requester_phone,group_id,zendesk_created_at,handed_to_agent_at",
+      )
+      .eq("via_channel", "whatsapp")
+      .is("agent_id", null)
+      .not("handed_to_agent_at", "is", null)
+      .not("status", "in", "(solved,closed)")
+      .order("handed_to_agent_at", { ascending: true })
+      .limit(QUEUE_LIMIT),
+    supabase
+      .from("zendesk_group_departments")
+      .select("group_id,departments(id,name)"),
     supabase
       .from("zendesk_sync_state")
       .select("last_run_at")
@@ -105,12 +140,37 @@ export async function GET(request: NextRequest) {
       .maybeSingle(),
   ]);
 
-  if (rowsResult.error) {
+  const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error;
+  if (failed) {
     return NextResponse.json(
-      { error: "wa_dashboard_query_failed", details: rowsResult.error.message },
+      { error: "wa_dashboard_query_failed", details: failed.message },
       { status: 500, headers: NO_STORE_HEADERS },
     );
   }
+
+  const departmentByGroup = new Map<string, { id: string; name: string }>();
+  for (const row of (groupsResult.data ?? []) as GroupRow[]) {
+    const department = Array.isArray(row.departments)
+      ? row.departments[0]
+      : row.departments;
+    if (department?.id && department.name) {
+      departmentByGroup.set(row.group_id, { id: department.id, name: department.name });
+    }
+  }
+  const queue: WaQueueTicket[] = ((queueResult.data ?? []) as QueueRow[]).map(
+    (row) => {
+      const department = row.group_id ? departmentByGroup.get(row.group_id) : undefined;
+      return {
+        id: row.id,
+        customerName: row.requester_name,
+        customerPhone: row.requester_phone,
+        departmentId: department?.id ?? null,
+        departmentName: department?.name ?? "ללא שיוך מחלקה",
+        createdAt: row.zendesk_created_at,
+        handedToAgentAt: row.handed_to_agent_at,
+      };
+    },
+  );
 
   const rows: WaTicketRow[] = ((rowsResult.data ?? []) as Row[])
     .map((row) => {
@@ -177,6 +237,7 @@ export async function GET(request: NextRequest) {
     byDepartment: summarizeByDepartment(rows),
     hourly: hourlyBuckets(rows),
     rows,
+    queue,
     syncedAt: syncResult.data?.last_run_at ?? null,
   };
 

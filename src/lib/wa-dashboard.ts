@@ -96,6 +96,22 @@ export type WaHourlyBucket = {
   count: number;
 };
 
+/**
+ * A ticket the bot has handed to the agents that nobody has picked up yet.
+ * It has no assignee, so its department comes from Zendesk's routing group
+ * (zendesk_group_departments), not from the agent roster. Not limited to the
+ * dashboard's day or department: a queue is "right now", whatever it holds.
+ */
+export type WaQueueTicket = {
+  id: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  departmentId: string | null;
+  departmentName: string;
+  createdAt: string;
+  handedToAgentAt: string;
+};
+
 export type WaDashboardPayload = {
   date: string;
   totals: WaGroupStats;
@@ -103,8 +119,37 @@ export type WaDashboardPayload = {
   byDepartment: WaDepartmentSummary[];
   hourly: WaHourlyBucket[];
   rows: WaTicketRow[];
+  queue: WaQueueTicket[];
   syncedAt: string | null;
 };
+
+export type QueuedTicket = WaQueueTicket & {
+  /** Since the bot's handoff, as of `now`. */
+  waitedSeconds: number;
+};
+
+/** The queue by department, longest wait first inside each, as of `now`. */
+export function queueByDepartment(
+  queue: WaQueueTicket[],
+  now: Date,
+): { departmentName: string; tickets: QueuedTicket[] }[] {
+  const nowMs = now.getTime();
+  const groups = new Map<string, QueuedTicket[]>();
+  for (const ticket of queue) {
+    const bucket = groups.get(ticket.departmentName) ?? [];
+    bucket.push({
+      ...ticket,
+      waitedSeconds: secondsSince(ticket.handedToAgentAt, nowMs),
+    });
+    groups.set(ticket.departmentName, bucket);
+  }
+  return [...groups.entries()]
+    .map(([departmentName, tickets]) => ({
+      departmentName,
+      tickets: tickets.sort((a, b) => b.waitedSeconds - a.waitedSeconds),
+    }))
+    .sort((a, b) => b.tickets[0].waitedSeconds - a.tickets[0].waitedSeconds);
+}
 
 /**
  * Escalation tiers for a customer currently waiting on an agent — the figure

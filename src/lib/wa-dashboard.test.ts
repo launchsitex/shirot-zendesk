@@ -3,6 +3,7 @@ import {
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
+  queueByDepartment,
   summarizeByAgent,
   summarizeTickets,
   waitingTier,
@@ -162,6 +163,20 @@ describe("summarizeByAgent", () => {
     const summary = summarizeByAgent(rows);
     expect(summary.map((s) => s.agentName)).toEqual(["ב", "א", "ללא שיוך נציג"]);
     expect(summary[0].awaitingReply).toBe(1);
+  });
+});
+
+describe("queueByDepartment", () => {
+  it("groups by department, longest wait first within and across groups", () => {
+    const queue = [
+      { id: "1", customerName: null, customerPhone: null, departmentId: "deliveries", departmentName: "אספקות", createdAt: "2026-09-06T07:50:00.000Z", handedToAgentAt: "2026-09-06T08:10:00.000Z" }, // 2 min
+      { id: "2", customerName: null, customerPhone: null, departmentId: "customer-service", departmentName: "שירות לקוחות", createdAt: "2026-09-06T07:50:00.000Z", handedToAgentAt: "2026-09-06T08:00:00.000Z" }, // 12 min
+      { id: "3", customerName: null, customerPhone: null, departmentId: "customer-service", departmentName: "שירות לקוחות", createdAt: "2026-09-06T07:50:00.000Z", handedToAgentAt: "2026-09-06T08:11:00.000Z" }, // 1 min
+    ];
+    const grouped = queueByDepartment(queue, NOW);
+    expect(grouped.map((g) => g.departmentName)).toEqual(["שירות לקוחות", "אספקות"]);
+    expect(grouped[0].tickets.map((t) => t.id)).toEqual(["2", "3"]);
+    expect(grouped[0].tickets[0].waitedSeconds).toBe(12 * 60);
   });
 });
 
