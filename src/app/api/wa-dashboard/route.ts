@@ -10,6 +10,7 @@ import {
   summarizeByAgent,
   summarizeByDepartment,
   summarizeTickets,
+  type AgentDirectory,
   type WaDashboardPayload,
   type WaQueueTicket,
   type WaTicketRow,
@@ -33,7 +34,7 @@ const DEFAULT_DEPARTMENT_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,agents(name,departments(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents(name,departments(id,name))";
 
 type Row = {
   id: string;
@@ -50,7 +51,16 @@ type Row = {
   last_agent_message_at: string | null;
   last_customer_message_at: string | null;
   customer_waiting_since: string | null;
+  solved_at: string | null;
+  first_response_agent_id: string | null;
+  solved_by_agent_id: string | null;
   agents: unknown;
+};
+
+type AgentRow = {
+  id: string;
+  name: string;
+  departments: { name?: string } | { name?: string }[] | null;
 };
 
 type QueueRow = {
@@ -107,7 +117,7 @@ export async function GET(request: NextRequest) {
   const departmentId =
     request.nextUrl.searchParams.get("department") ?? DEFAULT_DEPARTMENT_ID;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, syncResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, syncResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -144,6 +154,9 @@ export async function GET(request: NextRequest) {
       .select("id,name")
       .eq("active", true)
       .order("sort_order", { ascending: true }),
+    // Names for agents credited with a first response or a closure on a
+    // ticket that has since moved to somebody else.
+    supabase.from("agents").select("id,name,departments(name)"),
     supabase
       .from("zendesk_sync_state")
       .select("last_run_at")
@@ -152,7 +165,7 @@ export async function GET(request: NextRequest) {
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
-    departmentsResult.error;
+    departmentsResult.error ?? agentsResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
@@ -208,6 +221,9 @@ export async function GET(request: NextRequest) {
         ? agent?.departments[0]
         : agent?.departments;
       const closed = CLOSED_STATUSES.has(row.status);
+      // Exact when the sync saw the solved transition; otherwise the last
+      // update is the closest thing available.
+      const closedAt = row.solved_at ?? row.zendesk_updated_at;
       const lastAgent = row.last_agent_message_at;
       const lastCustomer = row.last_customer_message_at;
       // The first-response clock starts when the bot hands the customer to
@@ -243,8 +259,12 @@ export async function GET(request: NextRequest) {
           : null,
         closed,
         timeToCloseSeconds: closed
-          ? secondsBetween(row.zendesk_created_at, row.zendesk_updated_at)
+          ? secondsBetween(row.zendesk_created_at, closedAt)
           : null,
+        solvedAt: row.solved_at,
+        firstResponseAgentId: row.first_response_agent_id ??
+          (row.first_agent_message_at ? row.agent_id : null),
+        solvedByAgentId: row.solved_by_agent_id ?? (closed ? row.agent_id : null),
         lastAgentMessageAt: lastAgent,
         lastCustomerMessageAt: lastCustomer,
         waitingSince,
@@ -252,10 +272,18 @@ export async function GET(request: NextRequest) {
     })
     .filter((row) => row.departmentId === departmentId);
 
+  const agents: AgentDirectory = {};
+  for (const agent of (agentsResult.data ?? []) as AgentRow[]) {
+    const department = Array.isArray(agent.departments)
+      ? agent.departments[0]
+      : agent.departments;
+    agents[agent.id] = { name: agent.name, departmentName: department?.name ?? null };
+  }
+
   const payload: WaDashboardPayload = {
     date,
     totals: summarizeTickets(rows),
-    byAgent: summarizeByAgent(rows),
+    byAgent: summarizeByAgent(rows, agents),
     byDepartment: summarizeByDepartment(rows),
     hourly: hourlyBuckets(rows),
     rows,
@@ -267,6 +295,7 @@ export async function GET(request: NextRequest) {
     ),
     department,
     departments,
+    agents,
     syncedAt: syncResult.data?.last_run_at ?? null,
   };
 

@@ -57,8 +57,20 @@ export type WaTicketRow = {
    */
   firstResponseSeconds: number | null;
   closed: boolean;
-  /** Seconds from createdAt to updatedAt; only set once `closed` is true. */
+  /**
+   * Seconds from createdAt to the moment the ticket was set to solved
+   * (`solvedAt`); only set once `closed` is true. Falls back to updatedAt for
+   * a ticket whose solved transition the sync never saw.
+   */
   timeToCloseSeconds: number | null;
+  solvedAt: string | null;
+  /**
+   * Who gets the credit: the agent assigned at the moment of the first agent
+   * message / of solving. Differs from `agentId` when a ticket changed hands.
+   * Null when the event has not happened (or nobody was assigned then).
+   */
+  firstResponseAgentId: string | null;
+  solvedByAgentId: string | null;
   /** The agent's most recent WhatsApp message, if any. */
   lastAgentMessageAt: string | null;
   /** The customer's most recent WhatsApp message, if any. */
@@ -126,6 +138,8 @@ export type WaDashboardPayload = {
   /** The department this payload is scoped to, and all the ones a viewer can pick. */
   department: { id: string; name: string };
   departments: { id: string; name: string }[];
+  /** Names for agents credited on a ticket they are no longer assigned to. */
+  agents: AgentDirectory;
   syncedAt: string | null;
 };
 
@@ -316,18 +330,62 @@ function groupBy(rows: WaTicketRow[], key: (row: WaTicketRow) => string) {
 const worstFirst = (a: WaGroupStats, b: WaGroupStats) =>
   b.awaitingReply - a.awaitingReply || b.ticketCount - a.ticketCount;
 
+export type AgentDirectory = Record<
+  string,
+  { name: string; departmentName: string | null }
+>;
+
 /**
  * Per-agent rollup. Shared by the API route and the "דשבורד WA" page, which
  * recomputes everything client-side when the viewer excludes agents.
+ *
+ * Ticket count and "waiting now" follow the current assignee; first response
+ * and closure are credited to the agent assigned at that moment
+ * (`firstResponseAgentId` / `solvedByAgentId`), so a ticket that changed
+ * hands credits each agent for their own part. `directory` names agents who
+ * appear only through credit, with no ticket currently assigned.
  */
-export function summarizeByAgent(rows: WaTicketRow[]): WaAgentSummary[] {
-  return [...groupBy(rows, (row) => row.agentId ?? "unassigned").values()]
-    .map((agentRows) => ({
-      agentId: agentRows[0].agentId,
-      agentName: agentRows[0].agentName ?? "ללא שיוך נציג",
-      departmentName: agentRows[0].departmentName,
-      ...summarizeTickets(agentRows),
-    }))
+export function summarizeByAgent(
+  rows: WaTicketRow[],
+  directory: AgentDirectory = {},
+): WaAgentSummary[] {
+  const keys = new Set<string>();
+  for (const row of rows) {
+    keys.add(row.agentId ?? "unassigned");
+    if (row.firstResponseAgentId) keys.add(row.firstResponseAgentId);
+    if (row.solvedByAgentId) keys.add(row.solvedByAgentId);
+  }
+  return [...keys]
+    .map((key) => {
+      const current = rows.filter((row) => (row.agentId ?? "unassigned") === key);
+      const responded = rows.filter(
+        (row) =>
+          row.firstResponseSeconds != null && row.firstResponseAgentId === key,
+      );
+      const closed = rows.filter(
+        (row) => row.closed && row.solvedByAgentId === key,
+      );
+      const sample = current[0];
+      const known = key === "unassigned" ? undefined : directory[key];
+      return {
+        agentId: key === "unassigned" ? null : key,
+        agentName: sample?.agentName ?? known?.name ?? "ללא שיוך נציג",
+        departmentName: sample?.departmentName ?? known?.departmentName ?? null,
+        ticketCount: current.length,
+        respondedCount: responded.length,
+        avgFirstResponseSeconds: average(
+          responded.map((row) => row.firstResponseSeconds as number),
+        ),
+        awaitingReply: current.filter((row) => row.waitingSince != null).length,
+        closedCount: closed.length,
+        avgTimeToCloseSeconds: average(
+          closed
+            .map((row) => row.timeToCloseSeconds)
+            .filter((value): value is number => value != null),
+        ),
+      };
+    })
+    .filter((row) => row.ticketCount > 0 || row.respondedCount > 0 || row.closedCount > 0)
     .sort(worstFirst);
 }
 

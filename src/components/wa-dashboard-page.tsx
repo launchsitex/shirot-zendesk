@@ -653,6 +653,11 @@ export function WaDashboardPageClient() {
               <h2 className="text-base font-bold text-[#17242d]">
                 פירוט לפי נציגה
               </h2>
+              <p className="mt-0.5 text-xs text-[#718087]">
+                פניות היום ו&quot;ממתינים כרגע&quot; — לפי מי משויכת עכשיו. תגובה
+                ראשונה וסגירה נזקפות לנציגה שהייתה משויכת באותו רגע, גם אם
+                הפנייה עברה מאז לנציגה אחרת. זמן הסגירה — עד רגע ה&quot;פתורה&quot;.
+              </p>
             </header>
 
             {byAgent.length === 0 ? (

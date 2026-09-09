@@ -275,9 +275,11 @@ async function syncComments(
   let pages = 0;
   let stored = 0;
   let messagesStored = 0;
+  let transitionsStored = 0;
   let endOfStream = false;
   const touched = new Set<string>();
   const touchedWhatsapp = new Set<string>();
+  const touchedTransitions = new Set<string>();
 
   while (pages < MAX_EVENT_PAGES_PER_RUN) {
     const url =
@@ -304,6 +306,7 @@ async function syncComments(
 
     const rows: Array<Record<string, unknown>> = [];
     const messages: Array<Record<string, unknown>> = [];
+    const transitions: Array<Record<string, unknown>> = [];
     for (const event of page.ticket_events ?? []) {
       const ticketId = String(event.ticket_id ?? "");
       if (!ticketId) continue;
@@ -335,11 +338,36 @@ async function syncComments(
         // where the first-response clock starts. Not OfferedToEvent: that
         // fires when the routing offers the chat to an available agent, which
         // can be minutes later (20260909200000_zendesk_whatsapp_handoff_is_status_new).
-        const direction = child.event_type !== "Change"
-          ? null
-          : child.status === "new" && child.previous_value === "open"
-          ? "handoff"
-          : whatsappFlip(child);
+        if (child.event_type !== "Change") continue;
+
+        // Status and assignee changes, for exact close times and for
+        // crediting first response / closure to the agent assigned at that
+        // moment (20260909220000_zendesk_ticket_transitions).
+        if ("status" in child && child.status != null) {
+          transitions.push({
+            id: `${child.id ?? event.id}-status`,
+            ticket_id: ticketId,
+            at,
+            kind: "status",
+            value: String(child.status),
+          });
+          touchedTransitions.add(ticketId);
+        }
+        if ("assignee_id" in child) {
+          transitions.push({
+            id: `${child.id ?? event.id}-assignee`,
+            ticket_id: ticketId,
+            at,
+            kind: "assignee",
+            value: child.assignee_id == null ? "" : String(child.assignee_id),
+          });
+          touchedTransitions.add(ticketId);
+        }
+
+        const direction =
+          child.status === "new" && child.previous_value === "open"
+            ? "handoff"
+            : whatsappFlip(child);
         if (!direction) continue;
         messages.push({
           id: String(child.id ?? `${event.id}-${direction}`),
@@ -349,6 +377,14 @@ async function syncComments(
         });
         touchedWhatsapp.add(ticketId);
       }
+    }
+
+    if (transitions.length) {
+      const { error } = await supabase
+        .from("zendesk_ticket_transitions")
+        .upsert(transitions, { onConflict: "id" });
+      if (error) throw new Error(`transition_upsert:${error.message}`);
+      transitionsStored += transitions.length;
     }
 
     if (rows.length) {
@@ -398,6 +434,19 @@ async function syncComments(
     whatsappRecomputed += Number(data ?? 0);
   }
 
+  // After the WhatsApp pass: crediting first response needs
+  // first_agent_message_at to be current.
+  let transitionsRecomputed = 0;
+  const transitionIds = [...touchedTransitions];
+  for (let i = 0; i < transitionIds.length; i += 500) {
+    const { data, error } = await supabase.rpc(
+      "recompute_ticket_transitions",
+      { p_ticket_ids: transitionIds.slice(i, i + 500) },
+    );
+    if (error) throw new Error(`recompute_transitions:${error.message}`);
+    transitionsRecomputed += Number(data ?? 0);
+  }
+
   const result = {
     pages,
     comments_stored: stored,
@@ -405,6 +454,8 @@ async function syncComments(
     tickets_recomputed: recomputed,
     whatsapp_messages_stored: messagesStored,
     whatsapp_tickets_recomputed: whatsappRecomputed,
+    transitions_stored: transitionsStored,
+    transitions_recomputed: transitionsRecomputed,
     end_of_stream: endOfStream,
     cursor,
   };

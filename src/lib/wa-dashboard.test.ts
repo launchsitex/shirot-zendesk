@@ -30,6 +30,9 @@ function ticket(overrides: Partial<WaTicketRow>): WaTicketRow {
     firstResponseSeconds: null,
     closed: false,
     timeToCloseSeconds: null,
+    solvedAt: null,
+    firstResponseAgentId: null,
+    solvedByAgentId: null,
     lastAgentMessageAt: null,
     lastCustomerMessageAt: null,
     waitingSince: null,
@@ -175,6 +178,35 @@ describe("summarizeByAgent", () => {
     const summary = summarizeByAgent(rows);
     expect(summary.map((s) => s.agentName)).toEqual(["ב", "א", "ללא שיוך נציג"]);
     expect(summary[0].awaitingReply).toBe(1);
+  });
+
+  it("credits first response and closure to the agent assigned at that moment, not the current one", () => {
+    // Agent א replied first, then handed the ticket to ב who solved it. The
+    // ticket sits with ב now: ב gets the ticket and the closure, א the reply.
+    const rows = [
+      ticket({
+        id: "1",
+        agentId: "b",
+        agentName: "ב",
+        firstResponseSeconds: 90,
+        firstResponseAgentId: "a",
+        closed: true,
+        status: "solved",
+        timeToCloseSeconds: 1200,
+        solvedByAgentId: "b",
+      }),
+    ];
+    const summary = summarizeByAgent(rows, { a: { name: "א", departmentName: null } });
+    const a = summary.find((s) => s.agentId === "a")!;
+    const b = summary.find((s) => s.agentId === "b")!;
+    expect(a.ticketCount).toBe(0);
+    expect(a.respondedCount).toBe(1);
+    expect(a.avgFirstResponseSeconds).toBe(90);
+    expect(a.closedCount).toBe(0);
+    expect(b.ticketCount).toBe(1);
+    expect(b.respondedCount).toBe(0);
+    expect(b.closedCount).toBe(1);
+    expect(b.avgTimeToCloseSeconds).toBe(1200);
   });
 });
 
