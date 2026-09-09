@@ -134,27 +134,47 @@ export type QueuedTicket = WaQueueTicket & {
   waitedSeconds: number;
 };
 
+/**
+ * Anything unassigned for longer than this is not a live queue any more but
+ * a backlog (a weekend's worth of tickets nobody ever picked up, say). It is
+ * counted per department rather than listed, so it cannot bury the customers
+ * waiting right now.
+ */
+export const QUEUE_LIVE_WINDOW_SECONDS = 24 * 60 * 60;
+
+export type QueueGroup = {
+  departmentName: string;
+  /** Waiting within the live window, longest first. */
+  tickets: QueuedTicket[];
+  /** Unassigned for longer than the live window. */
+  olderCount: number;
+};
+
 /** The queue by department, longest wait first inside each, as of `now`. */
 export function queueByDepartment(
   queue: WaQueueTicket[],
   now: Date,
-): { departmentName: string; tickets: QueuedTicket[] }[] {
+): QueueGroup[] {
   const nowMs = now.getTime();
-  const groups = new Map<string, QueuedTicket[]>();
+  const groups = new Map<string, QueueGroup>();
   for (const ticket of queue) {
-    const bucket = groups.get(ticket.departmentName) ?? [];
-    bucket.push({
-      ...ticket,
-      waitedSeconds: secondsSince(ticket.handedToAgentAt, nowMs),
-    });
-    groups.set(ticket.departmentName, bucket);
+    const group = groups.get(ticket.departmentName) ?? {
+      departmentName: ticket.departmentName,
+      tickets: [],
+      olderCount: 0,
+    };
+    const waitedSeconds = secondsSince(ticket.handedToAgentAt, nowMs);
+    if (waitedSeconds > QUEUE_LIVE_WINDOW_SECONDS) group.olderCount += 1;
+    else group.tickets.push({ ...ticket, waitedSeconds });
+    groups.set(ticket.departmentName, group);
   }
-  return [...groups.entries()]
-    .map(([departmentName, tickets]) => ({
-      departmentName,
-      tickets: tickets.sort((a, b) => b.waitedSeconds - a.waitedSeconds),
+  const longest = (group: QueueGroup) => group.tickets[0]?.waitedSeconds ?? -1;
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      tickets: group.tickets.sort((a, b) => b.waitedSeconds - a.waitedSeconds),
     }))
-    .sort((a, b) => b.tickets[0].waitedSeconds - a.tickets[0].waitedSeconds);
+    .sort((a, b) => longest(b) - longest(a) || b.olderCount - a.olderCount);
 }
 
 /**

@@ -112,6 +112,7 @@ export async function GET(request: NextRequest) {
       .from("zendesk_tickets")
       .select(SELECT)
       .eq("via_channel", "whatsapp")
+      .neq("status", "deleted")
       .gte("zendesk_created_at", dayStart)
       .lte("zendesk_created_at", dayEnd)
       .order("zendesk_created_at", { ascending: true })
@@ -129,7 +130,7 @@ export async function GET(request: NextRequest) {
       )
       .eq("via_channel", "whatsapp")
       .is("assignee_id", null)
-      .not("status", "in", "(solved,closed)")
+      .not("status", "in", "(solved,closed,deleted)")
       .order("zendesk_created_at", { ascending: true })
       .limit(QUEUE_LIMIT),
     supabase

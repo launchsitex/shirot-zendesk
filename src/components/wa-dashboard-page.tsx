@@ -387,7 +387,7 @@ export function WaDashboardPageClient() {
                 </p>
               </div>
               <strong className="text-lg font-bold text-[#7a5a0f]">
-                {data.queue.length} בתור
+                {queue.reduce((sum, group) => sum + group.tickets.length, 0)} בתור
               </strong>
             </header>
             {queue.length === 0 ? (
@@ -402,10 +402,21 @@ export function WaDashboardPageClient() {
                       <strong className="text-sm font-bold text-[#17242d]">
                         {group.departmentName}
                       </strong>
-                      <span className="rounded-lg bg-[#fdf3dc] px-2.5 py-0.5 text-xs font-bold text-[#7a5a0f]">
-                        {group.tickets.length}
+                      <span className="flex items-center gap-2">
+                        {group.olderCount > 0 && (
+                          <span
+                            className="text-xs text-[#a3adb1]"
+                            title="פניות ללא שיוך שממתינות יותר מיממה — לא ברשימה, כדי שלא יסתירו את מי שממתין עכשיו"
+                          >
+                            +{group.olderCount} ישנות מיממה
+                          </span>
+                        )}
+                        <span className="rounded-lg bg-[#fdf3dc] px-2.5 py-0.5 text-xs font-bold text-[#7a5a0f]">
+                          {group.tickets.length}
+                        </span>
                       </span>
                     </div>
+                    {group.tickets.length > 0 && (
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[560px] border-collapse text-sm">
                         <tbody>
@@ -432,6 +443,7 @@ export function WaDashboardPageClient() {
                         </tbody>
                       </table>
                     </div>
+                    )}
                   </div>
                 ))}
               </div>

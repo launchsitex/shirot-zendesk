@@ -189,6 +189,17 @@ describe("queueByDepartment", () => {
     expect(grouped.map((g) => g.departmentName)).toEqual(["שירות לקוחות", "אספקות"]);
     expect(grouped[0].tickets.map((t) => t.id)).toEqual(["2", "3"]);
     expect(grouped[0].tickets[0].waitedSeconds).toBe(12 * 60);
+    expect(grouped[0].olderCount).toBe(0);
+  });
+
+  it("counts a ticket unassigned for over a day instead of listing it", () => {
+    const queue = [
+      { id: "stale", customerName: null, customerPhone: null, departmentId: "deliveries", departmentName: "אספקות", createdAt: "2026-09-01T08:00:00.000Z", handedToAgentAt: "2026-09-01T08:00:00.000Z" },
+      { id: "live", customerName: null, customerPhone: null, departmentId: "deliveries", departmentName: "אספקות", createdAt: "2026-09-06T08:00:00.000Z", handedToAgentAt: "2026-09-06T08:00:00.000Z" },
+    ];
+    const [group] = queueByDepartment(queue, NOW);
+    expect(group.tickets.map((t) => t.id)).toEqual(["live"]);
+    expect(group.olderCount).toBe(1);
   });
 });
 

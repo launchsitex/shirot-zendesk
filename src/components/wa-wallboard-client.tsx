@@ -288,7 +288,7 @@ export function WaWallboardClient() {
               </span>
             </div>
             <strong className="rounded-full bg-[#f0c15a] px-3 py-1 text-lg text-[#2a2112]">
-              {data?.queue.length ?? 0}
+              {queue.reduce((sum, group) => sum + group.tickets.length, 0)}
             </strong>
           </div>
           {queue.length ? (
@@ -297,8 +297,11 @@ export function WaWallboardClient() {
                 <div key={group.departmentName} className="rounded-xl bg-[#3a2e14]/60 p-2.5">
                   <div className="mb-2 flex items-center justify-between px-1">
                     <strong className="text-sm">{group.departmentName}</strong>
-                    <span className="text-sm font-bold text-[#f0c15a]">
-                      {group.tickets.length}
+                    <span className="flex items-center gap-2 text-sm">
+                      {group.olderCount > 0 && (
+                        <span className="text-xs text-white/40">+{group.olderCount} ישנות מיממה</span>
+                      )}
+                      <span className="font-bold text-[#f0c15a]">{group.tickets.length}</span>
                     </span>
                   </div>
                   <div className="space-y-1.5">
