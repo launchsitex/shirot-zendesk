@@ -21,7 +21,7 @@ const NO_STORE_HEADERS = { "Cache-Control": "no-store, must-revalidate" };
 const LIST_LIMIT = 500;
 
 const SELECT =
-  "id,subject,status,requester_name,requester_phone,assignee_name,agent_id,zendesk_created_at,zendesk_updated_at,documented,agent_note_count,agent_reply_count,agents(name,departments(name))";
+  "id,subject,status,requester_name,requester_phone,assignee_name,agent_id,zendesk_created_at,zendesk_updated_at,documented,agent_note_count,agent_reply_count,agents!agent_id(name,departments(name))";
 
 const CLOSED = ["solved", "closed"];
 
