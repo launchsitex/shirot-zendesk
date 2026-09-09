@@ -12,7 +12,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
 import { formatPhone, statusLabel } from "@/lib/tickets";
@@ -650,52 +650,73 @@ export function WaDashboardPageClient() {
                   : "כל הנציגות מוחרגות — סמן נציגה למעלה כדי לראות נתונים."}
               </p>
             ) : (
-              <ul className="divide-y divide-[#edf1f3]">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-[#fbfcfd] text-xs text-[#5d6d75]">
+                    <th className="w-8 px-3 py-2.5" aria-label="פתיחה" />
+                    <th className="px-3 py-2.5 text-right font-semibold">נציגה</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">פניות היום</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">נסגרו היום</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">עדיין פתוחות</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">ממתינים לתגובה כרגע</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">תגובה ראשונה ממוצעת</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">זמן סגירה ממוצע</th>
+                  </tr>
+                </thead>
+                <tbody>
                 {byAgent.map((row) => {
                   const key = row.agentId ?? "unassigned";
                   const isOpen = expanded === key;
                   const tickets = ticketsByAgent[key] ?? [];
                   return (
-                    <li key={key}>
-                      <button
-                        type="button"
+                    <Fragment key={key}>
+                      <tr
                         onClick={() => toggle(key)}
                         aria-expanded={isOpen}
-                        className={`flex w-full flex-wrap items-center gap-3 px-5 py-4 text-right transition ${
+                        className={`cursor-pointer border-t border-[#edf1f3] transition ${
                           isOpen ? "bg-[#f8fafb]" : "hover:bg-[#f8fafb]"
                         }`}
                       >
-                        {isOpen ? (
-                          <ChevronDown size={18} className="text-[#5d6d75]" />
-                        ) : (
-                          <ChevronLeft size={18} className="text-[#a3adb1]" />
-                        )}
-                        <span className="flex-1 font-bold text-[#17242d]">
-                          {row.agentName}
-                        </span>
-                        <span className="text-sm text-[#718087]">
-                          {row.departmentName ?? "—"}
-                        </span>
-                        <span className="text-xs text-[#a3adb1]">תגובה</span>
-                        <span className="text-sm text-[#5d6d75]">
-                          {seconds(row.avgFirstResponseSeconds)}
-                        </span>
-                        <span className="text-xs text-[#a3adb1]">סגירה</span>
-                        <span className="text-sm text-[#5d6d75]">
-                          {seconds(row.avgTimeToCloseSeconds)}
-                        </span>
-                        <span className="min-w-[3.5rem] rounded-lg bg-[#eef2f3] px-3 py-1 text-center text-sm font-bold text-[#5d6d75]">
-                          {row.ticketCount}
-                        </span>
-                        {row.awaitingReply > 0 && (
-                          <span className="min-w-[3.5rem] rounded-lg bg-[#fdebed] px-3 py-1 text-center text-sm font-bold text-[#c8434c]">
-                            {row.awaitingReply}
+                        <td className="px-3 py-3.5 text-center">
+                          {isOpen ? (
+                            <ChevronDown size={18} className="inline text-[#5d6d75]" />
+                          ) : (
+                            <ChevronLeft size={18} className="inline text-[#a3adb1]" />
+                          )}
+                        </td>
+                        <td className="px-3 py-3.5 font-bold text-[#17242d]">{row.agentName}</td>
+                        <td className="px-3 py-3.5 text-center">
+                          <span className="inline-block min-w-[3rem] rounded-lg bg-[#eef2f3] px-3 py-1 text-sm font-bold text-[#17242d]">
+                            {row.ticketCount}
                           </span>
-                        )}
-                      </button>
+                        </td>
+                        <td className="px-3 py-3.5 text-center font-bold text-[#1f7a55]">
+                          {row.closedCount}
+                        </td>
+                        <td className="px-3 py-3.5 text-center font-bold text-[#c1651f]">
+                          {row.ticketCount - row.closedCount}
+                        </td>
+                        <td className="px-3 py-3.5 text-center">
+                          {row.awaitingReply > 0 ? (
+                            <span className="inline-block min-w-[3rem] rounded-lg bg-[#fdebed] px-3 py-1 text-sm font-bold text-[#c8434c]">
+                              {row.awaitingReply}
+                            </span>
+                          ) : (
+                            <span className="text-[#a3adb1]">0</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3.5 text-center font-mono text-[#17242d]">
+                          {seconds(row.avgFirstResponseSeconds)}
+                        </td>
+                        <td className="px-3 py-3.5 text-center font-mono text-[#5d6d75]">
+                          {seconds(row.avgTimeToCloseSeconds)}
+                        </td>
+                      </tr>
 
                       {isOpen && (
-                        <div className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-4">
+                        <tr>
+                        <td colSpan={8} className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-4">
                           {tickets.length > 0 ? (
                             <div className="overflow-x-auto">
                               <table className="w-full min-w-[820px] border-collapse text-sm">
@@ -779,12 +800,15 @@ export function WaDashboardPageClient() {
                               אין פניות להצגה.
                             </p>
                           )}
-                        </div>
+                        </td>
+                        </tr>
                       )}
-                    </li>
+                    </Fragment>
                   );
                 })}
-              </ul>
+                </tbody>
+              </table>
+              </div>
             )}
           </section>
         </>
