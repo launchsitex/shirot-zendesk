@@ -15,10 +15,10 @@
  *   trigger.
  * - waiting: a ticket where the customer wrote last (or nobody from the team
  *   has written at all) and the ticket is still open. `waitingSince` is the
- *   agent's *last* message — the account owner's explicit definition: once
- *   an agent has written, the clock counts from that message, not from the
- *   customer's first one. With no agent message yet it counts from
- *   `createdAt`. Null when the agent wrote last or the ticket is finished.
+ *   customer's first message that is still unanswered — the account owner's
+ *   definition: the ticket's start when no agent has written yet, otherwise
+ *   the first customer message after the agent's last one. Null when the
+ *   agent wrote last or the ticket is finished.
  * - time to close: from `createdAt` to `updatedAt`, only once the ticket
  *   reached solved or closed — the same "finished" definition used
  *   everywhere else in this app (see CLOSED_STATUSES in [[tickets]]). Not
@@ -49,9 +49,10 @@ export type WaTicketRow = {
   /** The customer's most recent WhatsApp message, if any. */
   lastCustomerMessageAt: string | null;
   /**
-   * The moment the customer's current wait is counted from: the agent's last
-   * message, or `createdAt` if no agent has written yet. Null when the agent
-   * wrote last or the ticket is finished — i.e. the customer is not waiting.
+   * The moment the customer's current wait is counted from: their first
+   * message that is still unanswered (`createdAt` if no agent has written
+   * yet). Null when the agent wrote last or the ticket is finished — i.e.
+   * the customer is not waiting.
    */
   waitingSince: string | null;
 };
@@ -101,7 +102,7 @@ export const WAITING_TIER_MINUTES = [3, 7, 10] as const;
 export type WaitingTierMinutes = (typeof WAITING_TIER_MINUTES)[number];
 
 export type WaitingTicket = WaTicketRow & {
-  /** Since the agent's last message (or the ticket's start), as of `now`. */
+  /** Since the customer's first unanswered message, as of `now`. */
   waitedSeconds: number;
   /** Since the ticket was opened, as of `now`. */
   totalSeconds: number;

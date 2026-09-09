@@ -79,10 +79,10 @@ describe("currentlyWaiting", () => {
     expect(waiting[0].totalSeconds).toBe(12 * 60);
   });
 
-  it("counts from the agent's LAST message once the customer has written back — not from the customer's first message", () => {
+  it("counts from the customer's first unanswered message once the agent has replied before — not from the ticket's start", () => {
     // Opened 08:00; agent replied 08:01; customer wrote again 08:10 and is
-    // waiting. Per the account owner's definition the wait is measured from
-    // the agent's 08:01 message (11 min), while the total age is 12 min.
+    // waiting. The wait is measured from that 08:10 message (2 min), while
+    // the total age is 12 min.
     const rows = [
       ticket({
         id: "1",
@@ -90,12 +90,12 @@ describe("currentlyWaiting", () => {
         firstResponseSeconds: 60,
         lastAgentMessageAt: "2026-09-06T08:01:00.000Z",
         lastCustomerMessageAt: "2026-09-06T08:10:00.000Z",
-        waitingSince: "2026-09-06T08:01:00.000Z",
+        waitingSince: "2026-09-06T08:10:00.000Z",
       }),
     ];
     const waiting = currentlyWaiting(rows, NOW);
     expect(waiting).toHaveLength(1);
-    expect(waiting[0].waitedSeconds).toBe(11 * 60);
+    expect(waiting[0].waitedSeconds).toBe(2 * 60);
     expect(waiting[0].totalSeconds).toBe(12 * 60);
   });
 

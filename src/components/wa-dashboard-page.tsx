@@ -202,8 +202,8 @@ export function WaDashboardPageClient() {
                   לקוחות ממתינים לתגובה כרגע
                 </h2>
                 <p className="mt-0.5 text-xs text-[#8a2b32]/70">
-                  הזמן נספר מההודעה האחרונה של הנציגה (או מפתיחת הפנייה אם עוד
-                  לא ענתה). הודעות בוט לא נספרות.
+                  הזמן נספר מההודעה הראשונה של הלקוח שעדיין לא נענתה. הודעות
+                  בוט לא נספרות כמענה.
                 </p>
               </div>
               <strong className="text-lg font-bold text-[#8a2b32]">
@@ -232,7 +232,7 @@ export function WaDashboardPageClient() {
                       <th className="px-4 py-2 text-right font-semibold">לקוח</th>
                       <th className="px-4 py-2 text-right font-semibold">טלפון</th>
                       <th className="px-4 py-2 text-right font-semibold">נציגה משויכת</th>
-                      <th className="px-4 py-2 text-center font-semibold">ממתין מאז הנציגה</th>
+                      <th className="px-4 py-2 text-center font-semibold">ממתין למענה</th>
                       <th className="px-4 py-2 text-center font-semibold">סה&quot;כ בפנייה</th>
                     </tr>
                   </thead>

@@ -268,8 +268,8 @@ export function WaWallboardClient() {
               <div>
                 <h2 className="text-xl font-bold">ממתינים לתגובה</h2>
                 <p className="text-xs text-white/45">
-                  הזמן הגדול — מאז ההודעה האחרונה של הנציגה · הקטן — סה״כ מאז
-                  פתיחת הפנייה
+                  הזמן הגדול — מאז ההודעה של הלקוח שעדיין לא נענתה · הקטן —
+                  סה״כ מאז פתיחת הפנייה
                 </p>
               </div>
             </div>

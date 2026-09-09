@@ -33,7 +33,7 @@ const DEPARTMENT_FILTER_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,agents(name,departments(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,agents(name,departments(id,name))";
 
 type Row = {
   id: string;
@@ -48,6 +48,7 @@ type Row = {
   first_agent_message_at: string | null;
   last_agent_message_at: string | null;
   last_customer_message_at: string | null;
+  customer_waiting_since: string | null;
   agents: unknown;
 };
 
@@ -137,14 +138,15 @@ export async function GET(request: NextRequest) {
       const lastAgent = row.last_agent_message_at;
       const lastCustomer = row.last_customer_message_at;
       // The customer is waiting when nobody from the team has written yet, or
-      // when the customer's latest message came after the agent's. The wait
-      // is counted from the agent's last message (the account owner's
-      // definition), or from the ticket's start if there is none.
-      const customerWroteLast = lastCustomer != null &&
-        (lastAgent == null ||
-          new Date(lastCustomer).getTime() > new Date(lastAgent).getTime());
-      const waiting = !closed && (lastAgent == null || customerWroteLast);
-      const waitingSince = waiting ? (lastAgent ?? row.zendesk_created_at) : null;
+      // when they wrote again after the agent's last message. The wait is
+      // counted from their first message that is still unanswered: the
+      // ticket's start when no agent has written, otherwise the first customer
+      // flip after the agent's last message (customer_waiting_since).
+      const waitingSince = closed
+        ? null
+        : lastAgent == null
+          ? row.zendesk_created_at
+          : row.customer_waiting_since;
       return {
         id: row.id,
         subject: row.subject,
