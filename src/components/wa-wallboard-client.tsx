@@ -307,74 +307,6 @@ export function WaWallboardClient() {
           />
         </section>
 
-        {availability.length > 0 && (
-          <article className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Radio className="text-[#6ee0d0]" size={24} />
-                <div>
-                  <h2 className="text-xl font-bold">זמינות נציגות</h2>
-                  <p className="text-xs text-white/45">
-                    סטטוס וקיבולת Messaging מ-Zendesk · שיחות במקביל מתוך המקסימום
-                  </p>
-                </div>
-              </div>
-              <span className="text-sm text-white/60">
-                <strong className="text-[#4fd39a]">
-                  {availability.filter((a) => a.status === "online").length}
-                </strong>{" "}
-                מקוונות ·{" "}
-                <strong className="text-white">
-                  {availability.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
-                </strong>{" "}
-                מקומות פנויים
-              </span>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-              {availability.map((agent) => {
-                const free = freeMessagingSlots(agent);
-                const max = agent.messagingMaxCapacity ?? 0;
-                const load = max > 0 ? Math.min(1, agent.messagingWorkItems / max) : 0;
-                const tone = agent.status === "online"
-                  ? { chip: "bg-[#1f9d72] text-white", bar: "bg-[#4fd39a]" }
-                  : agent.status === "transfers_only"
-                  ? { chip: "bg-[#3b6fd8] text-white", bar: "bg-[#7eb6ff]" }
-                  : agent.status === "offline"
-                  ? { chip: "bg-[#5a6870] text-white", bar: "bg-white/25" }
-                  : { chip: "bg-[#c45d2a] text-white", bar: "bg-[#f0a15a]" };
-                return (
-                  <div
-                    key={agent.agentId}
-                    className={`rounded-2xl px-3 py-2.5 ${
-                      agent.status === "offline" ? "bg-white/4 opacity-60" : "bg-white/8"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <strong className="truncate text-sm">{agent.agentName}</strong>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${tone.chip}`}>
-                        {agentStatusLabel(agent.status)}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
-                        <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${load * 100}%` }} />
-                      </div>
-                      <span dir="ltr" className="font-mono text-sm font-bold">
-                        {agent.messagingWorkItems}/{max || "—"}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] text-white/45">
-                      {agent.status === "online"
-                        ? free > 0 ? `פנויה לעוד ${free}` : "מלאה"
-                        : "לא מקבלת שיחות חדשות"}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </article>
-        )}
-
         <article className="rounded-2xl border border-[#e1a62b]/35 bg-[#2a2112] p-3.5">
           <div className="mb-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -431,25 +363,6 @@ export function WaWallboardClient() {
             </p>
           )}
         </article>
-
-        {(data?.byDepartment.length ?? 0) > 0 && (
-          <section
-            className={`grid gap-3 ${
-              (data?.byDepartment.length ?? 0) > 1 ? "md:grid-cols-2" : ""
-            }`}
-          >
-            {data?.byDepartment.map((dept) => (
-              <DepartmentBox
-                key={dept.departmentName}
-                name={dept.departmentName}
-                ticketCount={dept.ticketCount}
-                avgFirstResponseSeconds={dept.avgFirstResponseSeconds}
-                avgTimeToCloseSeconds={dept.avgTimeToCloseSeconds}
-                over10={over10ByDepartment.get(dept.departmentName) ?? 0}
-              />
-            ))}
-          </section>
-        )}
 
         <article className="flex-1 rounded-3xl border border-white/10 bg-white/5 p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -526,6 +439,93 @@ export function WaWallboardClient() {
             </p>
           )}
         </article>
+
+        {availability.length > 0 && (
+          <article className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Radio className="text-[#6ee0d0]" size={24} />
+                <div>
+                  <h2 className="text-xl font-bold">זמינות נציגות</h2>
+                  <p className="text-xs text-white/45">
+                    סטטוס וקיבולת Messaging מ-Zendesk · שיחות במקביל מתוך המקסימום
+                  </p>
+                </div>
+              </div>
+              <span className="text-sm text-white/60">
+                <strong className="text-[#4fd39a]">
+                  {availability.filter((a) => a.status === "online").length}
+                </strong>{" "}
+                מקוונות ·{" "}
+                <strong className="text-white">
+                  {availability.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
+                </strong>{" "}
+                מקומות פנויים
+              </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {availability.map((agent) => {
+                const free = freeMessagingSlots(agent);
+                const max = agent.messagingMaxCapacity ?? 0;
+                const load = max > 0 ? Math.min(1, agent.messagingWorkItems / max) : 0;
+                const tone = agent.status === "online"
+                  ? { chip: "bg-[#1f9d72] text-white", bar: "bg-[#4fd39a]" }
+                  : agent.status === "transfers_only"
+                  ? { chip: "bg-[#3b6fd8] text-white", bar: "bg-[#7eb6ff]" }
+                  : agent.status === "offline"
+                  ? { chip: "bg-[#5a6870] text-white", bar: "bg-white/25" }
+                  : { chip: "bg-[#c45d2a] text-white", bar: "bg-[#f0a15a]" };
+                return (
+                  <div
+                    key={agent.agentId}
+                    className={`rounded-2xl px-3 py-2.5 ${
+                      agent.status === "offline" ? "bg-white/4 opacity-60" : "bg-white/8"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="truncate text-sm">{agent.agentName}</strong>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${tone.chip}`}>
+                        {agentStatusLabel(agent.status)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
+                        <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${load * 100}%` }} />
+                      </div>
+                      <span dir="ltr" className="font-mono text-sm font-bold">
+                        {agent.messagingWorkItems}/{max || "—"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-white/45">
+                      {agent.status === "online"
+                        ? free > 0 ? `פנויה לעוד ${free}` : "מלאה"
+                        : "לא מקבלת שיחות חדשות"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        )}
+
+        {(data?.byDepartment.length ?? 0) > 0 && (
+          <section
+            className={`grid gap-3 ${
+              (data?.byDepartment.length ?? 0) > 1 ? "md:grid-cols-2" : ""
+            }`}
+          >
+            {data?.byDepartment.map((dept) => (
+              <DepartmentBox
+                key={dept.departmentName}
+                name={dept.departmentName}
+                ticketCount={dept.ticketCount}
+                avgFirstResponseSeconds={dept.avgFirstResponseSeconds}
+                avgTimeToCloseSeconds={dept.avgTimeToCloseSeconds}
+                over10={over10ByDepartment.get(dept.departmentName) ?? 0}
+              />
+            ))}
+          </section>
+        )}
       </div>
     </div>
   );

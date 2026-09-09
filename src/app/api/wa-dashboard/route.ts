@@ -264,11 +264,16 @@ export async function GET(request: NextRequest) {
       // counted from their first message that is still unanswered: the
       // handoff when no agent has written, otherwise the first customer flip
       // after the agent's last message (customer_waiting_since).
-      const waitingSince = closed
-        ? null
-        : lastAgent == null
-          ? clockStart
-          : row.customer_waiting_since;
+      // Only a ticket in status "open" is waiting on the agent: "pending" and
+      // "on-hold" mean the agent parked it (waiting on the customer or a
+      // third party), "new" is still in the assignment queue, and solved or
+      // closed tickets are done.
+      const waitingSince =
+        row.status !== "open"
+          ? null
+          : lastAgent == null
+            ? clockStart
+            : row.customer_waiting_since;
       return {
         id: row.id,
         subject: row.subject,
