@@ -236,6 +236,17 @@ export function firstResponseTierCounts(
   return counts;
 }
 
+/** How many tickets an agent answered within `minutes` of the handoff. */
+export function firstResponseUnderCount(
+  rows: WaTicketRow[],
+  minutes: number,
+): number {
+  return rows.filter(
+    (row) =>
+      row.firstResponseSeconds != null && row.firstResponseSeconds < minutes * 60,
+  ).length;
+}
+
 /** The highest escalation tier (in minutes) a wait has crossed, or null. */
 export function waitingTier(waitedSeconds: number): WaitingTierMinutes | null {
   let crossed: WaitingTierMinutes | null = null;

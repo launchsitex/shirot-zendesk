@@ -3,6 +3,7 @@ import {
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
+  firstResponseUnderCount,
   queueByDepartment,
   summarizeByAgent,
   summarizeTickets,
@@ -150,6 +151,17 @@ describe("firstResponseTierCounts", () => {
       ticket({ id: "bot-only", closed: true }), // excluded
     ];
     expect(firstResponseTierCounts(rows, NOW)).toEqual({ 3: 2, 7: 2, 10: 1 });
+  });
+});
+
+describe("firstResponseUnderCount", () => {
+  it("counts only answered tickets under the mark — not open ones still under it", () => {
+    const rows = [
+      ticket({ id: "fast", firstResponseSeconds: 50 }),
+      ticket({ id: "exact", firstResponseSeconds: 180 }), // not under
+      ticket({ id: "open", handedToAgentAt: "2026-09-06T08:11:00.000Z" }), // unanswered
+    ];
+    expect(firstResponseUnderCount(rows, 3)).toBe(1);
   });
 });
 

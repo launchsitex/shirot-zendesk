@@ -20,6 +20,7 @@ import {
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
+  firstResponseUnderCount,
   hourlyBuckets,
   queueByDepartment,
   summarizeByDepartment,
@@ -227,6 +228,10 @@ export function WaDashboardPageClient() {
   const firstResponseTiers = useMemo(
     () => firstResponseTierCounts(visibleRows, now),
     [visibleRows, now],
+  );
+  const underThree = useMemo(
+    () => firstResponseUnderCount(visibleRows, WAITING_TIER_MINUTES[0]),
+    [visibleRows],
   );
   const withoutHandoff = useMemo(
     () => visibleRows.filter((row) => !row.firstResponseFromHandoff).length,
@@ -526,14 +531,20 @@ export function WaDashboardPageClient() {
                 </span>
               </div>
             </header>
-            <div className="grid grid-cols-3 divide-x divide-x-reverse divide-[#edf1f3]">
+            <div className="grid grid-cols-4 divide-x divide-x-reverse divide-[#edf1f3]">
+              <div className="flex flex-col items-center justify-center gap-1 px-4 py-4">
+                <strong className="flex h-14 w-14 items-center justify-center rounded-full bg-[#e7f7f2] text-2xl font-bold text-[#1f7a55]">
+                  {underThree}
+                </strong>
+                <span className="text-xs font-semibold text-[#718087]">נענו תוך פחות מ-3 דק&apos;</span>
+              </div>
               {WAITING_TIER_MINUTES.map((minutes) => (
                 <TierTile key={minutes} minutes={minutes} count={firstResponseTiers[minutes]} />
               ))}
             </div>
           </section>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="card p-5">
               <span className="text-sm text-[#718087]">פניות וואטסאפ</span>
               <strong className="mt-1 block text-3xl font-bold text-[#17242d]">
@@ -541,8 +552,14 @@ export function WaDashboardPageClient() {
               </strong>
             </div>
             <div className="card p-5">
+              <span className="text-sm text-[#718087]">פתוחות</span>
+              <strong className="mt-1 block text-3xl font-bold text-[#c1651f]">
+                {totals.ticketCount - totals.closedCount}
+              </strong>
+            </div>
+            <div className="card p-5">
               <span className="text-sm text-[#718087]">נפתרו/נסגרו</span>
-              <strong className="mt-1 block text-3xl font-bold text-[#17242d]">
+              <strong className="mt-1 block text-3xl font-bold text-[#1f7a55]">
                 {totals.closedCount}
               </strong>
             </div>

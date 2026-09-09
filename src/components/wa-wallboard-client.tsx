@@ -24,6 +24,7 @@ import {
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
+  firstResponseUnderCount,
   queueByDepartment,
   waitingTier,
   type WaDashboardPayload,
@@ -162,6 +163,10 @@ export function WaWallboardClient() {
     () => firstResponseTierCounts(data?.rows ?? [], now),
     [data?.rows, now],
   );
+  const underThree = useMemo(
+    () => firstResponseUnderCount(data?.rows ?? [], 3),
+    [data?.rows],
+  );
 
   // The most critical tier (10+ minutes to a first reply) per department, for
   // the department boxes below — the tier row above gives the org-wide picture.
@@ -261,7 +266,16 @@ export function WaWallboardClient() {
           <WallMetric label="מעל 10 דק׳ לתגובה ראשונה" value={tiers[10]} tone="red" />
           <WallMetric label="מעל 7 דק׳ לתגובה ראשונה" value={tiers[7]} tone="orange" />
           <WallMetric label="מעל 3 דק׳ לתגובה ראשונה" value={tiers[3]} tone="amber" />
-          <WallMetric label="פניות היום" value={data?.totals.ticketCount ?? 0} tone="teal" />
+          <WallMetric
+            label="פניות היום"
+            value={data?.totals.ticketCount ?? 0}
+            hint={
+              data
+                ? `${data.totals.ticketCount - data.totals.closedCount} פתוחות · ${data.totals.closedCount} נסגרו · ${underThree} נענו תוך 3 דק׳`
+                : undefined
+            }
+            tone="teal"
+          />
         </section>
 
         <article className="rounded-2xl border border-[#e1a62b]/35 bg-[#2a2112] p-3.5">
@@ -395,10 +409,12 @@ export function WaWallboardClient() {
 function WallMetric({
   label,
   value,
+  hint,
   tone,
 }: {
   label: string;
   value: string | number;
+  hint?: string;
   tone: "teal" | "red" | "orange" | "blue" | "amber";
 }) {
   const tones = {
@@ -414,6 +430,7 @@ function WallMetric({
       <strong className="mt-2 block text-4xl font-bold tracking-tight xl:text-5xl">
         {value}
       </strong>
+      {hint && <p className="mt-1 text-xs text-white/50">{hint}</p>}
     </article>
   );
 }
