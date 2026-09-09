@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  AlertTriangle,
   Inbox,
   LoaderCircle,
   LogOut,
@@ -39,16 +38,19 @@ function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
 }
 
+// Muted on purpose: a wall screen full of saturated red reads as alarm, and
+// the account owner asked for something calmer. The tier still shows in the
+// accent colour of the time itself; the card stays quiet.
 function tierTone(minutes: WaitingTierMinutes | null) {
   switch (minutes) {
     case 10:
-      return { bg: "bg-[#3a1a18]", text: "text-[#ff8a80]" };
+      return { bg: "bg-[#2c2226] ring-1 ring-[#f2a7a0]/25", text: "text-[#f2a7a0]" };
     case 7:
-      return { bg: "bg-[#3a2712]", text: "text-[#ffb066]" };
+      return { bg: "bg-[#2b2620] ring-1 ring-[#f0c38e]/25", text: "text-[#f0c38e]" };
     case 3:
-      return { bg: "bg-[#33300f]", text: "text-[#f0d15a]" };
+      return { bg: "bg-[#29291f] ring-1 ring-[#e8dc9a]/20", text: "text-[#e8dc9a]" };
     default:
-      return { bg: "bg-white/8", text: "text-white/80" };
+      return { bg: "bg-white/6", text: "text-white/75" };
   }
 }
 
@@ -262,16 +264,17 @@ export function WaWallboardClient() {
           </div>
         )}
 
-        <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <WallMetric label="מעל 10 דק׳ לתגובה ראשונה" value={tiers[10]} tone="red" />
-          <WallMetric label="מעל 7 דק׳ לתגובה ראשונה" value={tiers[7]} tone="orange" />
+        <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+          <WallMetric label="נענו תוך פחות מ-3 דק׳" value={underThree} tone="green" />
           <WallMetric label="מעל 3 דק׳ לתגובה ראשונה" value={tiers[3]} tone="amber" />
+          <WallMetric label="מעל 7 דק׳ לתגובה ראשונה" value={tiers[7]} tone="orange" />
+          <WallMetric label="מעל 10 דק׳ לתגובה ראשונה" value={tiers[10]} tone="red" />
           <WallMetric
             label="פניות היום"
             value={data?.totals.ticketCount ?? 0}
             hint={
               data
-                ? `${data.totals.ticketCount - data.totals.closedCount} פתוחות · ${data.totals.closedCount} נסגרו · ${underThree} נענו תוך 3 דק׳`
+                ? `${data.totals.ticketCount - data.totals.closedCount} פתוחות · ${data.totals.closedCount} נסגרו`
                 : undefined
             }
             tone="teal"
@@ -357,7 +360,7 @@ export function WaWallboardClient() {
         <article className="flex-1 rounded-3xl border border-white/10 bg-white/5 p-5">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <AlertTriangle className="text-[#f0c15a]" size={24} />
+              <MessageCircle className="text-[#8fd3c7]" size={24} />
               <div>
                 <h2 className="text-xl font-bold">ממתינים לתגובה</h2>
                 <p className="text-xs text-white/45">
@@ -366,7 +369,9 @@ export function WaWallboardClient() {
                 </p>
               </div>
             </div>
-            <strong className="text-2xl text-[#f0c15a]">{waiting.length}</strong>
+            <strong className="rounded-full bg-white/10 px-4 py-1 text-2xl text-[#8fd3c7]">
+              {waiting.length}
+            </strong>
           </div>
           {waiting.length ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -418,10 +423,11 @@ function WallMetric({
   label: string;
   value: string | number;
   hint?: string;
-  tone: "teal" | "red" | "orange" | "blue" | "amber";
+  tone: "teal" | "green" | "red" | "orange" | "blue" | "amber";
 }) {
   const tones = {
     teal: "from-[#134e48] to-[#0f3a36] border-[#1da99b]/35",
+    green: "from-[#174a35] to-[#103528] border-[#4fd39a]/35",
     red: "from-[#4a1d24] to-[#351418] border-[#f07178]/35",
     orange: "from-[#4a2e14] to-[#34200e] border-[#ffb066]/35",
     blue: "from-[#1a3358] to-[#13243f] border-[#7eb6ff]/35",
