@@ -7,6 +7,8 @@ import {
   LoaderCircle,
   MessageCircle,
   RefreshCw,
+  Timer,
+  UsersRound,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
@@ -14,8 +16,12 @@ import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
 import { formatPhone, statusLabel } from "@/lib/tickets";
 import {
   currentlyWaiting,
+  firstResponseElapsed,
+  firstResponseTierCounts,
+  hourlyBuckets,
+  summarizeByDepartment,
+  summarizeTickets,
   waitingTier,
-  waitingTierCounts,
   WAITING_TIER_MINUTES,
   type WaDashboardPayload,
   type WaitingTierMinutes,
@@ -23,6 +29,9 @@ import {
 } from "@/lib/wa-dashboard";
 
 const REFRESH_MS = 30_000;
+// Which agents the viewer has taken out of the figures. Kept per browser so
+// a manager who only follows their own team does not re-tick it every visit.
+const EXCLUDED_AGENTS_KEY = "wa-dashboard:excluded-agents";
 
 function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
@@ -54,27 +63,33 @@ function TierTile({ minutes, count }: { minutes: WaitingTierMinutes; count: numb
   );
 }
 
+function readExcludedAgents(): string[] {
+  try {
+    const raw = window.localStorage.getItem(EXCLUDED_AGENTS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Same-day WhatsApp performance: how long it took an agent to send a first
- * reply, and how long a ticket stayed open before reaching solved/closed.
+ * Same-day WhatsApp performance for the customer-service department.
  *
- * The headline figure is "לקוחות ממתינים לתגובה כרגע" — customers with no
- * agent reply yet, right now, broken into 3/7/10-minute escalation tiers with
- * who they're assigned to. The account owner asked for this ahead of the
- * close-time stats: it is the one number a manager can act on immediately by
- * nudging a specific agent, so it leads the page and ticks live every second
- * rather than waiting for the next 30-second poll.
+ * Leads with "לקוחות ממתינים לתגובה כרגע" — customers whose latest message
+ * has no agent reply yet, live, with who they're assigned to — because that
+ * is what a manager acts on right now. Next comes first response: how long
+ * from the bot handing a conversation to the agents until a person's first
+ * message, as an average and as how many tickets crossed 3/7/10 minutes
+ * (tickets still unanswered count live). Then close time and the per-agent
+ * breakdown.
  *
- * "First reply" and "closed" follow the definitions already established
- * elsewhere in this app: a comment counts once its author is the ticket's own
- * assignee ([[tickets]] — Zendesk's own reply metric is unusable here since
- * this team writes through the Aircall app), and "closed" means solved OR
- * closed, since this Zendesk only auto-archives to literal `closed` days
- * later.
+ * Every figure on the page honours the agent picker: excluded agents' tickets
+ * drop out of the averages, tiers, lists and charts alike, recomputed
+ * client-side from the same rows the API returns.
  *
- * Scoped server-side to the Customer Service department only (excludes
- * Deliveries), at the account owner's request — see DEPARTMENT_FILTER_ID in
- * the API route.
+ * Definitions live in src/lib/wa-dashboard.ts. Scoped server-side to the
+ * Customer Service department — see DEPARTMENT_FILTER_ID in the API route.
  */
 export function WaDashboardPageClient() {
   const [date, setDate] = useState(() => jerusalemToday());
@@ -83,6 +98,7 @@ export function WaDashboardPageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [now, setNow] = useState(() => new Date());
+  const [excluded, setExcluded] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     setError("");
@@ -108,6 +124,15 @@ export function WaDashboardPageClient() {
   }, [date]);
 
   useEffect(() => {
+    // Read after mount so the server render and the first client render match.
+    const stored = readExcludedAgents();
+    if (stored.length) {
+      const timer = window.setTimeout(() => setExcluded(stored), 0);
+      return () => window.clearTimeout(timer);
+    }
+  }, []);
+
+  useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
     const poll = window.setInterval(() => void load(), REFRESH_MS);
     const clock = window.setInterval(() => setNow(new Date()), 1_000);
@@ -125,26 +150,70 @@ export function WaDashboardPageClient() {
     setLoading(true);
   }
 
+  function updateExcluded(next: string[]) {
+    setExcluded(next);
+    try {
+      window.localStorage.setItem(EXCLUDED_AGENTS_KEY, JSON.stringify(next));
+    } catch {
+      // Storage unavailable — the choice simply lasts until the next visit.
+    }
+  }
+
+  function toggleAgent(key: string) {
+    updateExcluded(
+      excluded.includes(key)
+        ? excluded.filter((item) => item !== key)
+        : [...excluded, key],
+    );
+  }
+
+  // Everything below derives from the visible rows, so excluding an agent
+  // changes every number on the page consistently.
+  const allAgents = useMemo(() => data?.byAgent ?? [], [data?.byAgent]);
+  const visibleRows = useMemo(
+    () =>
+      (data?.rows ?? []).filter(
+        (row) => !excluded.includes(row.agentId ?? "unassigned"),
+      ),
+    [data?.rows, excluded],
+  );
+  const totals = useMemo(() => summarizeTickets(visibleRows), [visibleRows]);
+  const byAgent = useMemo(
+    () => allAgents.filter((row) => !excluded.includes(row.agentId ?? "unassigned")),
+    [allAgents, excluded],
+  );
+  const byDepartment = useMemo(
+    () => summarizeByDepartment(visibleRows),
+    [visibleRows],
+  );
+  const hourly = useMemo(() => hourlyBuckets(visibleRows), [visibleRows]);
   const ticketsByAgent = useMemo(() => {
     const map: Record<string, WaTicketRow[]> = {};
-    for (const row of data?.rows ?? []) {
+    for (const row of visibleRows) {
       const key = row.agentId ?? "unassigned";
       (map[key] ??= []).push(row);
     }
     return map;
-  }, [data]);
+  }, [visibleRows]);
 
   const waiting = useMemo(
-    () => currentlyWaiting(data?.rows ?? [], now),
-    [data?.rows, now],
+    () => currentlyWaiting(visibleRows, now),
+    [visibleRows, now],
   );
-  const tiers = useMemo(() => waitingTierCounts(waiting), [waiting]);
+  const firstResponseTiers = useMemo(
+    () => firstResponseTierCounts(visibleRows, now),
+    [visibleRows, now],
+  );
+  const withoutHandoff = useMemo(
+    () => visibleRows.filter((row) => !row.firstResponseFromHandoff).length,
+    [visibleRows],
+  );
 
   function toggle(agentKey: string) {
     setExpanded(expanded === agentKey ? null : agentKey);
   }
 
-  const maxHourly = Math.max(1, ...(data?.hourly.map((b) => b.count) ?? [1]));
+  const maxHourly = Math.max(1, ...hourly.map((b) => b.count));
   const isToday = date === jerusalemToday();
 
   return (
@@ -157,7 +226,7 @@ export function WaDashboardPageClient() {
           <h1 className="text-lg font-bold">דשבורד WA</h1>
           <p className="mt-0.5 text-sm text-[#718087]">
             פניות וואטסאפ מ-Zendesk ליום זה: מי ממתין לתגובה כרגע, זמן
-            תגובה ראשונה וזמן עד שהפנייה נפתרה/נסגרה.
+            תגובה ראשונה מרגע ההעברה מהבוט, וזמן עד שהפנייה נפתרה/נסגרה.
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -194,6 +263,63 @@ export function WaDashboardPageClient() {
 
       {data && (
         <>
+          {allAgents.length > 0 && (
+            <section className="card p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h2 className="flex items-center gap-2 text-sm font-bold text-[#17242d]">
+                  <UsersRound size={16} className="text-[#5d6d75]" />
+                  נציגות בחישוב
+                  <span className="font-normal text-[#a3adb1]">
+                    · ביטול סימון מחריג את הנציגה מכל המספרים בעמוד
+                  </span>
+                </h2>
+                <div className="flex gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => updateExcluded([])}
+                    className="rounded-lg bg-[#eef2f3] px-2.5 py-1 font-semibold text-[#5d6d75] hover:bg-[#e1e8eb]"
+                  >
+                    בחר הכל
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateExcluded(allAgents.map((a) => a.agentId ?? "unassigned"))
+                    }
+                    className="rounded-lg bg-[#eef2f3] px-2.5 py-1 font-semibold text-[#5d6d75] hover:bg-[#e1e8eb]"
+                  >
+                    נקה הכל
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {allAgents.map((agent) => {
+                  const key = agent.agentId ?? "unassigned";
+                  const checked = !excluded.includes(key);
+                  return (
+                    <label
+                      key={key}
+                      className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-1.5 text-sm transition ${
+                        checked
+                          ? "border-[#158f83] bg-[#e4f5f2] text-[#11786e]"
+                          : "border-[#d7e0e4] bg-white text-[#a3adb1]"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleAgent(key)}
+                        className="accent-[#158f83]"
+                      />
+                      {agent.agentName}
+                      <span className="text-xs opacity-70">{agent.ticketCount}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           <section className="card overflow-hidden border-2 border-[#f3c1c6]">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#fdebed] px-5 py-3.5">
               <div>
@@ -210,12 +336,6 @@ export function WaDashboardPageClient() {
                 {waiting.length} ממתינים
               </strong>
             </header>
-
-            <div className="grid grid-cols-3 divide-x divide-x-reverse divide-[#edf1f3] border-b border-[#edf1f3]">
-              {WAITING_TIER_MINUTES.map((minutes) => (
-                <TierTile key={minutes} minutes={minutes} count={tiers[minutes]} />
-              ))}
-            </div>
 
             {waiting.length === 0 ? (
               <p className="px-5 py-8 text-center text-sm text-[#1f7a55]">
@@ -269,23 +389,54 @@ export function WaDashboardPageClient() {
             )}
           </section>
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <section className="card overflow-hidden">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#f8fafb] px-5 py-3.5">
+              <div>
+                <h2 className="flex items-center gap-2 text-base font-bold text-[#17242d]">
+                  <Timer size={18} className="text-[#5d6d75]" />
+                  תגובה ראשונה של נציגה
+                </h2>
+                <p className="mt-0.5 text-xs text-[#718087]">
+                  מרגע שהבוט העביר את השיחה לנציגות ועד ההודעה הראשונה של
+                  נציגה. פניות שטרם נענו נספרות בזמן אמת.
+                  {withoutHandoff > 0 &&
+                    ` ל-${withoutHandoff} פניות אין רישום העברה — נספרות מפתיחת הפנייה.`}
+                </p>
+              </div>
+              <div className="text-left">
+                <span className="block text-xs text-[#718087]">ממוצע</span>
+                <strong className="block text-2xl font-bold text-[#17242d]">
+                  {seconds(totals.avgFirstResponseSeconds)}
+                </strong>
+                <span className="block text-[11px] text-[#a3adb1]">
+                  {totals.respondedCount} נענו מתוך {totals.ticketCount}
+                </span>
+              </div>
+            </header>
+            <div className="grid grid-cols-3 divide-x divide-x-reverse divide-[#edf1f3]">
+              {WAITING_TIER_MINUTES.map((minutes) => (
+                <TierTile key={minutes} minutes={minutes} count={firstResponseTiers[minutes]} />
+              ))}
+            </div>
+          </section>
+
+          <div className="grid gap-3 sm:grid-cols-3">
             <div className="card p-5">
               <span className="text-sm text-[#718087]">פניות וואטסאפ</span>
               <strong className="mt-1 block text-3xl font-bold text-[#17242d]">
-                {data.totals.ticketCount}
+                {totals.ticketCount}
               </strong>
             </div>
             <div className="card p-5">
-              <span className="text-sm text-[#718087]">תגובה ראשונה ממוצעת</span>
+              <span className="text-sm text-[#718087]">נפתרו/נסגרו</span>
               <strong className="mt-1 block text-3xl font-bold text-[#17242d]">
-                {seconds(data.totals.avgFirstResponseSeconds)}
+                {totals.closedCount}
               </strong>
             </div>
             <div className="card p-5">
               <span className="text-sm text-[#718087]">זמן עד סגירה ממוצע</span>
               <strong className="mt-1 block text-3xl font-bold text-[#17242d]">
-                {seconds(data.totals.avgTimeToCloseSeconds)}
+                {seconds(totals.avgTimeToCloseSeconds)}
               </strong>
             </div>
           </div>
@@ -295,12 +446,12 @@ export function WaDashboardPageClient() {
               ? `סונכרן לאחרונה: ${formatIsraelDateTime(data.syncedAt)}`
               : "טרם בוצע סנכרון"}
             {" · שעון ישראל"}
-            {isToday && " · הרשימה למעלה מתעדכנת כל שנייה, שאר הנתונים כל 30 שניות"}
+            {isToday && " · הזמנים החיים מתעדכנים כל שנייה, שאר הנתונים כל 30 שניות"}
           </p>
 
-          {data.byDepartment.length > 0 && (
+          {byDepartment.length > 0 && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {data.byDepartment.map((dept) => (
+              {byDepartment.map((dept) => (
                 <div key={dept.departmentName} className="card p-4">
                   <div className="mb-2 flex items-center justify-between">
                     <strong className="text-sm font-bold text-[#17242d]">
@@ -337,13 +488,13 @@ export function WaDashboardPageClient() {
             </div>
           )}
 
-          {data.hourly.some((b) => b.count > 0) && (
+          {hourly.some((b) => b.count > 0) && (
             <section className="card p-5">
               <h2 className="mb-3 text-base font-bold text-[#17242d]">
                 נפח פניות וואטסאפ לפי שעה · {date}
               </h2>
               <div className="flex h-24 items-end gap-1">
-                {data.hourly.map((bucket) => (
+                {hourly.map((bucket) => (
                   <div
                     key={bucket.hour}
                     className="flex-1 rounded-t bg-[#1f9d72]/70"
@@ -362,13 +513,15 @@ export function WaDashboardPageClient() {
               </h2>
             </header>
 
-            {data.byAgent.length === 0 ? (
+            {byAgent.length === 0 ? (
               <p className="px-5 py-10 text-center text-sm text-[#1f7a55]">
-                אין פניות וואטסאפ ביום זה.
+                {allAgents.length === 0
+                  ? "אין פניות וואטסאפ ביום זה."
+                  : "כל הנציגות מוחרגות — סמן נציגה למעלה כדי לראות נתונים."}
               </p>
             ) : (
               <ul className="divide-y divide-[#edf1f3]">
-                {data.byAgent.map((row) => {
+                {byAgent.map((row) => {
                   const key = row.agentId ?? "unassigned";
                   const isOpen = expanded === key;
                   const tickets = ticketsByAgent[key] ?? [];
@@ -421,17 +574,15 @@ export function WaDashboardPageClient() {
                                     <th className="px-3 py-2 text-right font-semibold">מס׳ פנייה</th>
                                     <th className="px-3 py-2 text-right font-semibold">שם הלקוח</th>
                                     <th className="px-3 py-2 text-right font-semibold">טלפון</th>
-                                    <th className="px-3 py-2 text-center font-semibold">מצב תגובה</th>
+                                    <th className="px-3 py-2 text-center font-semibold">תגובה ראשונה</th>
+                                    <th className="px-3 py-2 text-center font-semibold">מצב</th>
                                     <th className="px-3 py-2 text-center font-semibold">סטטוס</th>
                                     <th className="px-3 py-2 text-center font-semibold">עד סגירה</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {tickets.map((ticket) => {
-                                    // Live-ticking whenever the customer's most recent
-                                    // message (not just the first) is unanswered — a
-                                    // ticket the agent already replied to once still
-                                    // shows this if the customer wrote back since.
+                                    const firstResponse = firstResponseElapsed(ticket, now);
                                     const liveWaitedSeconds = ticket.waitingSince
                                       ? Math.max(
                                           0,
@@ -452,20 +603,29 @@ export function WaDashboardPageClient() {
                                           {formatPhone(ticket.customerPhone)}
                                         </td>
                                         <td className="px-3 py-2.5 text-center">
+                                          {ticket.firstResponseSeconds != null ? (
+                                            <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
+                                              {formatSecondsLabel(ticket.firstResponseSeconds)}
+                                            </span>
+                                          ) : firstResponse != null ? (
+                                            <span
+                                              className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(firstResponse))}`}
+                                            >
+                                              טרם נענתה · {formatDuration(firstResponse)}
+                                            </span>
+                                          ) : (
+                                            <span className="text-xs text-[#a3adb1]">ללא נציגה</span>
+                                          )}
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center">
                                           {liveWaitedSeconds != null ? (
                                             <span
                                               className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(liveWaitedSeconds))}`}
                                             >
                                               ממתין {formatDuration(liveWaitedSeconds)}
                                             </span>
-                                          ) : ticket.firstResponseSeconds != null ? (
-                                            <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
-                                              נענתה תוך {formatSecondsLabel(ticket.firstResponseSeconds)}
-                                            </span>
                                           ) : (
-                                            <span className="inline-block rounded-lg bg-[#eef2f3] px-2.5 py-1 text-xs font-bold text-[#5d6d75]">
-                                              נסגרה ללא תגובה
-                                            </span>
+                                            <span className="text-xs text-[#a3adb1]">—</span>
                                           )}
                                         </td>
                                         <td className="px-3 py-2.5 text-center">

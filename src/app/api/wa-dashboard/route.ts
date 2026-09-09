@@ -6,11 +6,11 @@ import {
 } from "@/lib/supabase/server";
 import { CLOSED_STATUSES } from "@/lib/tickets";
 import {
+  hourlyBuckets,
+  summarizeByAgent,
+  summarizeByDepartment,
   summarizeTickets,
-  type WaAgentSummary,
   type WaDashboardPayload,
-  type WaDepartmentSummary,
-  type WaHourlyBucket,
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
 
@@ -33,7 +33,7 @@ const DEPARTMENT_FILTER_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,agents(name,departments(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,agents(name,departments(id,name))";
 
 type Row = {
   id: string;
@@ -45,22 +45,13 @@ type Row = {
   status: string;
   zendesk_created_at: string;
   zendesk_updated_at: string;
+  handed_to_agent_at: string | null;
   first_agent_message_at: string | null;
   last_agent_message_at: string | null;
   last_customer_message_at: string | null;
   customer_waiting_since: string | null;
   agents: unknown;
 };
-
-const israelHourFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "Asia/Jerusalem",
-  hour: "2-digit",
-  hour12: false,
-});
-
-function israelHour(iso: string): number {
-  return Number(israelHourFormatter.format(new Date(iso)));
-}
 
 function secondsBetween(from: string, to: string): number {
   return Math.max(
@@ -137,15 +128,19 @@ export async function GET(request: NextRequest) {
       const closed = CLOSED_STATUSES.has(row.status);
       const lastAgent = row.last_agent_message_at;
       const lastCustomer = row.last_customer_message_at;
+      // The first-response clock starts when the bot hands the customer to
+      // the agents; a ticket with no recorded handoff falls back to its start
+      // and says so.
+      const clockStart = row.handed_to_agent_at ?? row.zendesk_created_at;
       // The customer is waiting when nobody from the team has written yet, or
       // when they wrote again after the agent's last message. The wait is
       // counted from their first message that is still unanswered: the
-      // ticket's start when no agent has written, otherwise the first customer
-      // flip after the agent's last message (customer_waiting_since).
+      // handoff when no agent has written, otherwise the first customer flip
+      // after the agent's last message (customer_waiting_since).
       const waitingSince = closed
         ? null
         : lastAgent == null
-          ? row.zendesk_created_at
+          ? clockStart
           : row.customer_waiting_since;
       return {
         id: row.id,
@@ -159,8 +154,10 @@ export async function GET(request: NextRequest) {
         status: row.status,
         createdAt: row.zendesk_created_at,
         updatedAt: row.zendesk_updated_at,
+        handedToAgentAt: row.handed_to_agent_at,
+        firstResponseFromHandoff: row.handed_to_agent_at != null,
         firstResponseSeconds: row.first_agent_message_at
-          ? secondsBetween(row.zendesk_created_at, row.first_agent_message_at)
+          ? secondsBetween(clockStart, row.first_agent_message_at)
           : null,
         closed,
         timeToCloseSeconds: closed
@@ -173,76 +170,12 @@ export async function GET(request: NextRequest) {
     })
     .filter((row) => row.departmentId === DEPARTMENT_FILTER_ID);
 
-  function group(rows: WaTicketRow[], key: (row: WaTicketRow) => string) {
-    const map = new Map<string, WaTicketRow[]>();
-    for (const row of rows) {
-      const groupKey = key(row);
-      let bucket = map.get(groupKey);
-      if (!bucket) {
-        bucket = [];
-        map.set(groupKey, bucket);
-      }
-      bucket.push(row);
-    }
-    return map;
-  }
-
-  const byAgentMap = group(rows, (row) => row.agentId ?? "unassigned");
-  const byDepartmentMap = group(
-    rows,
-    (row) => row.departmentName ?? "ללא שיוך מחלקה",
-  );
-  const agentMeta = new Map<
-    string,
-    { agentId: string | null; agentName: string; departmentName: string | null }
-  >();
-  for (const [key, agentRows] of byAgentMap) {
-    const first = agentRows[0];
-    agentMeta.set(key, {
-      agentId: first.agentId,
-      agentName: first.agentName ?? "ללא שיוך נציג",
-      departmentName: first.departmentName,
-    });
-  }
-
-  const byAgent: WaAgentSummary[] = [...byAgentMap.entries()]
-    .map(([key, agentRows]) => ({
-      ...agentMeta.get(key)!,
-      ...summarizeTickets(agentRows),
-    }))
-    .sort(
-      (a, b) =>
-        b.awaitingReply - a.awaitingReply ||
-        b.ticketCount - a.ticketCount,
-    );
-
-  const byDepartment: WaDepartmentSummary[] = [...byDepartmentMap.entries()]
-    .map(([departmentName, deptRows]) => ({
-      departmentName,
-      ...summarizeTickets(deptRows),
-    }))
-    .sort(
-      (a, b) =>
-        b.awaitingReply - a.awaitingReply ||
-        b.ticketCount - a.ticketCount,
-    );
-
-  const hourlyMap = new Map<number, number>();
-  for (const row of rows) {
-    const hour = israelHour(row.createdAt);
-    hourlyMap.set(hour, (hourlyMap.get(hour) ?? 0) + 1);
-  }
-  const hourly: WaHourlyBucket[] = Array.from({ length: 24 }, (_, hour) => ({
-    hour,
-    count: hourlyMap.get(hour) ?? 0,
-  }));
-
   const payload: WaDashboardPayload = {
     date,
     totals: summarizeTickets(rows),
-    byAgent,
-    byDepartment,
-    hourly,
+    byAgent: summarizeByAgent(rows),
+    byDepartment: summarizeByDepartment(rows),
+    hourly: hourlyBuckets(rows),
     rows,
     syncedAt: syncResult.data?.last_run_at ?? null,
   };

@@ -20,8 +20,9 @@ import {
 import { formatPhone } from "@/lib/tickets";
 import {
   currentlyWaiting,
+  firstResponseElapsed,
+  firstResponseTierCounts,
   waitingTier,
-  waitingTierCounts,
   type WaDashboardPayload,
   type WaitingTierMinutes,
 } from "@/lib/wa-dashboard";
@@ -140,19 +141,25 @@ export function WaWallboardClient() {
     () => currentlyWaiting(data?.rows ?? [], now),
     [data?.rows, now],
   );
-  const tiers = useMemo(() => waitingTierCounts(waiting), [waiting]);
+  // First response — from the bot's handoff to the agent's first message —
+  // as how many tickets crossed each tier today (unanswered ones count live).
+  const tiers = useMemo(
+    () => firstResponseTierCounts(data?.rows ?? [], now),
+    [data?.rows, now],
+  );
 
-  // The most critical tier (10+ minutes) per department, for the department
-  // boxes below — the tier row above already gives the org-wide picture.
+  // The most critical tier (10+ minutes to a first reply) per department, for
+  // the department boxes below — the tier row above gives the org-wide picture.
   const over10ByDepartment = useMemo(() => {
     const map = new Map<string, number>();
-    for (const ticket of waiting) {
-      if (ticket.waitedSeconds < 10 * 60) continue;
-      const key = ticket.departmentName ?? "ללא שיוך מחלקה";
+    for (const row of data?.rows ?? []) {
+      const elapsed = firstResponseElapsed(row, now);
+      if (elapsed == null || elapsed < 10 * 60) continue;
+      const key = row.departmentName ?? "ללא שיוך מחלקה";
       map.set(key, (map.get(key) ?? 0) + 1);
     }
     return map;
-  }, [waiting]);
+  }, [data?.rows, now]);
 
   if (!data && !error) {
     return (
@@ -236,9 +243,9 @@ export function WaWallboardClient() {
         )}
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <WallMetric label="מעל 10 דק׳ ללא תגובה" value={tiers[10]} tone="red" />
-          <WallMetric label="מעל 7 דק׳ ללא תגובה" value={tiers[7]} tone="orange" />
-          <WallMetric label="מעל 3 דק׳ ללא תגובה" value={tiers[3]} tone="amber" />
+          <WallMetric label="מעל 10 דק׳ לתגובה ראשונה" value={tiers[10]} tone="red" />
+          <WallMetric label="מעל 7 דק׳ לתגובה ראשונה" value={tiers[7]} tone="orange" />
+          <WallMetric label="מעל 3 דק׳ לתגובה ראשונה" value={tiers[3]} tone="amber" />
           <WallMetric label="פניות היום" value={data?.totals.ticketCount ?? 0} tone="teal" />
         </section>
 
@@ -393,7 +400,7 @@ function DepartmentBox({
         </div>
         {over10 > 0 && (
           <div>
-            <span className={`block text-xs ${tone.label}`}>מעל 10 דק&apos;</span>
+            <span className={`block text-xs ${tone.label}`}>מעל 10 דק&apos; לתגובה ראשונה</span>
             <strong className={`block text-2xl font-bold ${tone.accent}`}>
               {over10}
             </strong>

@@ -9,16 +9,17 @@
  * and `last_*_message_at` on the ticket). Everything below is derived from
  * them:
  *
- * - first response time: from the customer's first message (`createdAt`) to
- *   the agent's first WhatsApp message (`firstResponseSeconds`, null until an
- *   agent has written). A person, not the bot — the bot does not fire the
- *   trigger.
+ * - first response time: from the moment the bot handed the conversation to
+ *   the agents (`handedToAgentAt`) to the agent's first WhatsApp message
+ *   (`firstResponseSeconds`, null until an agent has written). A person, not
+ *   the bot — the bot does not fire the trigger, and the time it spends
+ *   before the handoff is not the customer waiting for a person.
  * - waiting: a ticket where the customer wrote last (or nobody from the team
  *   has written at all) and the ticket is still open. `waitingSince` is the
  *   customer's first message that is still unanswered — the account owner's
- *   definition: the ticket's start when no agent has written yet, otherwise
- *   the first customer message after the agent's last one. Null when the
- *   agent wrote last or the ticket is finished.
+ *   definition: the handoff when no agent has written yet, otherwise the
+ *   first customer message after the agent's last one. Null when the agent
+ *   wrote last or the ticket is finished.
  * - time to close: from `createdAt` to `updatedAt`, only once the ticket
  *   reached solved or closed — the same "finished" definition used
  *   everywhere else in this app (see CLOSED_STATUSES in [[tickets]]). Not
@@ -39,7 +40,19 @@ export type WaTicketRow = {
   status: string;
   createdAt: string;
   updatedAt: string;
-  /** Seconds from createdAt to the agent's first WhatsApp message; null if none yet. */
+  /**
+   * When the bot handed the conversation to the agents (Zendesk's
+   * OfferedToEvent). The first-response clock starts here, not at createdAt:
+   * the bot handles the start of every conversation. Null if the sync has no
+   * handoff for this ticket, in which case createdAt stands in and
+   * `firstResponseFromHandoff` is false.
+   */
+  handedToAgentAt: string | null;
+  firstResponseFromHandoff: boolean;
+  /**
+   * Seconds from the handoff (or createdAt, see above) to the agent's first
+   * WhatsApp message; null if no agent has written yet.
+   */
   firstResponseSeconds: number | null;
   closed: boolean;
   /** Seconds from createdAt to updatedAt; only set once `closed` is true. */
@@ -50,7 +63,7 @@ export type WaTicketRow = {
   lastCustomerMessageAt: string | null;
   /**
    * The moment the customer's current wait is counted from: their first
-   * message that is still unanswered (`createdAt` if no agent has written
+   * message that is still unanswered (the handoff if no agent has written
    * yet). Null when the agent wrote last or the ticket is finished — i.e.
    * the customer is not waiting.
    */
@@ -145,6 +158,36 @@ export function waitingTierCounts(
   return counts;
 }
 
+/**
+ * How long the customer waited for the agent's first message, as of `now`:
+ * the recorded figure once an agent has written; the live, still-growing
+ * figure while an open ticket has no agent message yet; null for a ticket
+ * that finished without any agent message (the bot resolved it).
+ */
+export function firstResponseElapsed(
+  row: WaTicketRow,
+  now: Date,
+): number | null {
+  if (row.firstResponseSeconds != null) return row.firstResponseSeconds;
+  if (row.closed) return null;
+  return secondsSince(row.handedToAgentAt ?? row.createdAt, now.getTime());
+}
+
+/** How many tickets' first response took (or has so far taken) over each tier. */
+export function firstResponseTierCounts(
+  rows: WaTicketRow[],
+  now: Date,
+): Record<WaitingTierMinutes, number> {
+  const elapsed = rows
+    .map((row) => firstResponseElapsed(row, now))
+    .filter((value): value is number => value != null);
+  const counts = {} as Record<WaitingTierMinutes, number>;
+  for (const minutes of WAITING_TIER_MINUTES) {
+    counts[minutes] = elapsed.filter((value) => value >= minutes * 60).length;
+  }
+  return counts;
+}
+
 /** The highest escalation tier (in minutes) a wait has crossed, or null. */
 export function waitingTier(waitedSeconds: number): WaitingTierMinutes | null {
   let crossed: WaitingTierMinutes | null = null;
@@ -175,4 +218,64 @@ export function summarizeTickets(rows: WaTicketRow[]): WaGroupStats {
     closedCount: rows.filter((row) => row.closed).length,
     avgTimeToCloseSeconds: average(closeTimes),
   };
+}
+
+function groupBy(rows: WaTicketRow[], key: (row: WaTicketRow) => string) {
+  const map = new Map<string, WaTicketRow[]>();
+  for (const row of rows) {
+    const groupKey = key(row);
+    const bucket = map.get(groupKey);
+    if (bucket) bucket.push(row);
+    else map.set(groupKey, [row]);
+  }
+  return map;
+}
+
+const worstFirst = (a: WaGroupStats, b: WaGroupStats) =>
+  b.awaitingReply - a.awaitingReply || b.ticketCount - a.ticketCount;
+
+/**
+ * Per-agent rollup. Shared by the API route and the "דשבורד WA" page, which
+ * recomputes everything client-side when the viewer excludes agents.
+ */
+export function summarizeByAgent(rows: WaTicketRow[]): WaAgentSummary[] {
+  return [...groupBy(rows, (row) => row.agentId ?? "unassigned").values()]
+    .map((agentRows) => ({
+      agentId: agentRows[0].agentId,
+      agentName: agentRows[0].agentName ?? "ללא שיוך נציג",
+      departmentName: agentRows[0].departmentName,
+      ...summarizeTickets(agentRows),
+    }))
+    .sort(worstFirst);
+}
+
+export function summarizeByDepartment(
+  rows: WaTicketRow[],
+): WaDepartmentSummary[] {
+  return [...groupBy(rows, (row) => row.departmentName ?? "ללא שיוך מחלקה")]
+    .map(([departmentName, deptRows]) => ({
+      departmentName,
+      ...summarizeTickets(deptRows),
+    }))
+    .sort(worstFirst);
+}
+
+const israelHourFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Jerusalem",
+  hour: "2-digit",
+  hour12: false,
+});
+
+/** Tickets opened per hour of the Israel day, all 24 hours present. */
+export function hourlyBuckets(rows: WaTicketRow[]): WaHourlyBucket[] {
+  const counts = new Map<number, number>();
+  for (const row of rows) {
+    // "24" is what some engines print for midnight with hour12:false.
+    const hour = Number(israelHourFormatter.format(new Date(row.createdAt))) % 24;
+    counts.set(hour, (counts.get(hour) ?? 0) + 1);
+  }
+  return Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    count: counts.get(hour) ?? 0,
+  }));
 }

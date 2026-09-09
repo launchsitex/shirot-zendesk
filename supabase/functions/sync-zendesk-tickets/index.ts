@@ -314,17 +314,22 @@ async function syncComments(
         // later. A Messaging trigger does flip a tag on every message, though,
         // so a tag change that *adds* one of these is a message with a
         // direction and a time. See 20260909120000_zendesk_whatsapp_messages.
-        if (child.event_type === "Change") {
-          const direction = whatsappFlip(child);
-          if (!direction) continue;
-          messages.push({
-            id: String(child.id ?? `${event.id}-${direction}`),
-            ticket_id: ticketId,
-            direction,
-            at,
-          });
-          touchedWhatsapp.add(ticketId);
-        }
+        // The bot handles the start of every conversation; OfferedToEvent is
+        // the moment it hands the customer to the agents, which is where the
+        // first-response clock starts (20260909160000_zendesk_whatsapp_handoff).
+        const direction = child.event_type === "OfferedToEvent"
+          ? "handoff"
+          : child.event_type === "Change"
+          ? whatsappFlip(child)
+          : null;
+        if (!direction) continue;
+        messages.push({
+          id: String(child.id ?? `${event.id}-${direction}`),
+          ticket_id: ticketId,
+          direction,
+          at,
+        });
+        touchedWhatsapp.add(ticketId);
       }
     }
 

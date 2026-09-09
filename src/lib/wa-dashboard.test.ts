@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   currentlyWaiting,
+  firstResponseElapsed,
+  firstResponseTierCounts,
+  summarizeByAgent,
   summarizeTickets,
   waitingTier,
   waitingTierCounts,
@@ -20,6 +23,8 @@ function ticket(overrides: Partial<WaTicketRow>): WaTicketRow {
     status: "open",
     createdAt: "2026-09-06T08:00:00.000Z",
     updatedAt: "2026-09-06T08:00:00.000Z",
+    handedToAgentAt: null,
+    firstResponseFromHandoff: false,
     firstResponseSeconds: null,
     closed: false,
     timeToCloseSeconds: null,
@@ -108,6 +113,55 @@ describe("currentlyWaiting", () => {
       "oldest",
       "recent",
     ]);
+  });
+});
+
+describe("firstResponseElapsed", () => {
+  it("uses the recorded figure once an agent has written", () => {
+    expect(firstResponseElapsed(ticket({ firstResponseSeconds: 50 }), NOW)).toBe(50);
+  });
+
+  it("counts live from the bot's handoff while no agent has written", () => {
+    // Opened 08:00, bot until the 08:09 handoff, no agent message at 08:12.
+    const row = ticket({
+      createdAt: "2026-09-06T08:00:00.000Z",
+      handedToAgentAt: "2026-09-06T08:09:00.000Z",
+      firstResponseFromHandoff: true,
+    });
+    expect(firstResponseElapsed(row, NOW)).toBe(3 * 60);
+  });
+
+  it("falls back to the ticket's start when no handoff was recorded", () => {
+    expect(firstResponseElapsed(ticket({}), NOW)).toBe(12 * 60);
+  });
+
+  it("is null for a ticket that finished without any agent message", () => {
+    expect(firstResponseElapsed(ticket({ closed: true }), NOW)).toBeNull();
+  });
+});
+
+describe("firstResponseTierCounts", () => {
+  it("counts answered-late and still-unanswered tickets alike, cumulatively", () => {
+    const rows = [
+      ticket({ id: "fast", firstResponseSeconds: 50 }), // none
+      ticket({ id: "late", firstResponseSeconds: 8 * 60 }), // 3, 7
+      ticket({ id: "open", handedToAgentAt: "2026-09-06T08:00:00.000Z" }), // live 12 min: 3, 7, 10
+      ticket({ id: "bot-only", closed: true }), // excluded
+    ];
+    expect(firstResponseTierCounts(rows, NOW)).toEqual({ 3: 2, 7: 2, 10: 1 });
+  });
+});
+
+describe("summarizeByAgent", () => {
+  it("groups by agent, labels the unassigned bucket, and puts the most waiting first", () => {
+    const rows = [
+      ticket({ id: "1", agentId: "a", agentName: "א" }),
+      ticket({ id: "2", agentId: "b", agentName: "ב", waitingSince: "2026-09-06T08:00:00.000Z" }),
+      ticket({ id: "3", agentId: null, agentName: null }),
+    ];
+    const summary = summarizeByAgent(rows);
+    expect(summary.map((s) => s.agentName)).toEqual(["ב", "א", "ללא שיוך נציג"]);
+    expect(summary[0].awaitingReply).toBe(1);
   });
 });
 
