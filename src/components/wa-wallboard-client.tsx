@@ -8,6 +8,7 @@ import {
   Maximize2,
   MessageCircle,
   Minimize2,
+  UsersRound,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -21,6 +22,11 @@ import {
 } from "@/lib/supabase/browser";
 import { formatPhone } from "@/lib/tickets";
 import {
+  agentKey,
+  readExcludedAgents,
+  writeExcludedAgents,
+} from "@/lib/wa-agent-filter";
+import {
   agentStatusLabel,
   currentlyWaiting,
   firstResponseElapsed,
@@ -29,6 +35,8 @@ import {
   freeMessagingSlots,
   queueByDepartment,
   sortAvailability,
+  summarizeByDepartment,
+  summarizeTickets,
   waitingTier,
   type WaDashboardPayload,
   type WaitingTierMinutes,
@@ -84,6 +92,10 @@ export function WaWallboardClient() {
   const [now, setNow] = useState(() => new Date());
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [profile, setProfile] = useState<AppProfile | null>(null);
+  // Agents excluded from every figure on the screen — same per-department
+  // choice as the dashboard's picker, so both screens agree in one browser.
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // One wall screen per department: the department comes from the URL, so a
   // TV for deliveries is simply /wa-dashboard/tv?department=deliveries.
@@ -113,6 +125,28 @@ export function WaWallboardClient() {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    // Read after mount so the server render and the first client render
+    // match; re-read when the department changes since the choice is per
+    // department.
+    const stored = readExcludedAgents(departmentId);
+    const timer = window.setTimeout(() => setExcluded(stored), 0);
+    return () => window.clearTimeout(timer);
+  }, [departmentId]);
+
+  function updateExcluded(next: string[]) {
+    setExcluded(next);
+    writeExcludedAgents(departmentId, next);
+  }
+
+  function toggleAgent(key: string) {
+    updateExcluded(
+      excluded.includes(key)
+        ? excluded.filter((item) => item !== key)
+        : [...excluded, key],
+    );
+  }
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => void loadData(), 0);
@@ -151,20 +185,36 @@ export function WaWallboardClient() {
     }
   }
 
+  // Everything below derives from the visible rows, so excluding an agent
+  // changes every number on the screen consistently.
+  const allAgents = useMemo(() => data?.byAgent ?? [], [data?.byAgent]);
+  const visibleRows = useMemo(
+    () => (data?.rows ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
+    [data?.rows, excluded],
+  );
+  const totals = useMemo(() => summarizeTickets(visibleRows), [visibleRows]);
+  const byDepartment = useMemo(() => summarizeByDepartment(visibleRows), [visibleRows]);
+  const includedCount = allAgents.filter((a) => !excluded.includes(agentKey(a.agentId))).length;
+
   // Tickets still waiting for the assignee's first reply, longest first —
   // recomputed every second (via `now`) rather than only on each poll, the
   // same reasoning as the calls wallboard's WaitingTimeBox.
   const waiting = useMemo(
-    () => currentlyWaiting(data?.rows ?? [], now),
-    [data?.rows, now],
+    () => currentlyWaiting(visibleRows, now),
+    [visibleRows, now],
   );
   const queue = useMemo(
     () => queueByDepartment(data?.queue ?? [], now),
     [data?.queue, now],
   );
   const availability = useMemo(
-    () => sortAvailability(data?.availability ?? []),
-    [data?.availability],
+    () =>
+      sortAvailability(
+        (data?.availability ?? []).filter(
+          (agent) => !excluded.includes(agentKey(agent.agentId)),
+        ),
+      ),
+    [data?.availability, excluded],
   );
 
   // Waiting customers grouped by their agent; groups ordered by the longest
@@ -188,26 +238,26 @@ export function WaWallboardClient() {
   // First response — from the bot's handoff to the agent's first message —
   // as how many tickets crossed each tier today (unanswered ones count live).
   const tiers = useMemo(
-    () => firstResponseTierCounts(data?.rows ?? [], now),
-    [data?.rows, now],
+    () => firstResponseTierCounts(visibleRows, now),
+    [visibleRows, now],
   );
   const underThree = useMemo(
-    () => firstResponseUnderCount(data?.rows ?? [], 3),
-    [data?.rows],
+    () => firstResponseUnderCount(visibleRows, 3),
+    [visibleRows],
   );
 
   // The most critical tier (10+ minutes to a first reply) per department, for
   // the department boxes below — the tier row above gives the org-wide picture.
   const over10ByDepartment = useMemo(() => {
     const map = new Map<string, number>();
-    for (const row of data?.rows ?? []) {
+    for (const row of visibleRows) {
       const elapsed = firstResponseElapsed(row, now);
       if (elapsed == null || elapsed < 10 * 60) continue;
       const key = row.departmentName ?? "ללא שיוך מחלקה";
       map.set(key, (map.get(key) ?? 0) + 1);
     }
     return map;
-  }, [data?.rows, now]);
+  }, [visibleRows, now]);
 
   if (!data && !error) {
     return (
@@ -252,6 +302,23 @@ export function WaWallboardClient() {
                 })}
               </strong>
             </div>
+            {allAgents.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setPickerOpen((open) => !open)}
+                className={`inline-flex h-12 items-center gap-2 rounded-xl px-4 text-sm font-semibold hover:bg-white/15 ${
+                  includedCount < allAgents.length
+                    ? "bg-[#e1a62b]/20 text-[#f4d58a] ring-1 ring-[#e1a62b]/50"
+                    : "bg-white/10 text-white/90"
+                }`}
+                aria-expanded={pickerOpen}
+                aria-label="בחירת נציגות בחישוב"
+                title="בחירת נציגות בחישוב"
+              >
+                <UsersRound size={18} />
+                נציגות {includedCount}/{allAgents.length}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void toggleFullscreen()}
@@ -290,6 +357,68 @@ export function WaWallboardClient() {
           </div>
         )}
 
+        {pickerOpen && allAgents.length > 0 && (
+          <section className="rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="flex items-center gap-2 text-sm font-bold">
+                <UsersRound size={16} className="text-white/60" />
+                נציגות בחישוב
+                <span className="font-normal text-white/45">
+                  · ביטול סימון מחריג את הנציגה מכל המספרים במסך
+                </span>
+              </h2>
+              <div className="flex gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => updateExcluded([])}
+                  className="rounded-lg bg-white/10 px-2.5 py-1 font-semibold text-white/80 hover:bg-white/15"
+                >
+                  בחר הכל
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateExcluded(allAgents.map((a) => agentKey(a.agentId)))}
+                  className="rounded-lg bg-white/10 px-2.5 py-1 font-semibold text-white/80 hover:bg-white/15"
+                >
+                  נקה הכל
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPickerOpen(false)}
+                  className="rounded-lg bg-white/10 px-2.5 py-1 font-semibold text-white/80 hover:bg-white/15"
+                >
+                  סגור
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {allAgents.map((agent) => {
+                const key = agentKey(agent.agentId);
+                const checked = !excluded.includes(key);
+                return (
+                  <label
+                    key={key}
+                    className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-1.5 text-sm transition ${
+                      checked
+                        ? "border-[#1f9d72] bg-[#1f9d72]/20 text-[#6ee0d0]"
+                        : "border-white/15 bg-transparent text-white/40"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleAgent(key)}
+                      className="accent-[#1f9d72]"
+                    />
+                    {agent.agentName}
+                    <span className="text-xs opacity-70">{agent.ticketCount}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
           <WallMetric label="נענו תוך פחות מ-3 דק׳" value={underThree} tone="green" />
           <WallMetric label="מעל 3 דק׳ לתגובה ראשונה" value={tiers[3]} tone="amber" />
@@ -297,12 +426,8 @@ export function WaWallboardClient() {
           <WallMetric label="מעל 10 דק׳ לתגובה ראשונה" value={tiers[10]} tone="red" />
           <WallMetric
             label="פניות היום"
-            value={data?.totals.ticketCount ?? 0}
-            hint={
-              data
-                ? `${data.totals.ticketCount - data.totals.closedCount} פתוחות · ${data.totals.closedCount} נסגרו`
-                : undefined
-            }
+            value={totals.ticketCount}
+            hint={`${totals.ticketCount - totals.closedCount} פתוחות · ${totals.closedCount} נסגרו`}
             tone="teal"
           />
         </section>
@@ -508,13 +633,11 @@ export function WaWallboardClient() {
           </article>
         )}
 
-        {(data?.byDepartment.length ?? 0) > 0 && (
+        {byDepartment.length > 0 && (
           <section
-            className={`grid gap-3 ${
-              (data?.byDepartment.length ?? 0) > 1 ? "md:grid-cols-2" : ""
-            }`}
+            className={`grid gap-3 ${byDepartment.length > 1 ? "md:grid-cols-2" : ""}`}
           >
-            {data?.byDepartment.map((dept) => (
+            {byDepartment.map((dept) => (
               <DepartmentBox
                 key={dept.departmentName}
                 name={dept.departmentName}

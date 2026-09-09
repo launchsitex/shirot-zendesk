@@ -35,13 +35,13 @@ import {
   type WaitingTierMinutes,
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
+import { readExcludedAgents, writeExcludedAgents } from "@/lib/wa-agent-filter";
 
 const REFRESH_MS = 30_000;
 const DEFAULT_DEPARTMENT_ID = "customer-service";
 // Which agents the viewer has taken out of the figures, per department. Kept
 // per browser so a manager who only follows their own team does not re-tick
 // it every visit.
-const EXCLUDED_AGENTS_KEY = "wa-dashboard:excluded-agents";
 
 function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
@@ -104,16 +104,6 @@ function availabilityStyle(status: string) {
         dot: "bg-[#e08a3c]",
         bar: "bg-[#e08a3c]",
       };
-  }
-}
-
-function readExcludedAgents(departmentId: string): string[] {
-  try {
-    const raw = window.localStorage.getItem(`${EXCLUDED_AGENTS_KEY}:${departmentId}`);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(parsed) ? parsed.map(String) : [];
-  } catch {
-    return [];
   }
 }
 
@@ -208,14 +198,7 @@ export function WaDashboardPageClient() {
 
   function updateExcluded(next: string[]) {
     setExcluded(next);
-    try {
-      window.localStorage.setItem(
-        `${EXCLUDED_AGENTS_KEY}:${departmentId}`,
-        JSON.stringify(next),
-      );
-    } catch {
-      // Storage unavailable — the choice simply lasts until the next visit.
-    }
+    writeExcludedAgents(departmentId, next);
   }
 
   function toggleAgent(key: string) {
