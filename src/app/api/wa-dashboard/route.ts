@@ -11,6 +11,7 @@ import {
   summarizeByDepartment,
   summarizeTickets,
   type AgentDirectory,
+  type WaAgentAvailability,
   type WaDashboardPayload,
   type WaQueueTicket,
   type WaTicketRow,
@@ -61,6 +62,27 @@ type AgentRow = {
   id: string;
   name: string;
   departments: { name?: string } | { name?: string }[] | null;
+};
+
+type AvailabilityRow = {
+  agent_id: string | null;
+  status_name: string;
+  status_updated_at: string | null;
+  messaging_work_items: number | null;
+  messaging_max_capacity: number | null;
+  synced_at: string;
+  agents:
+    | {
+      name?: string;
+      department_id?: string | null;
+      departments?: { name?: string } | { name?: string }[] | null;
+    }
+    | Array<{
+      name?: string;
+      department_id?: string | null;
+      departments?: { name?: string } | { name?: string }[] | null;
+    }>
+    | null;
 };
 
 type QueueRow = {
@@ -117,7 +139,7 @@ export async function GET(request: NextRequest) {
   const departmentId =
     request.nextUrl.searchParams.get("department") ?? DEFAULT_DEPARTMENT_ID;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, syncResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -157,6 +179,13 @@ export async function GET(request: NextRequest) {
     // Names for agents credited with a first response or a closure on a
     // ticket that has since moved to somebody else.
     supabase.from("agents").select("id,name,departments(name)"),
+    // Live status and messaging load, refreshed by the sync every minute.
+    supabase
+      .from("zendesk_agent_availability")
+      .select(
+        "agent_id,status_name,status_updated_at,messaging_work_items,messaging_max_capacity,synced_at,agents!agent_id(name,department_id,departments(name))",
+      )
+      .not("agent_id", "is", null),
     supabase
       .from("zendesk_sync_state")
       .select("last_run_at")
@@ -165,7 +194,7 @@ export async function GET(request: NextRequest) {
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
-    departmentsResult.error ?? agentsResult.error;
+    departmentsResult.error ?? agentsResult.error ?? availabilityResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
@@ -280,6 +309,26 @@ export async function GET(request: NextRequest) {
     agents[agent.id] = { name: agent.name, departmentName: department?.name ?? null };
   }
 
+  const availability: WaAgentAvailability[] = (
+    (availabilityResult.data ?? []) as AvailabilityRow[]
+  ).flatMap((row) => {
+    const agent = Array.isArray(row.agents) ? row.agents[0] : row.agents;
+    if (!row.agent_id || !agent || agent.department_id !== departmentId) return [];
+    const department = Array.isArray(agent.departments)
+      ? agent.departments[0]
+      : agent.departments;
+    return [{
+      agentId: row.agent_id,
+      agentName: agent.name ?? row.agent_id,
+      departmentName: department?.name ?? null,
+      status: row.status_name,
+      statusSince: row.status_updated_at,
+      messagingWorkItems: Number(row.messaging_work_items ?? 0),
+      messagingMaxCapacity: row.messaging_max_capacity ?? null,
+      syncedAt: row.synced_at,
+    }];
+  });
+
   const payload: WaDashboardPayload = {
     date,
     totals: summarizeTickets(rows),
@@ -296,6 +345,7 @@ export async function GET(request: NextRequest) {
     department,
     departments,
     agents,
+    availability,
     syncedAt: syncResult.data?.last_run_at ?? null,
   };
 

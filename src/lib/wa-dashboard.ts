@@ -127,6 +127,63 @@ export type WaQueueTicket = {
   handedToAgentAt: string;
 };
 
+/**
+ * An agent's live state from Zendesk's Agent Availability API: their status
+ * and how many messaging conversations they hold against their capacity.
+ */
+export type WaAgentAvailability = {
+  agentId: string;
+  agentName: string;
+  departmentName: string | null;
+  /** online / away / transfers_only / offline, or a custom status name. */
+  status: string;
+  statusSince: string | null;
+  messagingWorkItems: number;
+  messagingMaxCapacity: number | null;
+  syncedAt: string;
+};
+
+export const AGENT_STATUS_LABELS: Record<string, string> = {
+  online: "מקוון",
+  away: "לא פעיל",
+  transfers_only: "העברה בלבד",
+  offline: "לא מקוון",
+};
+
+export function agentStatusLabel(status: string): string {
+  return AGENT_STATUS_LABELS[status] ?? status;
+}
+
+/**
+ * How many more conversations routing can hand this agent right now: the
+ * spare capacity while online, none in any other status (away and custom
+ * statuses take no new work; transfers_only only takes transfers).
+ */
+export function freeMessagingSlots(agent: WaAgentAvailability): number {
+  if (agent.status !== "online" || agent.messagingMaxCapacity == null) return 0;
+  return Math.max(0, agent.messagingMaxCapacity - agent.messagingWorkItems);
+}
+
+/** Online with room first, then online but full, then everyone else by status. */
+export function sortAvailability(
+  agents: WaAgentAvailability[],
+): WaAgentAvailability[] {
+  const rank = (agent: WaAgentAvailability) =>
+    agent.status === "online"
+      ? (freeMessagingSlots(agent) > 0 ? 0 : 1)
+      : agent.status === "transfers_only"
+      ? 2
+      : agent.status === "offline"
+      ? 4
+      : 3;
+  return [...agents].sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      b.messagingWorkItems - a.messagingWorkItems ||
+      a.agentName.localeCompare(b.agentName, "he"),
+  );
+}
+
 export type WaDashboardPayload = {
   date: string;
   totals: WaGroupStats;
@@ -140,6 +197,8 @@ export type WaDashboardPayload = {
   departments: { id: string; name: string }[];
   /** Names for agents credited on a ticket they are no longer assigned to. */
   agents: AgentDirectory;
+  /** This department's agents, live from Zendesk routing. */
+  availability: WaAgentAvailability[];
   syncedAt: string | null;
 };
 

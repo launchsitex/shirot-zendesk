@@ -7,6 +7,7 @@ import {
   Inbox,
   LoaderCircle,
   MessageCircle,
+  Radio,
   RefreshCw,
   Timer,
   UsersRound,
@@ -17,8 +18,11 @@ import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
 import { formatPhone, statusLabel } from "@/lib/tickets";
 import {
+  agentStatusLabel,
   currentlyWaiting,
   firstResponseElapsed,
+  freeMessagingSlots,
+  sortAvailability,
   firstResponseTierCounts,
   firstResponseUnderCount,
   hourlyBuckets,
@@ -67,6 +71,40 @@ function TierTile({ minutes, count }: { minutes: WaitingTierMinutes; count: numb
       <span className="text-xs font-semibold text-[#718087]">מעל {minutes} דק&apos;</span>
     </div>
   );
+}
+
+function availabilityStyle(status: string) {
+  switch (status) {
+    case "online":
+      return {
+        card: "border-[#cdeee2] bg-[#f3fbf8]",
+        chip: "bg-[#e7f7f2] text-[#1f7a55]",
+        dot: "bg-[#1f9d72]",
+        bar: "bg-[#1f9d72]",
+      };
+    case "transfers_only":
+      return {
+        card: "border-[#d6e4f5] bg-[#f5f9fd]",
+        chip: "bg-[#e4eefb] text-[#2f5fa8]",
+        dot: "bg-[#3b6fd8]",
+        bar: "bg-[#3b6fd8]",
+      };
+    case "offline":
+      return {
+        card: "border-[#e6ecef] bg-white",
+        chip: "bg-[#eef2f3] text-[#718087]",
+        dot: "bg-[#a3adb1]",
+        bar: "bg-[#c5ced3]",
+      };
+    default:
+      // away, or a custom status such as "הפסקה"
+      return {
+        card: "border-[#f3dfc4] bg-[#fdf8f2]",
+        chip: "bg-[#fdeee0] text-[#c1651f]",
+        dot: "bg-[#e08a3c]",
+        bar: "bg-[#e08a3c]",
+      };
+  }
 }
 
 function readExcludedAgents(departmentId: string): string[] {
@@ -225,6 +263,10 @@ export function WaDashboardPageClient() {
     () => queueByDepartment(data?.queue ?? [], now),
     [data?.queue, now],
   );
+  const availability = useMemo(
+    () => sortAvailability(data?.availability ?? []),
+    [data?.availability],
+  );
   const firstResponseTiers = useMemo(
     () => firstResponseTierCounts(visibleRows, now),
     [visibleRows, now],
@@ -368,6 +410,77 @@ export function WaDashboardPageClient() {
                       {agent.agentName}
                       <span className="text-xs opacity-70">{agent.ticketCount}</span>
                     </label>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {data.availability.length > 0 && (
+            <section className="card overflow-hidden">
+              <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#f8fafb] px-5 py-3.5">
+                <div>
+                  <h2 className="flex items-center gap-2 text-base font-bold text-[#17242d]">
+                    <Radio size={18} className="text-[#1f9d72]" />
+                    זמינות נציגות · Zendesk
+                  </h2>
+                  <p className="mt-0.5 text-xs text-[#718087]">
+                    סטטוס וקיבולת Messaging מהניתוב של Zendesk (שיחות במקביל מתוך
+                    המקסימום). מתעדכן כל דקה.
+                  </p>
+                </div>
+                <span className="text-sm text-[#5d6d75]">
+                  <strong className="text-[#1f7a55]">
+                    {availability.filter((a) => a.status === "online").length}
+                  </strong>{" "}
+                  מקוונות ·{" "}
+                  <strong className="text-[#17242d]">
+                    {availability.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
+                  </strong>{" "}
+                  מקומות פנויים
+                </span>
+              </header>
+              <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {availability.map((agent) => {
+                  const free = freeMessagingSlots(agent);
+                  const max = agent.messagingMaxCapacity ?? 0;
+                  const load = max > 0 ? Math.min(1, agent.messagingWorkItems / max) : 0;
+                  const style = availabilityStyle(agent.status);
+                  return (
+                    <div
+                      key={agent.agentId}
+                      className={`rounded-xl border px-3 py-2.5 ${style.card}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <strong className="truncate text-sm text-[#17242d]">
+                          {agent.agentName}
+                        </strong>
+                        <span
+                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold ${style.chip}`}
+                        >
+                          <i className={`h-2 w-2 rounded-full ${style.dot}`} />
+                          {agentStatusLabel(agent.status)}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-[#e6ecef]">
+                          <div
+                            className={`h-full rounded-full ${style.bar}`}
+                            style={{ width: `${load * 100}%` }}
+                          />
+                        </div>
+                        <span dir="ltr" className="font-mono text-xs font-bold text-[#17242d]">
+                          {agent.messagingWorkItems}/{max || "—"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-[#718087]">
+                        {agent.status === "online"
+                          ? free > 0
+                            ? `פנויה לעוד ${free}`
+                            : "מלאה — לא תקבל שיחות חדשות"
+                          : "לא מקבלת שיחות חדשות"}
+                      </p>
+                    </div>
                   );
                 })}
               </div>

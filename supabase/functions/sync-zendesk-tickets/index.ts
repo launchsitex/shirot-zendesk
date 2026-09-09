@@ -244,7 +244,137 @@ async function sync(supabase: SupabaseClient, body: Record<string, unknown>) {
     cutoffMs,
   );
 
-  return { ...result, comments };
+  // Availability is not on the incremental export's ten-a-minute budget (it
+  // is a normal endpoint), so it rides along every run without cost to the
+  // ticket passes. A failure here is logged but must not fail the tickets.
+  let availability: Record<string, unknown>;
+  try {
+    availability = await syncAgentAvailability(supabase, { auth, base }, agentByEmail);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[sync-zendesk-tickets] availability failed", message);
+    availability = { error: message };
+  }
+
+  return { ...result, comments, availability };
+}
+
+/**
+ * Snapshot of every agent's status and messaging load from the Agent
+ * Availability API (20260909230000_zendesk_agent_availability). Statuses can
+ * be custom names ("הפסקה"), stored as given; the dashboards translate the
+ * built-in ones and show custom ones as they are.
+ */
+async function syncAgentAvailability(
+  supabase: SupabaseClient,
+  api: { auth: string; base: string },
+  agentByEmail: Map<string, string>,
+) {
+  const response = await fetch(
+    `${api.base}/agent_availabilities?include=channels&page[size]=100`,
+    {
+      headers: { Authorization: api.auth, Accept: "application/json" },
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `zendesk_availability_${response.status}:${(await response.text()).slice(0, 200)}`,
+    );
+  }
+  const page = await response.json() as {
+    data?: Array<{
+      attributes?: {
+        agent_id?: number;
+        agent_status?: { name?: string; reason?: string; updated_at?: string };
+        group_ids?: number[];
+      };
+    }>;
+    included?: Array<{
+      id?: string;
+      attributes?: {
+        name?: string;
+        status?: string;
+        work_item_count?: number;
+        max_capacity?: number;
+      };
+    }>;
+  };
+
+  // Channel rows are keyed "agent_availabilities|<agent>|channels|<name>".
+  const messagingByAgent = new Map<string, {
+    status?: string;
+    work_item_count?: number;
+    max_capacity?: number;
+  }>();
+  for (const channel of page.included ?? []) {
+    const attributes = channel.attributes ?? {};
+    if (attributes.name !== "messaging") continue;
+    const agentId = String(channel.id ?? "").split("|")[1];
+    if (agentId) messagingByAgent.set(agentId, attributes);
+  }
+
+  const agents = page.data ?? [];
+  const zendeskIds = agents
+    .map((row) => row.attributes?.agent_id)
+    .filter((id): id is number => id != null);
+
+  // Zendesk id -> email, to land on our roster the same way ticket assignees
+  // do. show_many takes up to 100 ids; this account has ~45 agents.
+  const emailById = new Map<string, string>();
+  for (let i = 0; i < zendeskIds.length; i += 100) {
+    const chunk = zendeskIds.slice(i, i + 100);
+    const users = await fetch(
+      `${api.base}/users/show_many.json?ids=${chunk.join(",")}`,
+      {
+        headers: { Authorization: api.auth, Accept: "application/json" },
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+    if (!users.ok) continue;
+    const body = await users.json() as {
+      users?: Array<{ id?: number; email?: string | null }>;
+    };
+    for (const user of body.users ?? []) {
+      if (user.id != null && user.email) {
+        emailById.set(String(user.id), user.email.trim().toLowerCase());
+      }
+    }
+  }
+
+  const now = new Date().toISOString();
+  const rows = agents.flatMap((row) => {
+    const attributes = row.attributes ?? {};
+    if (attributes.agent_id == null) return [];
+    const zendeskId = String(attributes.agent_id);
+    const messaging = messagingByAgent.get(zendeskId);
+    const email = emailById.get(zendeskId);
+    return [{
+      zendesk_agent_id: zendeskId,
+      agent_id: email ? (agentByEmail.get(email) ?? null) : null,
+      status_name: attributes.agent_status?.name ?? "unknown",
+      status_reason: attributes.agent_status?.reason ?? null,
+      status_updated_at: attributes.agent_status?.updated_at ?? null,
+      messaging_status: messaging?.status ?? null,
+      messaging_work_items: messaging?.work_item_count ?? 0,
+      messaging_max_capacity: messaging?.max_capacity ?? null,
+      group_ids: (attributes.group_ids ?? []).map(String),
+      synced_at: now,
+    }];
+  });
+
+  if (rows.length) {
+    const { error } = await supabase
+      .from("zendesk_agent_availability")
+      .upsert(rows, { onConflict: "zendesk_agent_id" });
+    if (error) throw new Error(`availability_upsert:${error.message}`);
+  }
+
+  return {
+    agents: rows.length,
+    mapped: rows.filter((row) => row.agent_id).length,
+    online: rows.filter((row) => row.status_name === "online").length,
+  };
 }
 
 /**

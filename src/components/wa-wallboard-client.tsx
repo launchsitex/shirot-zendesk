@@ -3,6 +3,7 @@
 import {
   Inbox,
   LoaderCircle,
+  Radio,
   LogOut,
   Maximize2,
   MessageCircle,
@@ -20,18 +21,20 @@ import {
 } from "@/lib/supabase/browser";
 import { formatPhone } from "@/lib/tickets";
 import {
+  agentStatusLabel,
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
   firstResponseUnderCount,
+  freeMessagingSlots,
   queueByDepartment,
+  sortAvailability,
   waitingTier,
   type WaDashboardPayload,
   type WaitingTierMinutes,
 } from "@/lib/wa-dashboard";
 
 const REFRESH_MS = 30_000;
-const WAITING_LIST_CAP = 24;
 const DEFAULT_DEPARTMENT_ID = "customer-service";
 
 function seconds(value: number | null): string {
@@ -159,6 +162,29 @@ export function WaWallboardClient() {
     () => queueByDepartment(data?.queue ?? [], now),
     [data?.queue, now],
   );
+  const availability = useMemo(
+    () => sortAvailability(data?.availability ?? []),
+    [data?.availability],
+  );
+
+  // Waiting customers grouped by their agent; groups ordered by the longest
+  // wait inside them, tickets already longest-first from currentlyWaiting.
+  const waitingByAgent = useMemo(() => {
+    const groups = new Map<string, { key: string; agentName: string; tickets: typeof waiting }>();
+    for (const ticket of waiting) {
+      const key = ticket.agentId ?? "unassigned";
+      const group = groups.get(key) ?? {
+        key,
+        agentName: ticket.agentName ?? "ללא שיוך נציג",
+        tickets: [],
+      };
+      group.tickets.push(ticket);
+      groups.set(key, group);
+    }
+    return [...groups.values()].sort(
+      (a, b) => b.tickets[0].waitedSeconds - a.tickets[0].waitedSeconds,
+    );
+  }, [waiting]);
   // First response — from the bot's handoff to the agent's first message —
   // as how many tickets crossed each tier today (unanswered ones count live).
   const tiers = useMemo(
@@ -281,6 +307,74 @@ export function WaWallboardClient() {
           />
         </section>
 
+        {availability.length > 0 && (
+          <article className="rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Radio className="text-[#6ee0d0]" size={24} />
+                <div>
+                  <h2 className="text-xl font-bold">זמינות נציגות</h2>
+                  <p className="text-xs text-white/45">
+                    סטטוס וקיבולת Messaging מ-Zendesk · שיחות במקביל מתוך המקסימום
+                  </p>
+                </div>
+              </div>
+              <span className="text-sm text-white/60">
+                <strong className="text-[#4fd39a]">
+                  {availability.filter((a) => a.status === "online").length}
+                </strong>{" "}
+                מקוונות ·{" "}
+                <strong className="text-white">
+                  {availability.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
+                </strong>{" "}
+                מקומות פנויים
+              </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              {availability.map((agent) => {
+                const free = freeMessagingSlots(agent);
+                const max = agent.messagingMaxCapacity ?? 0;
+                const load = max > 0 ? Math.min(1, agent.messagingWorkItems / max) : 0;
+                const tone = agent.status === "online"
+                  ? { chip: "bg-[#1f9d72] text-white", bar: "bg-[#4fd39a]" }
+                  : agent.status === "transfers_only"
+                  ? { chip: "bg-[#3b6fd8] text-white", bar: "bg-[#7eb6ff]" }
+                  : agent.status === "offline"
+                  ? { chip: "bg-[#5a6870] text-white", bar: "bg-white/25" }
+                  : { chip: "bg-[#c45d2a] text-white", bar: "bg-[#f0a15a]" };
+                return (
+                  <div
+                    key={agent.agentId}
+                    className={`rounded-2xl px-3 py-2.5 ${
+                      agent.status === "offline" ? "bg-white/4 opacity-60" : "bg-white/8"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="truncate text-sm">{agent.agentName}</strong>
+                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${tone.chip}`}>
+                        {agentStatusLabel(agent.status)}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/10">
+                        <div className={`h-full rounded-full ${tone.bar}`} style={{ width: `${load * 100}%` }} />
+                      </div>
+                      <span dir="ltr" className="font-mono text-sm font-bold">
+                        {agent.messagingWorkItems}/{max || "—"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-white/45">
+                      {agent.status === "online"
+                        ? free > 0 ? `פנויה לעוד ${free}` : "מלאה"
+                        : "לא מקבלת שיחות חדשות"}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </article>
+        )}
+
         <article className="rounded-2xl border border-[#e1a62b]/35 bg-[#2a2112] p-3.5">
           <div className="mb-2.5 flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -374,32 +468,55 @@ export function WaWallboardClient() {
             </strong>
           </div>
           {waiting.length ? (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {waiting.slice(0, WAITING_LIST_CAP).map((ticket) => {
-                const tone = tierTone(waitingTier(ticket.waitedSeconds));
+            // Every waiting customer, grouped by the agent responsible, so a
+            // manager reads the whole picture off the wall — no cap: the point
+            // of this screen is that nothing is hidden.
+            <div className="space-y-4">
+              {waitingByAgent.map((group) => {
+                const worst = tierTone(waitingTier(group.tickets[0].waitedSeconds));
                 return (
-                  <div
-                    key={ticket.id}
-                    className={`flex items-center justify-between rounded-2xl px-4 py-3 ${tone.bg}`}
-                  >
-                    <div className="min-w-0">
-                      <strong className="block truncate text-base">
-                        {ticket.customerName ?? formatPhone(ticket.customerPhone)}
-                      </strong>
-                      <span className="block text-xs text-white/45">
-                        {ticket.agentName ?? "ללא שיוך נציג"} ·{" "}
-                        <span dir="ltr">#{ticket.id}</span>
+                  <section key={group.key} className="rounded-2xl bg-white/[0.04] p-3">
+                    <div className="mb-2 flex items-center justify-between px-1">
+                      <h3 className="text-base font-bold">{group.agentName}</h3>
+                      <span className="flex items-center gap-3 text-sm">
+                        <span className="text-white/45">הארוך ביותר</span>
+                        <strong className={worst.text}>
+                          {formatDuration(group.tickets[0].waitedSeconds)}
+                        </strong>
+                        <strong className="rounded-full bg-white/10 px-2.5 py-0.5 text-[#8fd3c7]">
+                          {group.tickets.length}
+                        </strong>
                       </span>
                     </div>
-                    <div className="shrink-0 text-left">
-                      <span className={`block text-xl font-bold ${tone.text}`}>
-                        {formatDuration(ticket.waitedSeconds)}
-                      </span>
-                      <span className="block font-mono text-xs text-white/40">
-                        סה״כ {formatDuration(ticket.totalSeconds)}
-                      </span>
+                    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                      {group.tickets.map((ticket) => {
+                        const tone = tierTone(waitingTier(ticket.waitedSeconds));
+                        return (
+                          <div
+                            key={ticket.id}
+                            className={`flex items-center justify-between rounded-xl px-3 py-2 ${tone.bg}`}
+                          >
+                            <div className="min-w-0">
+                              <strong className="block truncate text-sm">
+                                {ticket.customerName ?? formatPhone(ticket.customerPhone)}
+                              </strong>
+                              <span dir="ltr" className="block text-xs text-white/40">
+                                #{ticket.id}
+                              </span>
+                            </div>
+                            <div className="shrink-0 text-left">
+                              <span className={`block text-lg font-bold leading-tight ${tone.text}`}>
+                                {formatDuration(ticket.waitedSeconds)}
+                              </span>
+                              <span className="block font-mono text-[11px] text-white/40">
+                                סה״כ {formatDuration(ticket.totalSeconds)}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
+                  </section>
                 );
               })}
             </div>

@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentStatusLabel,
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
   firstResponseUnderCount,
+  freeMessagingSlots,
   queueByDepartment,
+  sortAvailability,
   summarizeByAgent,
   summarizeTickets,
   waitingTier,
   waitingTierCounts,
+  type WaAgentAvailability,
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
 
@@ -165,6 +169,44 @@ describe("firstResponseUnderCount", () => {
       ticket({ id: "open", handedToAgentAt: "2026-09-06T08:11:00.000Z" }), // unanswered
     ];
     expect(firstResponseUnderCount(rows, 3)).toBe(1);
+  });
+});
+
+describe("availability", () => {
+  const agent = (over: Partial<WaAgentAvailability>): WaAgentAvailability => ({
+    agentId: "a",
+    agentName: "א",
+    departmentName: null,
+    status: "online",
+    statusSince: null,
+    messagingWorkItems: 0,
+    messagingMaxCapacity: 7,
+    syncedAt: "2026-09-06T08:00:00.000Z",
+    ...over,
+  });
+
+  it("free slots are capacity minus load while online, and none in any other status", () => {
+    expect(freeMessagingSlots(agent({ messagingWorkItems: 5 }))).toBe(2);
+    expect(freeMessagingSlots(agent({ messagingWorkItems: 9 }))).toBe(0);
+    expect(freeMessagingSlots(agent({ status: "away", messagingWorkItems: 1 }))).toBe(0);
+    expect(freeMessagingSlots(agent({ status: "הפסקה" }))).toBe(0);
+  });
+
+  it("sorts online-with-room first, then online-full, transfers, custom/away, offline", () => {
+    const sorted = sortAvailability([
+      agent({ agentId: "off", agentName: "ד", status: "offline" }),
+      agent({ agentId: "break", agentName: "ג", status: "הפסקה" }),
+      agent({ agentId: "full", agentName: "ב", messagingWorkItems: 7 }),
+      agent({ agentId: "room", agentName: "א", messagingWorkItems: 3 }),
+      agent({ agentId: "xfer", agentName: "ה", status: "transfers_only" }),
+    ]);
+    expect(sorted.map((a) => a.agentId)).toEqual(["room", "full", "xfer", "break", "off"]);
+  });
+
+  it("translates the built-in statuses and passes custom ones through", () => {
+    expect(agentStatusLabel("online")).toBe("מקוון");
+    expect(agentStatusLabel("transfers_only")).toBe("העברה בלבד");
+    expect(agentStatusLabel("הפסקה")).toBe("הפסקה");
   });
 });
 
