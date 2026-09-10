@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeAgentRole } from "@/lib/agent-roles";
 import { getDepartmentScope } from "@/lib/auth/department-scope";
 import { getMockDashboardData } from "@/lib/mock-data";
 import {
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest) {
   let agentsQuery = supabase
     .from("agents")
     .select(
-      "id,name,department_id,departments!department_id(name),agent_live_status(state,state_since,current_call_started_at)",
+      "id,name,department_id,role,departments!department_id(name),agent_live_status(state,state_since,current_call_started_at)",
     )
     .eq("active", true)
     .order("name");
@@ -306,6 +307,7 @@ export async function GET(request: NextRequest) {
       name: row.name,
       departmentId: row.department_id ?? "",
       departmentName: department?.name ?? "ללא מחלקה",
+      role: normalizeAgentRole((row as { role?: unknown }).role),
       state: forceOnCall ? "on_call" : liveState,
       stateSince: forceOnCall
         ? activeCall!.startedAt

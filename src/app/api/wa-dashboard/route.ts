@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeAgentRole } from "@/lib/agent-roles";
 import {
   businessClockFor,
   businessSecondsBetween,
@@ -263,7 +264,7 @@ export async function GET(request: NextRequest) {
     supabase
       .from("zendesk_agent_availability")
       .select(
-        "agent_id,status_name,status_updated_at,messaging_work_items,messaging_max_capacity,synced_at,agents!agent_id(name,department_id,departments!department_id(name))",
+        "agent_id,status_name,status_updated_at,messaging_work_items,messaging_max_capacity,synced_at,agents!agent_id(name,department_id,role,departments!department_id(name))",
       )
       .not("agent_id", "is", null),
     supabase
@@ -372,6 +373,7 @@ export async function GET(request: NextRequest) {
       agentId: row.agent_id,
       agentName: agent.name ?? row.agent_id,
       departmentName: department?.name ?? null,
+      role: normalizeAgentRole((agent as { role?: unknown }).role),
       status: row.status_name,
       statusSince: row.status_updated_at,
       messagingWorkItems: Number(row.messaging_work_items ?? 0),

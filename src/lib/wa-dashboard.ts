@@ -1,4 +1,9 @@
 import {
+  AGENT_ROLE_GROUP_LABELS,
+  AGENT_ROLES,
+  type AgentRole,
+} from "@/lib/agent-roles";
+import {
   businessOpenAt,
   businessSecondsBetween,
   type BusinessClock,
@@ -140,6 +145,8 @@ export type WaAgentAvailability = {
   agentId: string;
   agentName: string;
   departmentName: string | null;
+  /** Job role; the availability boxes group by it, answering agents first. */
+  role: AgentRole;
   /** online / away / transfers_only / offline, or a custom status name. */
   status: string;
   statusSince: string | null;
@@ -167,6 +174,33 @@ export function agentStatusLabel(status: string): string {
 export function freeMessagingSlots(agent: WaAgentAvailability): number {
   if (agent.status !== "online" || agent.messagingMaxCapacity == null) return 0;
   return Math.max(0, agent.messagingMaxCapacity - agent.messagingWorkItems);
+}
+
+export type AvailabilityGroup = {
+  role: AgentRole;
+  label: string;
+  agents: WaAgentAvailability[];
+};
+
+/**
+ * Availability split into one group per role, in role order (answering
+ * agents first, people who left last), each sorted like sortAvailability.
+ * Empty roles are left out.
+ */
+export function groupAvailabilityByRole(
+  agents: WaAgentAvailability[],
+): AvailabilityGroup[] {
+  return AGENT_ROLES.flatMap((role) => {
+    const members = agents.filter((agent) => agent.role === role);
+    return members.length
+      ? [{ role, label: AGENT_ROLE_GROUP_LABELS[role], agents: sortAvailability(members) }]
+      : [];
+  });
+}
+
+/** Only answering agents count toward "online" / "free slots" headline figures. */
+export function answeringAgents(agents: WaAgentAvailability[]): WaAgentAvailability[] {
+  return agents.filter((agent) => agent.role === "agent");
 }
 
 /** Online with room first, then online but full, then everyone else by status. */

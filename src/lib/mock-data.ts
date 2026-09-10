@@ -40,6 +40,8 @@ export function getMockDashboardData(): DashboardData {
       departmentName:
         departments.find((department) => department.id === departmentId)?.name ??
         "",
+      role: "agent",
+      role: "agent",
       state: states[index],
       stateSince: minutesAgo(2 + index * 3),
       currentCallStartedAt:

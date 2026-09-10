@@ -6,6 +6,8 @@ import {
   firstResponseTierCounts,
   firstResponseUnderCount,
   freeMessagingSlots,
+  groupAvailabilityByRole,
+  answeringAgents,
   queueByDepartment,
   sortAvailability,
   splitQueueByBusinessHours,
@@ -178,6 +180,7 @@ describe("availability", () => {
     agentId: "a",
     agentName: "א",
     departmentName: null,
+    role: "agent",
     status: "online",
     statusSince: null,
     messagingWorkItems: 0,
@@ -366,5 +369,34 @@ describe("splitQueueByBusinessHours", () => {
     );
     expect(inHours).toHaveLength(1);
     expect(afterHours).toHaveLength(0);
+  });
+});
+
+describe("groupAvailabilityByRole", () => {
+  const person = (agentId: string, role: "agent" | "manager" | "inactive", status = "online"): WaAgentAvailability => ({
+    agentId,
+    agentName: agentId,
+    departmentName: null,
+    role,
+    status,
+    statusSince: null,
+    messagingWorkItems: 0,
+    messagingMaxCapacity: 7,
+    syncedAt: "2026-09-10T05:00:00Z",
+  });
+
+  it("orders answering agents first and people who left last, skipping empty roles", () => {
+    const groups = groupAvailabilityByRole([
+      person("gone", "inactive", "offline"),
+      person("boss", "manager"),
+      person("a1", "agent"),
+    ]);
+    expect(groups.map((g) => g.role)).toEqual(["agent", "manager", "inactive"]);
+    expect(groups[0].label).toBe("נציגות מענה");
+  });
+
+  it("counts only answering agents in the headline figures", () => {
+    const all = [person("boss", "manager"), person("a1", "agent"), person("a2", "agent")];
+    expect(answeringAgents(all).map((a) => a.agentId)).toEqual(["a1", "a2"]);
   });
 });

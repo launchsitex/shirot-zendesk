@@ -25,6 +25,12 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
+import {
+  AGENT_ROLE_LABELS,
+  AGENT_ROLES,
+  type AgentRole,
+} from "@/lib/agent-roles";
+import type { AppProfile } from "@/lib/app-pages";
 import { useMissedCallThreshold } from "@/hooks/use-missed-call-threshold";
 import { splitCallsByBusinessHours } from "@/lib/business-hours";
 import { formatIsraelDateTime } from "@/lib/israel-time";
@@ -443,7 +449,88 @@ export function CallsHistory() {
   );
 }
 
+/**
+ * The role picker on an agent card. Admins get a select that saves on
+ * change (PATCH /api/agents); everyone else sees the role as text. The
+ * chosen value is kept locally until the next dashboard refresh brings it
+ * back from the server, so the card never flips back in between.
+ */
+function AgentRoleField({
+  agentId,
+  role,
+  canEdit,
+}: {
+  agentId: string;
+  role: AgentRole;
+  canEdit: boolean;
+}) {
+  const [value, setValue] = useState<AgentRole>(role);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  // Keyed by server value: when the server catches up the field re-syncs.
+  const [seen, setSeen] = useState(role);
+  if (seen !== role) {
+    setSeen(role);
+    setValue(role);
+  }
+
+  if (!canEdit) {
+    return <span className="text-[11px] text-[#829097]">{AGENT_ROLE_LABELS[role]}</span>;
+  }
+
+  async function save(next: AgentRole) {
+    setValue(next);
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/agents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId, role: next }),
+      });
+      if (!response.ok) throw new Error("save_failed");
+    } catch {
+      setError("השמירה נכשלה");
+      setValue(role);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <span className="flex items-center gap-1.5">
+      <select
+        value={value}
+        disabled={saving}
+        onChange={(event) => void save(event.target.value as AgentRole)}
+        aria-label="תפקיד"
+        className="rounded-lg border border-[#d7e0e4] bg-white px-1.5 py-0.5 text-[11px] text-[#17242d] disabled:opacity-60"
+      >
+        {AGENT_ROLES.map((option) => (
+          <option key={option} value={option}>
+            {AGENT_ROLE_LABELS[option]}
+          </option>
+        ))}
+      </select>
+      {error && <span className="text-[11px] text-[#c7502f]">{error}</span>}
+    </span>
+  );
+}
+
 export function AgentsTeams() {
+  // Only admins may change roles; the API enforces it too.
+  const [profile, setProfile] = useState<AppProfile | null>(null);
+  useEffect(() => {
+    fetch("/api/me", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const result = await response.json();
+        setProfile(result.profile ?? null);
+      })
+      .catch(() => undefined);
+  }, []);
+  const canEditRoles = profile?.role === "admin";
+
   // This page renders agents and departments only, but /api/dashboard always
   // ships the call list with them. Asking for today instead of letting the
   // route fall back to 31 days drops ~12k rows per refresh that were fetched
@@ -491,7 +578,11 @@ export function AgentsTeams() {
           <>
             <PageHeader
               title="נציגים וצוותים"
-              subtitle="מצב נציגים בחלוקה למחלקות בזמן אמת"
+              subtitle={
+                canEditRoles
+                  ? "מצב נציגים בחלוקה למחלקות בזמן אמת · התפקיד קובע את הקיבוץ ב״זמינות נציגות״ בדשבורדי WA"
+                  : "מצב נציגים בחלוקה למחלקות בזמן אמת"
+              }
               icon={<Users size={22} />}
             />
             <section className="mb-5 grid gap-3 sm:grid-cols-3">
@@ -546,8 +637,13 @@ export function AgentsTeams() {
                               <strong className="block truncate text-sm">
                                 {agent.name}
                               </strong>
-                              <span className="text-[11px] text-[#829097]">
+                              <span className="flex flex-wrap items-center gap-x-2 text-[11px] text-[#829097]">
                                 {section.name}
+                                <AgentRoleField
+                                  agentId={agent.id}
+                                  role={agent.role}
+                                  canEdit={canEditRoles}
+                                />
                               </span>
                             </div>
                           </div>

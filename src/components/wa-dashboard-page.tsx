@@ -20,9 +20,11 @@ import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
 import { formatPhone, statusLabel } from "@/lib/tickets";
 import {
   agentStatusLabel,
+  answeringAgents,
   currentlyWaiting,
   firstResponseElapsed,
   freeMessagingSlots,
+  groupAvailabilityByRole,
   sortAvailability,
   firstResponseTierCounts,
   firstResponseUnderCount,
@@ -277,6 +279,12 @@ export function WaDashboardPageClient() {
     () => sortAvailability(data?.availability ?? []),
     [data?.availability],
   );
+  // One block per job role, answering agents first (see agent-roles.ts).
+  const availabilityGroups = useMemo(
+    () => groupAvailabilityByRole(availability),
+    [availability],
+  );
+  const answering = useMemo(() => answeringAgents(availability), [availability]);
   const firstResponseTiers = useMemo(
     () => firstResponseTierCounts(visibleRows, now, clock),
     [visibleRows, now, clock],
@@ -440,18 +448,31 @@ export function WaDashboardPageClient() {
                   </p>
                 </div>
                 <span className="text-sm text-[#5d6d75]">
+                  נציגות מענה:{" "}
                   <strong className="text-[#1f7a55]">
-                    {availability.filter((a) => a.status === "online").length}
+                    {answering.filter((a) => a.status === "online").length}
                   </strong>{" "}
                   מקוונות ·{" "}
                   <strong className="text-[#17242d]">
-                    {availability.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
+                    {answering.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
                   </strong>{" "}
                   מקומות פנויים
                 </span>
               </header>
-              <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {availability.map((agent) => {
+              <div className="divide-y divide-[#edf1f3]">
+              {availabilityGroups.map((group) => (
+              <div key={group.role} className="p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[#17242d]">{group.label}</h3>
+                  <span className="text-xs text-[#718087]">
+                    <strong className="text-[#1f7a55]">
+                      {group.agents.filter((a) => a.status === "online").length}
+                    </strong>{" "}
+                    מקוונות מתוך {group.agents.length}
+                  </span>
+                </div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {group.agents.map((agent) => {
                   const free = freeMessagingSlots(agent);
                   const max = agent.messagingMaxCapacity ?? 0;
                   const load = max > 0 ? Math.min(1, agent.messagingWorkItems / max) : 0;
@@ -493,6 +514,9 @@ export function WaDashboardPageClient() {
                     </div>
                   );
                 })}
+              </div>
+              </div>
+              ))}
               </div>
             </section>
           )}

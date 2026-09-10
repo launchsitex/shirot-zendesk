@@ -32,11 +32,13 @@ import {
 } from "@/lib/wa-agent-filter";
 import {
   agentStatusLabel,
+  answeringAgents,
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
   firstResponseUnderCount,
   freeMessagingSlots,
+  groupAvailabilityByRole,
   queueByDepartment,
   sortAvailability,
   splitQueueByBusinessHours,
@@ -247,6 +249,13 @@ export function WaWallboardClient() {
       ),
     [data?.availability, excluded],
   );
+  // One box per job role, answering agents first — the account owner does
+  // not want managers and coordinators mixed in with the agents.
+  const availabilityGroups = useMemo(
+    () => groupAvailabilityByRole(availability),
+    [availability],
+  );
+  const answering = useMemo(() => answeringAgents(availability), [availability]);
 
   // Waiting customers grouped by their agent; groups ordered by the longest
   // wait inside them, tickets already longest-first from currentlyWaiting.
@@ -577,18 +586,31 @@ export function WaWallboardClient() {
                 </div>
               </div>
               <span className="text-sm text-white/60">
+                נציגות מענה:{" "}
                 <strong className="text-[#4fd39a]">
-                  {availability.filter((a) => a.status === "online").length}
+                  {answering.filter((a) => a.status === "online").length}
                 </strong>{" "}
                 מקוונות ·{" "}
                 <strong className="text-white">
-                  {availability.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
+                  {answering.reduce((sum, a) => sum + freeMessagingSlots(a), 0)}
                 </strong>{" "}
                 מקומות פנויים
               </span>
             </div>
+            <div className="space-y-4">
+            {availabilityGroups.map((group) => (
+            <section key={group.role}>
+              <div className="mb-2 flex items-center justify-between px-1">
+                <h3 className="text-sm font-bold text-white/80">{group.label}</h3>
+                <span className="text-xs text-white/45">
+                  <strong className="text-[#4fd39a]">
+                    {group.agents.filter((a) => a.status === "online").length}
+                  </strong>{" "}
+                  מקוונות מתוך {group.agents.length}
+                </span>
+              </div>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-              {availability.map((agent) => {
+              {group.agents.map((agent) => {
                 const free = freeMessagingSlots(agent);
                 const max = agent.messagingMaxCapacity ?? 0;
                 const load = max > 0 ? Math.min(1, agent.messagingWorkItems / max) : 0;
@@ -628,6 +650,9 @@ export function WaWallboardClient() {
                   </div>
                 );
               })}
+            </div>
+            </section>
+            ))}
             </div>
           </article>
         )}
