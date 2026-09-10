@@ -42,7 +42,7 @@ const DEFAULT_DEPARTMENT_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents!agent_id(name,departments!department_id(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,custom_status_id,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents!agent_id(name,departments!department_id(id,name))";
 
 type Row = {
   id: string;
@@ -52,6 +52,7 @@ type Row = {
   agent_id: string | null;
   assignee_name: string | null;
   status: string;
+  custom_status_id: string | null;
   zendesk_created_at: string;
   zendesk_updated_at: string;
   handed_to_agent_at: string | null;
@@ -116,7 +117,11 @@ const BACKLOG_FROM_DATE = "2026-09-08";
 const BACKLOG_LIMIT = 500;
 const MESSAGE_DATA_COMPLETE_FROM = jerusalemDayBounds(BACKLOG_FROM_DATE);
 
-function mapTicketRow(row: Row, clock: BusinessClock): WaTicketRow {
+function mapTicketRow(
+  row: Row,
+  clock: BusinessClock,
+  defaultOpenCustomStatusId: string | null,
+): WaTicketRow {
   const agent = (Array.isArray(row.agents) ? row.agents[0] : row.agents) as
     | {
         name?: string;
@@ -146,9 +151,19 @@ function mapTicketRow(row: Row, clock: BusinessClock): WaTicketRow {
   // Only a ticket in status "open" is waiting on the agent: "pending" and
   // "on-hold" mean the agent parked it (waiting on the customer or a
   // third party), "new" is still in the assignment queue, and solved or
-  // closed tickets are done.
+  // closed tickets are done. Within "open", only the *default* custom
+  // status ("פתוחה") counts — Zendesk's "open" category also covers custom
+  // statuses like "תזכורת" or "תאום לקוח", where the agent already triaged
+  // the ticket and parked it on purpose (account owner's rule, 2026-09-10,
+  // ticket #69875 — see 20260910140000_zendesk_custom_statuses). A ticket
+  // synced before that column existed has a null custom_status_id and is
+  // treated as the default so the wait keeps showing until the next sync.
+  const isDefaultOpenStatus =
+    row.custom_status_id == null ||
+    defaultOpenCustomStatusId == null ||
+    row.custom_status_id === defaultOpenCustomStatusId;
   const waitingSince =
-    row.status !== "open"
+    row.status !== "open" || !isDefaultOpenStatus
       ? null
       : lastAgent == null
         ? Date.parse(row.zendesk_created_at) >= Date.parse(MESSAGE_DATA_COMPLETE_FROM)
@@ -220,7 +235,7 @@ export async function GET(request: NextRequest) {
   const isToday = date === jerusalemToday();
   const backlogStart = MESSAGE_DATA_COMPLETE_FROM;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult, rolesResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult, rolesResult, customStatusResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -297,6 +312,14 @@ export async function GET(request: NextRequest) {
           .limit(BACKLOG_LIMIT)
       : Promise.resolve({ data: [] as Row[], error: null }),
     supabase.from("agent_roles").select("id,label,group_label,sort_order"),
+    // The default open custom status ("פתוחה") — see mapTicketRow for why
+    // only tickets on it count as the customer waiting for a reply.
+    supabase
+      .from("zendesk_custom_statuses")
+      .select("id")
+      .eq("status_category", "open")
+      .eq("is_default", true)
+      .maybeSingle(),
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
@@ -347,11 +370,14 @@ export async function GET(request: NextRequest) {
     hoursResult.data ? normalizeSchedule(hoursResult.data.schedule) : null,
   );
 
+  const defaultOpenCustomStatusId =
+    (customStatusResult.data as { id: string } | null)?.id ?? null;
+
   const rows: WaTicketRow[] = ((rowsResult.data ?? []) as Row[])
-    .map((row) => mapTicketRow(row, clock))
+    .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
     .filter((row) => row.departmentId === departmentId);
   const openBacklog: WaTicketRow[] = ((backlogResult.data ?? []) as Row[])
-    .map((row) => mapTicketRow(row, clock))
+    .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
     .filter((row) => row.departmentId === departmentId);
 
   const agents: AgentDirectory = {};

@@ -124,7 +124,7 @@ Agent pay and bonuses are computed from these figures; every definition below is
 | First response | Handoff → first **human** agent message (`first_agent_message_at`, from Messaging tag flips; the bot never flips). Credited to `first_response_agent_id` = the assignee at that moment |
 | Tiers | < 3 min (green) / ≥ 3 / ≥ 7 / ≥ 10 (nested); unanswered open tickets count live |
 | Time to close | Opening → `solved_at` (exact solved transition; `zendesk_updated_at` fallback). Credited to `solved_by_agent_id` |
-| Waiting for reply | **Status `open` only.** Customer wrote last: since `customer_waiting_since` (their first message after the agent's last), or since handoff when no agent has written. Covers today **plus** open tickets opened on/after **2026-09-08** (`BACKLOG_FROM_DATE`), the first day with complete tag-flip data |
+| Waiting for reply | **Status `open` on the *default* custom status only** (`custom_status_id` matches the "open" category's default — "פתוחה" — in `zendesk_custom_statuses`; other open sub-statuses like "תזכורת" or "תאום לקוח" mean the agent already parked it on purpose and don't count, 2026-09-10, ticket #69875). A ticket synced before `custom_status_id` existed is treated as default so it keeps showing. Customer wrote last: since `customer_waiting_since` (their first message after the agent's last), or since handoff when no agent has written. Covers today **plus** open tickets opened on/after **2026-09-08** (`BACKLOG_FROM_DATE`), the first day with complete tag-flip data |
 | Queue | Status `new`, no assignee, by routing group → department (`zendesk_group_departments`). Split into **in hours** / **after hours** by the handoff instant. Wall clock (pickup is wanted now). > 24h counted, not listed |
 | Agent picker | Excludes an agent from **every** figure on the screen; per department, localStorage, shared by dashboard and TV (`src/lib/wa-agent-filter.ts`) |
 | Availability | Zendesk Agent Availability API every minute: status (incl. custom e.g. "הפסקה"), messaging `work_item_count / max_capacity` (7; can exceed) |
@@ -147,10 +147,11 @@ Agent pay and bonuses are computed from these figures; every definition below is
 - `system_event_logs` — operational errors/warnings
 - `agent_day_analyses` — history of daily agent AI analyses
 - Feature flags in settings (e.g. `ai_call_analysis`)
-- `zendesk_tickets` — synced tickets (+ `handed_to_agent_at`, `first/last_agent_message_at`, `last_customer_message_at`, `customer_waiting_since`, `solved_at`, `first_response_agent_id`, `solved_by_agent_id`)
+- `zendesk_tickets` — synced tickets (+ `handed_to_agent_at`, `first/last_agent_message_at`, `last_customer_message_at`, `customer_waiting_since`, `solved_at`, `first_response_agent_id`, `solved_by_agent_id`, `custom_status_id`)
 - `zendesk_whatsapp_messages`, `zendesk_ticket_transitions` — Messaging tag flips / handoffs; status & assignee transitions
 - `zendesk_group_departments` — Zendesk routing group → department
 - `zendesk_agent_availability` — live agent status + messaging load (one row per Zendesk agent)
+- `zendesk_custom_statuses` — every Zendesk custom status (id, category, agent label, `is_default`); synced alongside availability, tells "פתוחה" apart from "תזכורת" etc. within status `open`
 - `wa_agent_daily` — stored daily WhatsApp record per agent (see WhatsApp section)
 - `israel_holidays`, `department_business_hours` — the business clock's inputs
 - `zendesk_sync_state` — export cursors (`last_start_time`, `last_events_start_time`); rewind via SQL to replay

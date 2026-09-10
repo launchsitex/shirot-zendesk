@@ -44,6 +44,7 @@ type ZendeskTicket = {
   requester_id?: number | null;
   assignee_id?: number | null;
   group_id?: number | null;
+  custom_status_id?: number | null;
   created_at: string;
   updated_at: string;
   via?: { channel?: string | null } | null;
@@ -198,6 +199,9 @@ async function sync(supabase: SupabaseClient, body: Record<string, unknown>) {
             ? (agentByEmail.get(assigneeEmail) ?? null)
             : null,
           group_id: ticket.group_id ? String(ticket.group_id) : null,
+          custom_status_id: ticket.custom_status_id
+            ? String(ticket.custom_status_id)
+            : null,
           // Promoted out of raw so the open-tickets page can exclude WhatsApp
           // with an indexed filter instead of probing JSONB on every row.
           via_channel: ticket.via?.channel ?? null,
@@ -256,7 +260,20 @@ async function sync(supabase: SupabaseClient, body: Record<string, unknown>) {
     availability = { error: message };
   }
 
-  return { ...result, comments, availability };
+  // Also a normal endpoint, off the incremental budget. Keeps
+  // zendesk_custom_statuses current as statuses are added or renamed —
+  // see 20260910140000_zendesk_custom_statuses for why this matters for
+  // "ממתין לתגובה".
+  let customStatuses: Record<string, unknown>;
+  try {
+    customStatuses = await syncCustomStatuses(supabase, { auth, base });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error("[sync-zendesk-tickets] custom statuses failed", message);
+    customStatuses = { error: message };
+  }
+
+  return { ...result, comments, availability, customStatuses };
 }
 
 /**
@@ -375,6 +392,59 @@ async function syncAgentAvailability(
     mapped: rows.filter((row) => row.agent_id).length,
     online: rows.filter((row) => row.status_name === "online").length,
   };
+}
+
+/**
+ * Every custom status, agent-facing label and which one is the *default* for
+ * its category ("פתוחה" for open — see 20260910140000_zendesk_custom_statuses).
+ * A handful of rows; fetched and replaced whole rather than upserted, so a
+ * status someone deletes in Zendesk disappears here too.
+ */
+async function syncCustomStatuses(
+  supabase: SupabaseClient,
+  api: { auth: string; base: string },
+) {
+  const response = await fetch(`${api.base}/custom_statuses`, {
+    headers: { Authorization: api.auth, Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `zendesk_custom_statuses_${response.status}:${(await response.text()).slice(0, 200)}`,
+    );
+  }
+  const page = await response.json() as {
+    custom_statuses?: Array<{
+      id: number;
+      status_category?: string;
+      agent_label?: string;
+      default?: boolean;
+      active?: boolean;
+    }>;
+  };
+
+  const rows = (page.custom_statuses ?? []).map((status) => ({
+    id: String(status.id),
+    status_category: status.status_category ?? "open",
+    agent_label: status.agent_label ?? "",
+    is_default: status.default === true,
+    active: status.active !== false,
+    synced_at: new Date().toISOString(),
+  }));
+
+  if (rows.length) {
+    const { error } = await supabase
+      .from("zendesk_custom_statuses")
+      .upsert(rows, { onConflict: "id" });
+    if (error) throw new Error(`custom_statuses_upsert:${error.message}`);
+    const keepIds = rows.map((row) => row.id);
+    await supabase
+      .from("zendesk_custom_statuses")
+      .delete()
+      .not("id", "in", `(${keepIds.join(",")})`);
+  }
+
+  return { statuses: rows.length };
 }
 
 /**
