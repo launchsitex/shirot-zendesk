@@ -107,15 +107,13 @@ type GroupRow = {
 
 const QUEUE_LIMIT = 200;
 
-// How far back "ממתינים לתגובה" looks for open tickets from earlier days.
-const BACKLOG_DAYS = 30;
+// "ממתינים לתגובה" also lists open tickets from earlier days — from this
+// Israel calendar day on, at the account owner's request: it is the day the
+// Messaging tag flips (who wrote last) and the bot handoff started being
+// tracked, so earlier tickets have no reliable "still unanswered" signal.
+const BACKLOG_FROM_DATE = "2026-09-08";
 const BACKLOG_LIMIT = 500;
-
-// Messaging tag flips (who wrote last) have been tracked since this day.
-// Before it, "no agent message on record" usually means no record, not no
-// reply — so an older ticket only counts as waiting on affirmative evidence
-// (customer_waiting_since), never on the absence of an agent message.
-const MESSAGE_DATA_COMPLETE_FROM = "2026-09-08T00:00:00.000Z";
+const MESSAGE_DATA_COMPLETE_FROM = jerusalemDayBounds(BACKLOG_FROM_DATE);
 
 function mapTicketRow(row: Row, clock: BusinessClock): WaTicketRow {
   const agent = (Array.isArray(row.agents) ? row.agents[0] : row.agents) as
@@ -219,9 +217,7 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("department") ?? DEFAULT_DEPARTMENT_ID;
 
   const isToday = date === jerusalemToday();
-  const backlogStart = new Date(
-    Date.parse(dayStart) - BACKLOG_DAYS * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const backlogStart = MESSAGE_DATA_COMPLETE_FROM;
 
   const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult] = await Promise.all([
     supabase
@@ -285,8 +281,8 @@ export async function GET(request: NextRequest) {
       .select("schedule")
       .eq("department_id", departmentId)
       .maybeSingle(),
-    // Open tickets from earlier days, for the live waiting list only —
-    // meaningless for a past date, so skipped there.
+    // Open tickets from earlier days (since BACKLOG_FROM_DATE), for the live
+    // waiting list only — meaningless for a past date, so skipped there.
     isToday
       ? supabase
           .from("zendesk_tickets")
