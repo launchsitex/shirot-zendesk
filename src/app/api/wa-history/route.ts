@@ -82,16 +82,41 @@ export async function GET(request: NextRequest) {
       { status: 400, headers: NO_STORE_HEADERS },
     );
   }
-  const previous = previousRange(from, to);
+  // The account owner can pick any period to compare against instead of the
+  // automatic equal-length period right before `from` — a slow month against
+  // the same month last quarter, say. Falls back to the automatic period
+  // when compareFrom/compareTo are absent or invalid.
+  const compareFrom = params.get("compareFrom");
+  const compareTo = params.get("compareTo");
+  const previous =
+    isIsoDay(compareFrom) && isIsoDay(compareTo) && compareFrom <= compareTo
+      ? { from: compareFrom, to: compareTo }
+      : previousRange(from, to);
+  if (daysBetween(previous.from, previous.to) > MAX_RANGE_DAYS) {
+    return NextResponse.json(
+      { error: "invalid_range" },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
   const departmentId = params.get("department") ?? DEFAULT_DEPARTMENT_ID;
 
-  const [rowsResult, departmentsResult, hoursResult] = await Promise.all([
+  // Two separate queries, not one contiguous range split at `from`: a
+  // manually picked comparison period need not be adjacent to the current
+  // one at all.
+  const [rowsResult, previousRowsResult, departmentsResult, hoursResult] = await Promise.all([
+    supabase
+      .from("wa_agent_daily")
+      .select(SELECT)
+      .eq("department_id", departmentId)
+      .gte("day", from)
+      .lte("day", to)
+      .order("day", { ascending: true }),
     supabase
       .from("wa_agent_daily")
       .select(SELECT)
       .eq("department_id", departmentId)
       .gte("day", previous.from)
-      .lte("day", to)
+      .lte("day", previous.to)
       .order("day", { ascending: true }),
     supabase
       .from("departments")
@@ -105,7 +130,8 @@ export async function GET(request: NextRequest) {
       .maybeSingle(),
   ]);
 
-  const failed = rowsResult.error ?? departmentsResult.error ?? hoursResult.error;
+  const failed = rowsResult.error ?? previousRowsResult.error ??
+    departmentsResult.error ?? hoursResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_history_query_failed", details: failed.message },
@@ -124,11 +150,8 @@ export async function GET(request: NextRequest) {
   }
 
   let computedAt: string | null = null;
-  const all: WaDailyRow[] = ((rowsResult.data ?? []) as Row[]).map((row) => {
+  const mapRow = (row: Row): WaDailyRow => {
     const agent = Array.isArray(row.agents) ? row.agents[0] : row.agents;
-    if (row.day >= from && (computedAt == null || row.computed_at > computedAt)) {
-      computedAt = row.computed_at;
-    }
     return {
       day: row.day,
       departmentId: row.department_id,
@@ -145,7 +168,12 @@ export async function GET(request: NextRequest) {
       over7Count: row.over_7_count,
       over10Count: row.over_10_count,
     };
+  };
+  const rows = ((rowsResult.data ?? []) as Row[]).map((row) => {
+    if (computedAt == null || row.computed_at > computedAt) computedAt = row.computed_at;
+    return mapRow(row);
   });
+  const previousRows = ((previousRowsResult.data ?? []) as Row[]).map(mapRow);
 
   const payload: WaHistoryPayload = {
     from,
@@ -153,8 +181,8 @@ export async function GET(request: NextRequest) {
     previous,
     department,
     departments,
-    rows: all.filter((row) => row.day >= from),
-    previousRows: all.filter((row) => row.day < from),
+    rows,
+    previousRows,
     businessHoursLabel: businessClockLabel(
       businessClockFor(hoursResult.data ? normalizeSchedule(hoursResult.data.schedule) : null),
     ),

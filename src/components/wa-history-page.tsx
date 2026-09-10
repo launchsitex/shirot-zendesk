@@ -159,6 +159,105 @@ function RangeForm({
   );
 }
 
+/**
+ * Lets the account owner pick a specific comparison period instead of the
+ * automatic equal-length period right before `from` — e.g. the same week a
+ * month ago, or last year's Pesach period. `current` is shown only to bound
+ * the picker's `max`; the two ranges need not be adjacent or equal length.
+ */
+function CompareForm({
+  from,
+  to,
+  max,
+  isCustom,
+  onSubmit,
+  onReset,
+}: {
+  from: string;
+  to: string;
+  max: string;
+  isCustom: boolean;
+  onSubmit: (range: { compareFrom: string; compareTo: string }) => void;
+  onReset: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDraftFrom(from);
+          setDraftTo(to);
+          setOpen(true);
+        }}
+        className="text-xs font-semibold text-[#158f83] hover:underline"
+      >
+        {isCustom ? "שינוי תקופת ההשוואה" : "בחירת תקופת השוואה"}
+      </button>
+    );
+  }
+  return (
+    <form
+      className="flex flex-wrap items-center gap-2 text-sm"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (draftFrom && draftTo && draftFrom <= draftTo) {
+          onSubmit({ compareFrom: draftFrom, compareTo: draftTo });
+          setOpen(false);
+        }
+      }}
+    >
+      <label className="flex items-center gap-1.5 text-[#5d6d75]">
+        להשוואה מ
+        <input
+          type="date"
+          value={draftFrom}
+          max={max}
+          onChange={(event) => setDraftFrom(event.target.value)}
+          className="rounded-lg border border-[#d7e0e4] px-2 py-1 text-[#17242d]"
+        />
+      </label>
+      <label className="flex items-center gap-1.5 text-[#5d6d75]">
+        עד
+        <input
+          type="date"
+          value={draftTo}
+          max={max}
+          onChange={(event) => setDraftTo(event.target.value)}
+          className="rounded-lg border border-[#d7e0e4] px-2 py-1 text-[#17242d]"
+        />
+      </label>
+      <button
+        type="submit"
+        className="rounded-lg bg-[#158f83] px-3 py-1.5 font-semibold text-white hover:bg-[#127a70]"
+      >
+        החל
+      </button>
+      {isCustom && (
+        <button
+          type="button"
+          onClick={() => {
+            onReset();
+            setOpen(false);
+          }}
+          className="text-xs font-semibold text-[#5d6d75] hover:underline"
+        >
+          איפוס לתקופה האוטומטית
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="text-xs text-[#a3adb1] hover:underline"
+      >
+        ביטול
+      </button>
+    </form>
+  );
+}
+
 const STAT_HEADERS = [
   "פניות",
   "נסגרו",
@@ -189,6 +288,11 @@ export function WaHistoryPageClient() {
   const initial = presetRange("this-week", today);
   const from = searchParams.get("from") ?? initial.from;
   const to = searchParams.get("to") ?? initial.to;
+  // Present only when the account owner picked a specific comparison period;
+  // absent means the automatic equal-length period right before `from`.
+  const compareFrom = searchParams.get("compareFrom");
+  const compareTo = searchParams.get("compareTo");
+  const hasCustomCompare = Boolean(compareFrom && compareTo);
 
   const [data, setData] = useState<WaHistoryPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -199,6 +303,10 @@ export function WaHistoryPageClient() {
     setError("");
     try {
       const params = new URLSearchParams({ from, to, department: departmentId });
+      if (hasCustomCompare) {
+        params.set("compareFrom", compareFrom!);
+        params.set("compareTo", compareTo!);
+      }
       const response = await fetch(`/api/wa-history?${params}`, { cache: "no-store" });
       const payload: WaHistoryPayload = await response.json();
       if (!response.ok) {
@@ -214,18 +322,32 @@ export function WaHistoryPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [from, to, departmentId]);
+  }, [from, to, departmentId, hasCustomCompare, compareFrom, compareTo]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load]);
 
-  function navigate(next: { from?: string; to?: string; department?: string }) {
+  function navigate(next: {
+    from?: string;
+    to?: string;
+    department?: string;
+    compareFrom?: string;
+    compareTo?: string;
+    clearCompare?: boolean;
+  }) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("from", next.from ?? from);
     params.set("to", next.to ?? to);
     params.set("department", next.department ?? departmentId);
+    if (next.clearCompare) {
+      params.delete("compareFrom");
+      params.delete("compareTo");
+    } else if (next.compareFrom && next.compareTo) {
+      params.set("compareFrom", next.compareFrom);
+      params.set("compareTo", next.compareTo);
+    }
     setExpanded(null);
     setLoading(true);
     router.replace(`${pathname}?${params}`);
@@ -337,8 +459,18 @@ export function WaHistoryPageClient() {
         {data && (
           <span className="text-xs text-[#a3adb1]">
             לעומת {dayLabel(data.previous.from)}–{dayLabel(data.previous.to)}
+            {hasCustomCompare && " (נבחר ידנית)"}
           </span>
         )}
+        <CompareForm
+          key={`${compareFrom ?? ""}|${compareTo ?? ""}`}
+          from={compareFrom ?? data?.previous.from ?? from}
+          to={compareTo ?? data?.previous.to ?? to}
+          max={today}
+          isCustom={hasCustomCompare}
+          onSubmit={(range) => navigate(range)}
+          onReset={() => navigate({ clearCompare: true })}
+        />
       </section>
 
       {error && (
