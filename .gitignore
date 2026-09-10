@@ -14,3 +14,6 @@ supabase/.temp/
 .deploy-payloads/
 .claude/
 .mcp.json
+
+# Secret values for moving the project between the owner's machines (never committed)
+HANDOFF_SECRETS.local.md
