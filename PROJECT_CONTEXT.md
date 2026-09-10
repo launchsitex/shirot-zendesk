@@ -69,6 +69,10 @@ Living document for agents and developers. Update this file when architecture, i
 | `/ai-analysis` | AI call analysis (admin + feature flag) |
 | `/agent-ai-analysis` | Daily agent AI analysis + history (admin + feature flag) |
 | `/status-report` | Agent status duration + “Next status” |
+| `/ticket-tracking` · `/ticket-tracking/open` | Zendesk ticket documentation tracking; open tickets |
+| `/wa-dashboard` | WhatsApp (Zendesk Messaging) dashboard — one day, tabs per department, agent picker |
+| `/wa-dashboard/tv?department=…` | WhatsApp wallboard (today only, full screen) |
+| `/wa-dashboard/history` | "ביצועי WA" — stored daily record per agent, ranges, previous-period deltas, CSV |
 | `/settings` | Integrations, webhook URL, flags |
 | `/users` | User management (admin) |
 | `/system-logs` | System event logs |
@@ -108,6 +112,29 @@ Relevant code:
 
 Hebrew labels live in `src/lib/israel-time.ts` (or related helpers). Wrap-up = After Call Work / סטטוס הבא from next history segment.
 
+## WhatsApp dashboards (Zendesk Messaging) — definitions that pay depends on
+
+Agent pay and bonuses are computed from these figures; every definition below is deliberate and must not drift. Pure logic lives in `src/lib/wa-dashboard.ts` (tested), the per-row mapping in `src/app/api/wa-dashboard/route.ts` (`mapTicketRow`), the stored daily record in `recompute_wa_agent_daily` (SQL, same definitions).
+
+| Figure | Definition |
+| --- | --- |
+| Day | Israel calendar day the ticket was **opened**; `via_channel = whatsapp`, `status <> deleted` |
+| Tickets / open / closed | Credited to the **current** assignee; closed = `solved` or `closed` |
+| Bot handoff | Status transition `open → new` (`handed_to_agent_at`). **Not** `OfferedToEvent`. Happens ≤1s after ticket creation — the bot chat has no ticket, so customers "in the bot" cannot be counted |
+| First response | Handoff → first **human** agent message (`first_agent_message_at`, from Messaging tag flips; the bot never flips). Credited to `first_response_agent_id` = the assignee at that moment |
+| Tiers | < 3 min (green) / ≥ 3 / ≥ 7 / ≥ 10 (nested); unanswered open tickets count live |
+| Time to close | Opening → `solved_at` (exact solved transition; `zendesk_updated_at` fallback). Credited to `solved_by_agent_id` |
+| Waiting for reply | **Status `open` only.** Customer wrote last: since `customer_waiting_since` (their first message after the agent's last), or since handoff when no agent has written. Covers today **plus** open tickets opened on/after **2026-09-08** (`BACKLOG_FROM_DATE`), the first day with complete tag-flip data |
+| Queue | Status `new`, no assignee, by routing group → department (`zendesk_group_departments`). Split into **in hours** / **after hours** by the handoff instant. Wall clock (pickup is wanted now). > 24h counted, not listed |
+| Agent picker | Excludes an agent from **every** figure on the screen; per department, localStorage, shared by dashboard and TV (`src/lib/wa-agent-filter.ts`) |
+| Availability | Zendesk Agent Availability API every minute: status (incl. custom e.g. "הפסקה"), messaging `work_item_count / max_capacity` (7; can exceed) |
+
+**Business clock** (`src/lib/business-clock.ts`, SQL twin `public.business_seconds`): every WhatsApp duration except the queue counts only inside the department's business hours (`department_business_hours`, currently Sun–Thu 08:00–15:00), never on Fridays/Saturdays, Israeli holidays or their eves (`src/lib/israel-holidays.ts` from the Hebrew calendar via Intl; SQL table `israel_holidays` seeded 2026–2030 — regenerate before 2031). Independent of the after-hours call-routing flag. Chol HaMoed, Purim and Memorial Day eve are working days.
+
+**How Messaging data reaches us** (not obvious): live WhatsApp messages are not ticket comments — the whole chat lands later as one `chat_transcript`. "Who wrote last" comes from a Zendesk Messaging trigger flipping tags `last_whatsapp_reply_agent` / `last_whatsapp_reply_customer`, read from the incremental `ticket_events` export (`added_tags`) by Edge `sync-zendesk-tickets` into `zendesk_whatsapp_messages`, then `recompute_whatsapp_activity` / `recompute_ticket_transitions`. Reliable from 2026-09-08 (partial from 2026-08-25).
+
+**Stored daily record:** `wa_agent_daily` (sums, not averages) rebuilt by pg_cron `wa-agent-daily-rollup` (today + yesterday, every 10 min) and `wa-agent-daily-rollup-nightly` (31 days, 00:30 UTC). Backfilled from 2026-08-01. Read by `/api/wa-history`.
+
 ## Key Supabase tables / concepts
 
 - `calls` — live + history; `status`: `in_progress` | `answered` | `missed`
@@ -119,6 +146,13 @@ Hebrew labels live in `src/lib/israel-time.ts` (or related helpers). Wrap-up = A
 - `system_event_logs` — operational errors/warnings
 - `agent_day_analyses` — history of daily agent AI analyses
 - Feature flags in settings (e.g. `ai_call_analysis`)
+- `zendesk_tickets` — synced tickets (+ `handed_to_agent_at`, `first/last_agent_message_at`, `last_customer_message_at`, `customer_waiting_since`, `solved_at`, `first_response_agent_id`, `solved_by_agent_id`)
+- `zendesk_whatsapp_messages`, `zendesk_ticket_transitions` — Messaging tag flips / handoffs; status & assignee transitions
+- `zendesk_group_departments` — Zendesk routing group → department
+- `zendesk_agent_availability` — live agent status + messaging load (one row per Zendesk agent)
+- `wa_agent_daily` — stored daily WhatsApp record per agent (see WhatsApp section)
+- `israel_holidays`, `department_business_hours` — the business clock's inputs
+- `zendesk_sync_state` — export cursors (`last_start_time`, `last_events_start_time`); rewind via SQL to replay
 
 ## Edge functions
 
@@ -129,7 +163,9 @@ Hebrew labels live in `src/lib/israel-time.ts` (or related helpers). Wrap-up = A
 | `stream-recording` | off | Authenticated stream + URL refresh |
 | `analyze-recording` | off | Gemini single-call analysis (Hold/Transfer-aware) |
 | `analyze-agent-day` | off | Gemini daily agent analysis; writes `agent_day_analyses` |
-| `admin-users` | on | User CRUD via service role |
+| `admin-users` | on | User CRUD via service role; owns its own `ALL_PAGES` list — add every new page there too (v14) |
+| `sync-zendesk-tickets` | off | Every minute (pg_cron): incremental tickets + events export, WhatsApp tag flips, transitions, agent availability (v10) |
+| `zendesk-probe` | off | Diagnostic only (deployed, no local copy): ticket audits, events since, allow-listed GET; `x-sync-secret` |
 | `sync-live` / `sync-history` / `sync-recordings` | off | Legacy/Zendesk-era sync helpers (Talk path largely replaced by Aircall) |
 
 Deploy via Supabase MCP or CLI with project access. Local CLI may 403 if the logged-in org lacks privileges on this project — use MCP `deploy_edge_function` then.
@@ -161,6 +197,9 @@ Seeded: **שירות לקוחות**, **אספקות**. Mapping from Aircall Team
 - Commit/push only when the user asks; prefer `main` when they request production deploy
 - When fixing live status bugs: inspect `agent_live_status` **and** open `calls` rows together — UI bugs are often stale `in_progress`, not wrong live state
 - Keep `CHANGELOG.md` updated on every meaningful change; keep `PROJECT_CONTEXT.md` updated after product/architecture changes
+- **PostgREST embeds:** any new table with FKs to two existing tables (e.g. `wa_agent_daily` → agents + departments) makes PostgREST treat it as a junction and every unhinted embed between those tables answers 300 / `PGRST201` (the app then 500s). Before applying such a migration, hint the FK column in every embed — `agents!agent_id(...)`, `departments!department_id(...)` — in `src/app/api/**` and `supabase/functions/**`; verify with an anon-key curl (300 vs 200) and Supabase `edge_logs`
+- New pages go in three places: `src/lib/app-pages.ts`, `src/components/sidebar.tsx`, and `ALL_PAGES` + `pageLabel` in `supabase/functions/admin-users` (redeploy)
+- Zendesk: run `gh auth switch --user launchsitex` before pushing if the gh CLI account flipped
 
 ## Local commands
 
