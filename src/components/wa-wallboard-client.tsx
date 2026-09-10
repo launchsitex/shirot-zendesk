@@ -256,6 +256,12 @@ export function WaWallboardClient() {
     [availability, data?.roles],
   );
   const answering = useMemo(() => answeringAgents(availability), [availability]);
+  // Tickets each agent is credited with solving today (the same figure as
+  // "נסגרו היום" in the dashboard's agent table), shown on her availability card.
+  const closedToday = useMemo(
+    () => new Map(allAgents.map((agent) => [agentKey(agent.agentId), agent.closedCount])),
+    [allAgents],
+  );
 
   // Waiting customers grouped by their agent; groups ordered by the longest
   // wait inside them, tickets already longest-first from currentlyWaiting.
@@ -642,10 +648,18 @@ export function WaWallboardClient() {
                         {agent.messagingWorkItems}/{max || "—"}
                       </span>
                     </div>
-                    <p className="mt-1 text-[11px] text-white/45">
-                      {agent.status === "online"
-                        ? free > 0 ? `פנויה לעוד ${free}` : "מלאה"
-                        : "לא מקבלת שיחות חדשות"}
+                    <p className="mt-1 flex items-center justify-between gap-2 text-[11px] text-white/45">
+                      <span>
+                        {agent.status === "online"
+                          ? free > 0 ? `פנויה לעוד ${free}` : "מלאה"
+                          : "לא מקבלת שיחות חדשות"}
+                      </span>
+                      <span className="shrink-0">
+                        נפתרו היום{" "}
+                        <strong className="text-sm text-[#6ee0d0]">
+                          {closedToday.get(agent.agentId) ?? 0}
+                        </strong>
+                      </span>
                     </p>
                   </div>
                 );
