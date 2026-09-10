@@ -14,6 +14,7 @@ import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import { formatSecondsLabel } from "@/lib/metrics";
 import {
   agentsToCsv,
+  daysBetween,
   dayLabel,
   presetRange,
   RANGE_PRESET_LABELS,
@@ -25,6 +26,13 @@ import {
   type WaHistoryPayload,
   type WaPeriodStats,
 } from "@/lib/wa-history";
+
+/** "יום אחד" / "יומיים" / "N ימים" — how the team actually says a day count. */
+function dayCountLabel(days: number): string {
+  if (days === 1) return "יום אחד";
+  if (days === 2) return "יומיים";
+  return `${days} ימים`;
+}
 
 const DEFAULT_DEPARTMENT_ID = "customer-service";
 /** First day with complete handoff data; earlier days have partial response figures. */
@@ -458,8 +466,11 @@ export function WaHistoryPageClient() {
         />
         {data && (
           <span className="text-xs text-[#a3adb1]">
-            לעומת {dayLabel(data.previous.from)}–{dayLabel(data.previous.to)}
-            {hasCustomCompare && " (נבחר ידנית)"}
+            לעומת {dayLabel(data.previous.from)}–{dayLabel(data.previous.to)} (
+            {dayCountLabel(daysBetween(data.previous.from, data.previous.to))})
+            {hasCustomCompare && " · נבחר ידנית"}
+            {" — התקופה הנוכחית: "}
+            {dayCountLabel(daysBetween(data.from, data.to))}
           </span>
         )}
         <CompareForm
