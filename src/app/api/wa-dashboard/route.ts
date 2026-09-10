@@ -150,7 +150,7 @@ function mapTicketRow(row: Row, clock: BusinessClock): WaTicketRow {
     row.status !== "open"
       ? null
       : lastAgent == null
-        ? row.zendesk_created_at >= MESSAGE_DATA_COMPLETE_FROM
+        ? Date.parse(row.zendesk_created_at) >= Date.parse(MESSAGE_DATA_COMPLETE_FROM)
           ? clockStart
           : null
         : row.customer_waiting_since;
