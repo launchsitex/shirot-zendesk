@@ -128,6 +128,7 @@ Agent pay and bonuses are computed from these figures; every definition below is
 | Queue | Status `new`, no assignee, by routing group → department (`zendesk_group_departments`). Split into **in hours** / **after hours** by the handoff instant. Wall clock (pickup is wanted now). > 24h counted, not listed |
 | Agent picker | Excludes an agent from **every** figure on the screen; per department, localStorage, shared by dashboard and TV (`src/lib/wa-agent-filter.ts`) |
 | Availability | Zendesk Agent Availability API every minute: status (incl. custom e.g. "הפסקה"), messaging `work_item_count / max_capacity` (7; can exceed) |
+| Agent roles | `agents.role` (`src/lib/agent-roles.ts`): agent · branches · retention · shift_lead · coordinator · manager · inactive. Set by admins in "נציגים וצוותים" (`PATCH /api/agents`). **Only** the availability boxes read it — grouped in that order, answering agents first, headline counts on answering agents only. Never used for crediting tickets or pay |
 
 **Business clock** (`src/lib/business-clock.ts`, SQL twin `public.business_seconds`): every WhatsApp duration except the queue counts only inside the department's business hours (`department_business_hours`, currently Sun–Thu 08:00–15:00), never on Fridays/Saturdays, Israeli holidays or their eves (`src/lib/israel-holidays.ts` from the Hebrew calendar via Intl; SQL table `israel_holidays` seeded 2026–2030 — regenerate before 2031). Independent of the after-hours call-routing flag. Chol HaMoed, Purim and Memorial Day eve are working days.
 
@@ -140,7 +141,7 @@ Agent pay and bonuses are computed from these figures; every definition below is
 - `calls` — live + history; `status`: `in_progress` | `answered` | `missed`
 - `agent_live_status` — current presence for wallboard
 - `agent_status_history` — duration / status report
-- `agents`, `departments`, `department_lines`, `department_groups`
+- `agents` (+ `role`, see WhatsApp section), `departments`, `department_lines`, `department_groups`
 - `call_recordings` — URLs expire (S3); refresh via Aircall API on 403 (`_shared/recordings.ts`)
 - `aircall_webhook_events` — idempotent delivery (hash)
 - `system_event_logs` — operational errors/warnings
