@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { normalizeAgentRole } from "@/lib/agent-roles";
+import { normalizeAgentRole, sortAgentRoles, type AgentRoleDef } from "@/lib/agent-roles";
 import {
   businessClockFor,
   businessSecondsBetween,
@@ -220,7 +220,7 @@ export async function GET(request: NextRequest) {
   const isToday = date === jerusalemToday();
   const backlogStart = MESSAGE_DATA_COMPLETE_FROM;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult, rolesResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -296,11 +296,12 @@ export async function GET(request: NextRequest) {
           .order("zendesk_created_at", { ascending: true })
           .limit(BACKLOG_LIMIT)
       : Promise.resolve({ data: [] as Row[], error: null }),
+    supabase.from("agent_roles").select("id,label,group_label,sort_order"),
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
     departmentsResult.error ?? agentsResult.error ?? availabilityResult.error ??
-    hoursResult.error ?? backlogResult.error;
+    hoursResult.error ?? backlogResult.error ?? rolesResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
@@ -382,6 +383,20 @@ export async function GET(request: NextRequest) {
     }];
   });
 
+  const roles: AgentRoleDef[] = sortAgentRoles(
+    ((rolesResult.data ?? []) as {
+      id: string;
+      label: string;
+      group_label: string;
+      sort_order: number;
+    }[]).map((row) => ({
+      id: row.id,
+      label: row.label,
+      groupLabel: row.group_label,
+      sortOrder: row.sort_order,
+    })),
+  );
+
   const payload: WaDashboardPayload = {
     date,
     businessHours: clock,
@@ -401,6 +416,7 @@ export async function GET(request: NextRequest) {
     departments,
     agents,
     availability,
+    roles,
     syncedAt: syncResult.data?.last_run_at ?? null,
   };
 

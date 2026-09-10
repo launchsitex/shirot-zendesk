@@ -25,11 +25,8 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useBusinessHoursConfig } from "@/hooks/use-business-hours";
-import {
-  AGENT_ROLE_LABELS,
-  AGENT_ROLES,
-  type AgentRole,
-} from "@/lib/agent-roles";
+import { useAgentRoles } from "@/hooks/use-agent-roles";
+import { agentRoleLabel, type AgentRoleDef } from "@/lib/agent-roles";
 import type { AppProfile } from "@/lib/app-pages";
 import { useMissedCallThreshold } from "@/hooks/use-missed-call-threshold";
 import { splitCallsByBusinessHours } from "@/lib/business-hours";
@@ -458,13 +455,15 @@ export function CallsHistory() {
 function AgentRoleField({
   agentId,
   role,
+  roles,
   canEdit,
 }: {
   agentId: string;
-  role: AgentRole;
+  role: string;
+  roles: AgentRoleDef[];
   canEdit: boolean;
 }) {
-  const [value, setValue] = useState<AgentRole>(role);
+  const [value, setValue] = useState(role);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   // Keyed by server value: when the server catches up the field re-syncs.
@@ -475,10 +474,10 @@ function AgentRoleField({
   }
 
   if (!canEdit) {
-    return <span className="text-[11px] text-[#829097]">{AGENT_ROLE_LABELS[role]}</span>;
+    return <span className="text-[11px] text-[#829097]">{agentRoleLabel(roles, role)}</span>;
   }
 
-  async function save(next: AgentRole) {
+  async function save(next: string) {
     setValue(next);
     setSaving(true);
     setError("");
@@ -502,15 +501,18 @@ function AgentRoleField({
       <select
         value={value}
         disabled={saving}
-        onChange={(event) => void save(event.target.value as AgentRole)}
+        onChange={(event) => void save(event.target.value)}
         aria-label="תפקיד"
         className="rounded-lg border border-[#d7e0e4] bg-white px-1.5 py-0.5 text-[11px] text-[#17242d] disabled:opacity-60"
       >
-        {AGENT_ROLES.map((option) => (
-          <option key={option} value={option}>
-            {AGENT_ROLE_LABELS[option]}
+        {roles.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
           </option>
         ))}
+        {!roles.some((option) => option.id === value) && (
+          <option value={value}>{agentRoleLabel(roles, value)}</option>
+        )}
       </select>
       {error && <span className="text-[11px] text-[#c7502f]">{error}</span>}
     </span>
@@ -530,6 +532,7 @@ export function AgentsTeams() {
       .catch(() => undefined);
   }, []);
   const canEditRoles = profile?.role === "admin";
+  const { roles } = useAgentRoles();
 
   // This page renders agents and departments only, but /api/dashboard always
   // ships the call list with them. Asking for today instead of letting the
@@ -642,6 +645,7 @@ export function AgentsTeams() {
                                 <AgentRoleField
                                   agentId={agent.id}
                                   role={agent.role}
+                                  roles={roles}
                                   canEdit={canEditRoles}
                                 />
                               </span>

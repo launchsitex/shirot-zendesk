@@ -1,57 +1,63 @@
 /**
- * Job roles for agents, kept on `agents.role` and set by admins in
- * "נציגים וצוותים". The only thing that reads them is "זמינות נציגות" on
- * the WhatsApp screens, which groups answering agents first and everyone
- * else after — tickets, waiting lists and pay figures ignore the role and
- * stay with whoever handled the conversation.
+ * Job roles for agents — data the admin manages in Settings ("תפקידי
+ * נציגות", table `agent_roles`), kept on `agents.role`. The only thing that
+ * reads them is "זמינות נציגות" on the WhatsApp screens, which groups
+ * answering agents first and everyone else after, in the roles' order.
+ * Tickets, waiting lists and pay figures ignore the role and stay with
+ * whoever handled the conversation.
  *
- * The order here is the display order. `inactive` is for people who left:
- * they sit in the last group until a replacement arrives and gets a role.
- * Adding a role means adding it here and to the CHECK constraint in
- * supabase/migrations/20260910100000_agent_roles.sql.
+ * `agent` is the default role of every new agent and cannot be deleted;
+ * `answeringAgents` in wa-dashboard.ts is defined by it.
  */
-export const AGENT_ROLES = [
-  "agent",
-  "branches",
-  "retention",
-  "shift_lead",
-  "coordinator",
-  "manager",
-  "inactive",
-] as const;
-
-export type AgentRole = (typeof AGENT_ROLES)[number];
-
-export const AGENT_ROLE_LABELS: Record<AgentRole, string> = {
-  agent: "נציגת מענה",
-  branches: "נציגת סניפים",
-  retention: "שימור לקוחות",
-  shift_lead: "אחמ\"שית",
-  coordinator: "מתאמת",
-  manager: "מנהלת",
-  inactive: "לא עובד/ת",
+export type AgentRoleDef = {
+  id: string;
+  /** Singular, for the picker on an agent card ("נציגת מענה"). */
+  label: string;
+  /** Plural, for the availability group heading ("נציגות מענה"). */
+  groupLabel: string;
+  sortOrder: number;
 };
 
-/** Plural group headings for the availability boxes. */
-export const AGENT_ROLE_GROUP_LABELS: Record<AgentRole, string> = {
-  agent: "נציגות מענה",
-  branches: "נציגות סניפים",
-  retention: "שימור לקוחות",
-  shift_lead: "אחמ\"שיות",
-  coordinator: "מתאמות",
-  manager: "מנהלות",
-  inactive: "לא עובדות",
-};
+export const DEFAULT_AGENT_ROLE = "agent";
 
-export function isAgentRole(value: unknown): value is AgentRole {
-  return typeof value === "string" && (AGENT_ROLES as readonly string[]).includes(value);
-}
+/**
+ * The roles as first seeded, used while the list is still loading and as the
+ * name for a role id the list no longer knows (never expected after the FK,
+ * but the screens must not crash on it).
+ */
+export const FALLBACK_AGENT_ROLES: AgentRoleDef[] = [
+  { id: "agent", label: "נציגת מענה", groupLabel: "נציגות מענה", sortOrder: 10 },
+  { id: "branches", label: "נציגת סניפים", groupLabel: "נציגות סניפים", sortOrder: 20 },
+  { id: "retention", label: "שימור לקוחות", groupLabel: "שימור לקוחות", sortOrder: 30 },
+  { id: "shift_lead", label: "אחמ\"שית", groupLabel: "אחמ\"שיות", sortOrder: 40 },
+  { id: "coordinator", label: "מתאמת", groupLabel: "מתאמות", sortOrder: 50 },
+  { id: "manager", label: "מנהלת", groupLabel: "מנהלות", sortOrder: 60 },
+  { id: "inactive", label: "לא עובד/ת", groupLabel: "לא עובדות", sortOrder: 70 },
+];
 
 /** Anything unknown (old rows, a bad value) reads as an answering agent. */
-export function normalizeAgentRole(value: unknown): AgentRole {
-  return isAgentRole(value) ? value : "agent";
+export function normalizeAgentRole(value: unknown): string {
+  return typeof value === "string" && value.trim() ? value : DEFAULT_AGENT_ROLE;
 }
 
-export function agentRoleLabel(role: AgentRole): string {
-  return AGENT_ROLE_LABELS[role];
+export function sortAgentRoles(roles: AgentRoleDef[]): AgentRoleDef[] {
+  return [...roles].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.label.localeCompare(b.label, "he"),
+  );
+}
+
+export function agentRoleLabel(roles: AgentRoleDef[], id: string): string {
+  return (
+    roles.find((role) => role.id === id)?.label ??
+    FALLBACK_AGENT_ROLES.find((role) => role.id === id)?.label ??
+    id
+  );
+}
+
+export function agentRoleGroupLabel(roles: AgentRoleDef[], id: string): string {
+  return (
+    roles.find((role) => role.id === id)?.groupLabel ??
+    FALLBACK_AGENT_ROLES.find((role) => role.id === id)?.groupLabel ??
+    id
+  );
 }

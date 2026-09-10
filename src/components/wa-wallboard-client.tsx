@@ -252,8 +252,8 @@ export function WaWallboardClient() {
   // One box per job role, answering agents first — the account owner does
   // not want managers and coordinators mixed in with the agents.
   const availabilityGroups = useMemo(
-    () => groupAvailabilityByRole(availability),
-    [availability],
+    () => groupAvailabilityByRole(availability, data?.roles ?? []),
+    [availability, data?.roles],
   );
   const answering = useMemo(() => answeringAgents(availability), [availability]);
 

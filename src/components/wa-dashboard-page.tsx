@@ -281,8 +281,8 @@ export function WaDashboardPageClient() {
   );
   // One block per job role, answering agents first (see agent-roles.ts).
   const availabilityGroups = useMemo(
-    () => groupAvailabilityByRole(availability),
-    [availability],
+    () => groupAvailabilityByRole(availability, data?.roles ?? []),
+    [availability, data?.roles],
   );
   const answering = useMemo(() => answeringAgents(availability), [availability]);
   const firstResponseTiers = useMemo(

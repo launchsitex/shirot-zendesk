@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { AGENT_ROLES } from "@/lib/agent-roles";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +8,7 @@ const NO_STORE_HEADERS = { "Cache-Control": "no-store, must-revalidate" };
 
 const roleSchema = z.object({
   agentId: z.string().trim().min(1),
-  role: z.enum(AGENT_ROLES),
+  role: z.string().trim().min(1).max(60),
 });
 
 /**
@@ -44,6 +43,19 @@ export async function PATCH(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: "invalid_body" },
+      { status: 400, headers: NO_STORE_HEADERS },
+    );
+  }
+
+  // The FK would reject an unknown role too; this is just a clearer answer.
+  const { data: known } = await supabase
+    .from("agent_roles")
+    .select("id")
+    .eq("id", parsed.data.role)
+    .maybeSingle();
+  if (!known) {
+    return NextResponse.json(
+      { error: "unknown_role" },
       { status: 400, headers: NO_STORE_HEADERS },
     );
   }

@@ -373,7 +373,12 @@ describe("splitQueueByBusinessHours", () => {
 });
 
 describe("groupAvailabilityByRole", () => {
-  const person = (agentId: string, role: "agent" | "manager" | "inactive", status = "online"): WaAgentAvailability => ({
+  const roles = [
+    { id: "agent", label: "נציגת מענה", groupLabel: "נציגות מענה", sortOrder: 10 },
+    { id: "manager", label: "מנהלת", groupLabel: "מנהלות", sortOrder: 60 },
+    { id: "inactive", label: "לא עובד/ת", groupLabel: "לא עובדות", sortOrder: 70 },
+  ];
+  const person = (agentId: string, role: string, status = "online"): WaAgentAvailability => ({
     agentId,
     agentName: agentId,
     departmentName: null,
@@ -386,13 +391,24 @@ describe("groupAvailabilityByRole", () => {
   });
 
   it("orders answering agents first and people who left last, skipping empty roles", () => {
-    const groups = groupAvailabilityByRole([
-      person("gone", "inactive", "offline"),
-      person("boss", "manager"),
-      person("a1", "agent"),
-    ]);
+    const groups = groupAvailabilityByRole(
+      [person("gone", "inactive", "offline"), person("boss", "manager"), person("a1", "agent")],
+      roles,
+    );
     expect(groups.map((g) => g.role)).toEqual(["agent", "manager", "inactive"]);
     expect(groups[0].label).toBe("נציגות מענה");
+  });
+
+  it("follows the admin's order and keeps an unknown role id visible at the end", () => {
+    const reordered = roles.map((role) =>
+      role.id === "manager" ? { ...role, sortOrder: 5 } : role,
+    );
+    const groups = groupAvailabilityByRole(
+      [person("a1", "agent"), person("boss", "manager"), person("x", "sales")],
+      reordered,
+    );
+    expect(groups.map((g) => g.role)).toEqual(["manager", "agent", "sales"]);
+    expect(groups[2].label).toBe("sales");
   });
 
   it("counts only answering agents in the headline figures", () => {

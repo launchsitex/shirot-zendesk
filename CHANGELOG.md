@@ -9,6 +9,23 @@
 
 ---
 
+## [2026-09-10] — מסך "תפקידי נציגות" בהגדרות
+
+- **הגדרות → תפקידי נציגות**: הוספת תפקיד (שם ביחיד לבחירה + כותרת
+  הקבוצה ברבים), שינוי שם, סדר (חצים למעלה/למטה) ומחיקה. הסדר הוא סדר
+  הקבוצות ב"זמינות נציגות". "נציגת מענה" הוא ברירת המחדל של כל נציגה
+  חדשה ולא נמחק; תפקיד עם נציגות לא נמחק עד שמעבירים אותן.
+- הרשימה כבר לא קבועה בקוד: טבלה `agent_roles` + FK מ-`agents.role`
+  (במקום ה-CHECK). ה-FK הופך את `agents` ל"טבלת קישור" בעיני PostgREST
+  בין מחלקות לתפקידים — אין embed כזה, וכל ה-embeds הקיימים נבדקו (200).
+- `/api/settings/agent-roles` (GET לכל מחובר; POST/PATCH/DELETE למנהל
+  מערכת), `/api/wa-dashboard` מחזיר `roles`, hook `useAgentRoles`.
+- מיגרציה: `supabase/migrations/20260910120000_agent_roles_table.sql`.
+  קבצים: `src/components/agent-roles-settings.tsx`, `src/lib/agent-roles.ts`,
+  `src/hooks/use-agent-roles.ts`, `src/components/settings-tabs.tsx`.
+
+---
+
 ## [2026-09-10] — תפקיד לכל נציגה; "זמינות נציגות" מקובץ לפי תפקיד
 
 ### מוצר

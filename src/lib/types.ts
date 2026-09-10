@@ -1,4 +1,3 @@
-import type { AgentRole } from "@/lib/agent-roles";
 export type AgentState =
   | "available"
   | "ringing"
@@ -25,8 +24,8 @@ export interface Agent {
   name: string;
   departmentId: string;
   departmentName: string;
-  /** Job role (src/lib/agent-roles.ts); only the WhatsApp availability boxes read it. */
-  role: AgentRole;
+  /** Job role id (agent_roles, see src/lib/agent-roles.ts); only the WhatsApp availability boxes read it. */
+  role: string;
   state: AgentState;
   stateSince: string;
   currentCallStartedAt?: string;

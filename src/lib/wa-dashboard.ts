@@ -1,7 +1,8 @@
 import {
-  AGENT_ROLE_GROUP_LABELS,
-  AGENT_ROLES,
-  type AgentRole,
+  agentRoleGroupLabel,
+  DEFAULT_AGENT_ROLE,
+  sortAgentRoles,
+  type AgentRoleDef,
 } from "@/lib/agent-roles";
 import {
   businessOpenAt,
@@ -145,8 +146,8 @@ export type WaAgentAvailability = {
   agentId: string;
   agentName: string;
   departmentName: string | null;
-  /** Job role; the availability boxes group by it, answering agents first. */
-  role: AgentRole;
+  /** Job role id; the availability boxes group by it, answering agents first. */
+  role: string;
   /** online / away / transfers_only / offline, or a custom status name. */
   status: string;
   statusSince: string | null;
@@ -177,30 +178,36 @@ export function freeMessagingSlots(agent: WaAgentAvailability): number {
 }
 
 export type AvailabilityGroup = {
-  role: AgentRole;
+  role: string;
   label: string;
   agents: WaAgentAvailability[];
 };
 
 /**
- * Availability split into one group per role, in role order (answering
- * agents first, people who left last), each sorted like sortAvailability.
- * Empty roles are left out.
+ * Availability split into one group per role, in the order the admin set in
+ * Settings (answering agents first, people who left last), each sorted like
+ * sortAvailability. Empty roles are left out; a role id the list does not
+ * know goes last under its own id rather than disappearing.
  */
 export function groupAvailabilityByRole(
   agents: WaAgentAvailability[],
+  roles: AgentRoleDef[],
 ): AvailabilityGroup[] {
-  return AGENT_ROLES.flatMap((role) => {
+  const known = sortAgentRoles(roles).map((role) => role.id);
+  const unknown = [...new Set(agents.map((agent) => agent.role))].filter(
+    (id) => !known.includes(id),
+  );
+  return [...known, ...unknown].flatMap((role) => {
     const members = agents.filter((agent) => agent.role === role);
     return members.length
-      ? [{ role, label: AGENT_ROLE_GROUP_LABELS[role], agents: sortAvailability(members) }]
+      ? [{ role, label: agentRoleGroupLabel(roles, role), agents: sortAvailability(members) }]
       : [];
   });
 }
 
-/** Only answering agents count toward "online" / "free slots" headline figures. */
+/** Only answering agents (the default role) count toward the headline "online" / "free slots". */
 export function answeringAgents(agents: WaAgentAvailability[]): WaAgentAvailability[] {
-  return agents.filter((agent) => agent.role === "agent");
+  return agents.filter((agent) => agent.role === DEFAULT_AGENT_ROLE);
 }
 
 /** Online with room first, then online but full, then everyone else by status. */
@@ -252,6 +259,8 @@ export type WaDashboardPayload = {
   agents: AgentDirectory;
   /** This department's agents, live from Zendesk routing. */
   availability: WaAgentAvailability[];
+  /** Job roles from Settings, in display order — the availability groups. */
+  roles: AgentRoleDef[];
   syncedAt: string | null;
 };
 
