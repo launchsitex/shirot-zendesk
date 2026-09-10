@@ -8,6 +8,7 @@ import {
   Maximize2,
   MessageCircle,
   Minimize2,
+  MoonStar,
   UsersRound,
   X,
 } from "lucide-react";
@@ -20,7 +21,9 @@ import {
   createSupabaseBrowserClient,
   isSupabaseBrowserConfigured,
 } from "@/lib/supabase/browser";
-import { businessClockLabel, businessOpenAt } from "@/lib/business-clock";
+import { businessClockLabel } from "@/lib/business-clock";
+import { formatIsraelDate, jerusalemToday } from "@/lib/israel-time";
+import { dayLabel } from "@/lib/wa-history";
 import { formatPhone } from "@/lib/tickets";
 import {
   agentKey,
@@ -36,9 +39,11 @@ import {
   freeMessagingSlots,
   queueByDepartment,
   sortAvailability,
+  splitQueueByBusinessHours,
   summarizeByDepartment,
   summarizeTickets,
   waitingTier,
+  type QueueGroup,
   type WaDashboardPayload,
   type WaitingTierMinutes,
 } from "@/lib/wa-dashboard";
@@ -204,16 +209,34 @@ export function WaWallboardClient() {
   // recorded ones in the rows already do, server-side).
   const clock = data?.businessHours ?? null;
   const clockLabel = businessClockLabel(clock);
-  // After hours nobody is expected to pick the queue up, so the queue is
-  // titled for what it is then: customers waiting for the next shift.
-  const openNow = businessOpenAt(now, clock);
-  const waiting = useMemo(
-    () => currentlyWaiting(visibleRows, now, clock),
-    [visibleRows, now, clock],
+  const todayIsrael = jerusalemToday(now);
+  // Open tickets from earlier days, same agent picker applied.
+  const backlogRows = useMemo(
+    () =>
+      (data?.openBacklog ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
+    [data?.openBacklog, excluded],
   );
-  const queue = useMemo(
-    () => queueByDepartment(data?.queue ?? [], now),
-    [data?.queue, now],
+  // Every open conversation with the department's agents, today's and
+  // earlier days' alike — a customer from Sunday still waiting on Wednesday
+  // belongs on the wall as much as one from this morning.
+  const waiting = useMemo(
+    () => currentlyWaiting([...visibleRows, ...backlogRows], now, clock),
+    [visibleRows, backlogRows, now, clock],
+  );
+  // Two queues: tickets the bot handed over during business hours (someone
+  // should take them now) and ones handed over after hours (they wait for
+  // the next shift at opening time). Both by department.
+  const queueSplit = useMemo(
+    () => splitQueueByBusinessHours(data?.queue ?? [], clock),
+    [data?.queue, clock],
+  );
+  const queueInHours = useMemo(
+    () => queueByDepartment(queueSplit.inHours, now),
+    [queueSplit.inHours, now],
+  );
+  const queueAfterHours = useMemo(
+    () => queueByDepartment(queueSplit.afterHours, now),
+    [queueSplit.afterHours, now],
   );
   const availability = useMemo(
     () =>
@@ -441,66 +464,24 @@ export function WaWallboardClient() {
           />
         </section>
 
-        <article className="rounded-2xl border border-[#e1a62b]/35 bg-[#2a2112] p-3.5">
-          <div className="mb-2.5 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Inbox className="text-[#f0c15a]" size={20} />
-              <h2 className="text-base font-bold">
-                {openNow ? "ממתינים לשיוך נציגה" : "ממתינים אחרי שעות הפעילות"}
-              </h2>
-              <span className="text-xs text-[#f0c15a]/60">
-                {openNow
-                  ? "הבוט העביר, אף אחת עוד לא לקחה · לפי מחלקה"
-                  : "הבוט העביר מחוץ לשעות הפעילות, ייענו במשמרת הבאה · לפי מחלקה"}
-              </span>
-            </div>
-            <strong className="rounded-full bg-[#f0c15a] px-3 py-1 text-lg text-[#2a2112]">
-              {queue.reduce((sum, group) => sum + group.tickets.length, 0)}
-            </strong>
-          </div>
-          {queue.length ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {queue.map((group) => (
-                <div key={group.departmentName} className="rounded-xl bg-[#3a2e14]/60 p-2.5">
-                  <div className="mb-2 flex items-center justify-between px-1">
-                    <strong className="text-sm">{group.departmentName}</strong>
-                    <span className="flex items-center gap-2 text-sm">
-                      {group.olderCount > 0 && (
-                        <span className="text-xs text-white/40">+{group.olderCount} ישנות מיממה</span>
-                      )}
-                      <span className="font-bold text-[#f0c15a]">{group.tickets.length}</span>
-                    </span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {group.tickets.map((ticket) => {
-                      const tone = tierTone(waitingTier(ticket.waitedSeconds));
-                      return (
-                        <div
-                          key={ticket.id}
-                          className={`flex items-center justify-between rounded-xl px-3 py-2 ${tone.bg}`}
-                        >
-                          <div className="min-w-0">
-                            <strong className="block truncate text-sm">
-                              {ticket.customerName ?? formatPhone(ticket.customerPhone)}
-                            </strong>
-                            <span dir="ltr" className="text-xs text-white/45">#{ticket.id}</span>
-                          </div>
-                          <span className={`shrink-0 text-base font-bold ${tone.text}`}>
-                            {formatDuration(ticket.waitedSeconds)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="py-2 text-center text-sm text-[#f0c15a]/70">
-              אין פניות שממתינות לשיוך
-            </p>
-          )}
-        </article>
+        <section className="grid gap-4 md:grid-cols-2">
+          <QueueBox
+            tone="amber"
+            icon={<Inbox className="text-[#f0c15a]" size={20} />}
+            title="ממתינים לשיוך נציגה"
+            hint="הבוט העביר בשעות הפעילות, אף אחת עוד לא לקחה · לפי מחלקה"
+            empty="אין פניות שממתינות לשיוך"
+            groups={queueInHours}
+          />
+          <QueueBox
+            tone="night"
+            icon={<MoonStar className="text-[#9ec1f5]" size={20} />}
+            title="ממתינים אחרי שעות הפעילות"
+            hint="הבוט העביר מחוץ לשעות הפעילות · ייענו עם פתיחת המשמרת · לפי מחלקה"
+            empty="אין פניות שהגיעו אחרי שעות הפעילות"
+            groups={queueAfterHours}
+          />
+        </section>
 
         <article className="flex-1 rounded-3xl border border-white/10 bg-white/5 p-5">
           <div className="mb-4 flex items-center justify-between">
@@ -509,8 +490,8 @@ export function WaWallboardClient() {
               <div>
                 <h2 className="text-xl font-bold">ממתינים לתגובה</h2>
                 <p className="text-xs text-white/45">
-                  הזמן הגדול — מאז ההודעה של הלקוח שעדיין לא נענתה · הקטן —
-                  סה״כ מאז פתיחת הפנייה
+                  כל הפניות הפתוחות אצל הנציגות, גם מימים קודמים · הזמן הגדול —
+                  מאז ההודעה של הלקוח שעדיין לא נענתה · הקטן — סה״כ מאז פתיחת הפנייה
                 </p>
               </div>
             </div>
@@ -554,6 +535,11 @@ export function WaWallboardClient() {
                               <span dir="ltr" className="block text-xs text-white/40">
                                 #{ticket.id}
                               </span>
+                              {formatIsraelDate(ticket.createdAt) !== todayIsrael && (
+                                <span className="block text-[11px] text-[#9ec1f5]/80">
+                                  נפתחה {dayLabel(formatIsraelDate(ticket.createdAt))}
+                                </span>
+                              )}
                             </div>
                             <div className="shrink-0 text-left">
                               <span className={`block text-lg font-bold leading-tight ${tone.text}`}>
@@ -573,7 +559,7 @@ export function WaWallboardClient() {
             </div>
           ) : (
             <p className="py-8 text-center text-lg text-white/40">
-              כל הפניות היום קיבלו תגובה ראשונה
+              אין לקוחות שממתינים לתגובה
             </p>
           )}
         </article>
@@ -664,6 +650,98 @@ export function WaWallboardClient() {
         )}
       </div>
     </div>
+  );
+}
+
+const QUEUE_TONES = {
+  amber: {
+    box: "border-[#e1a62b]/35 bg-[#2a2112]",
+    hint: "text-[#f0c15a]/60",
+    badge: "bg-[#f0c15a] text-[#2a2112]",
+    group: "bg-[#3a2e14]/60",
+    count: "text-[#f0c15a]",
+    empty: "text-[#f0c15a]/70",
+  },
+  night: {
+    box: "border-[#5b7fb8]/35 bg-[#16233a]",
+    hint: "text-[#9ec1f5]/60",
+    badge: "bg-[#9ec1f5] text-[#16233a]",
+    group: "bg-[#213456]/60",
+    count: "text-[#9ec1f5]",
+    empty: "text-[#9ec1f5]/70",
+  },
+} as const;
+
+/** One queue box: unassigned tickets by department, longest wait first. */
+function QueueBox({
+  tone,
+  icon,
+  title,
+  hint,
+  empty,
+  groups,
+}: {
+  tone: keyof typeof QUEUE_TONES;
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  empty: string;
+  groups: QueueGroup[];
+}) {
+  const t = QUEUE_TONES[tone];
+  return (
+    <article className={`rounded-2xl border p-3.5 ${t.box}`}>
+      <div className="mb-2.5 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {icon}
+          <h2 className="shrink-0 text-base font-bold">{title}</h2>
+          <span className={`truncate text-xs ${t.hint}`}>{hint}</span>
+        </div>
+        <strong className={`shrink-0 rounded-full px-3 py-1 text-lg ${t.badge}`}>
+          {groups.reduce((sum, group) => sum + group.tickets.length, 0)}
+        </strong>
+      </div>
+      {groups.length ? (
+        <div className="grid gap-3">
+          {groups.map((group) => (
+            <div key={group.departmentName} className={`rounded-xl p-2.5 ${t.group}`}>
+              <div className="mb-2 flex items-center justify-between px-1">
+                <strong className="text-sm">{group.departmentName}</strong>
+                <span className="flex items-center gap-2 text-sm">
+                  {group.olderCount > 0 && (
+                    <span className="text-xs text-white/40">+{group.olderCount} ישנות מיממה</span>
+                  )}
+                  <span className={`font-bold ${t.count}`}>{group.tickets.length}</span>
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {group.tickets.map((ticket) => {
+                  const tier = tierTone(waitingTier(ticket.waitedSeconds));
+                  return (
+                    <div
+                      key={ticket.id}
+                      className={`flex items-center justify-between rounded-xl px-3 py-2 ${tier.bg}`}
+                    >
+                      <div className="min-w-0">
+                        <strong className="block truncate text-sm">
+                          {ticket.customerName ?? formatPhone(ticket.customerPhone)}
+                        </strong>
+                        <span dir="ltr" className="text-xs text-white/45">#{ticket.id}</span>
+                      </div>
+                      <span className={`shrink-0 text-base font-bold ${tier.text}`}>
+                        {formatDuration(ticket.waitedSeconds)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className={`py-2 text-center text-sm ${t.empty}`}>{empty}</p>
+      )}
+    </article>
   );
 }
 

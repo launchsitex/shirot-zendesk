@@ -8,6 +8,7 @@ import {
   freeMessagingSlots,
   queueByDepartment,
   sortAvailability,
+  splitQueueByBusinessHours,
   summarizeByAgent,
   summarizeTickets,
   waitingTier,
@@ -329,5 +330,41 @@ describe("summarizeTickets", () => {
     expect(stats.awaitingReply).toBe(1);
     expect(stats.closedCount).toBe(1);
     expect(stats.avgTimeToCloseSeconds).toBe(900);
+  });
+});
+
+describe("splitQueueByBusinessHours", () => {
+  const officeHours = [0, 1, 2, 3, 4, 5, 6].map((day) => ({
+    day: day as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+    isOpen: day <= 4,
+    open: "08:00",
+    close: "15:00",
+  }));
+  const queued = (id: string, handedToAgentAt: string) => ({
+    id,
+    customerName: null,
+    customerPhone: null,
+    departmentId: "customer-service",
+    departmentName: "שירות לקוחות",
+    createdAt: handedToAgentAt,
+    handedToAgentAt,
+  });
+
+  it("puts a handoff inside the hours in one box and an evening one in the other", () => {
+    const { inHours, afterHours } = splitQueueByBusinessHours(
+      [queued("a", "2026-09-09T07:30:00Z"), queued("b", "2026-09-09T17:00:00Z")],
+      officeHours,
+    );
+    expect(inHours.map((t) => t.id)).toEqual(["a"]);
+    expect(afterHours.map((t) => t.id)).toEqual(["b"]);
+  });
+
+  it("treats everything as in hours without a schedule", () => {
+    const { inHours, afterHours } = splitQueueByBusinessHours(
+      [queued("b", "2026-09-09T17:00:00Z")],
+      null,
+    );
+    expect(inHours).toHaveLength(1);
+    expect(afterHours).toHaveLength(0);
   });
 });

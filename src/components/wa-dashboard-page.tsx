@@ -7,6 +7,7 @@ import {
   Inbox,
   LoaderCircle,
   MessageCircle,
+  MoonStar,
   Radio,
   RefreshCw,
   Timer,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
+import { formatIsraelDate, formatIsraelDateTime, jerusalemToday } from "@/lib/israel-time";
 import { formatDuration, formatSecondsLabel } from "@/lib/metrics";
 import { formatPhone, statusLabel } from "@/lib/tickets";
 import {
@@ -27,6 +28,8 @@ import {
   firstResponseUnderCount,
   hourlyBuckets,
   queueByDepartment,
+  splitQueueByBusinessHours,
+  type QueueGroup,
   summarizeByDepartment,
   summarizeTickets,
   waitingTier,
@@ -35,8 +38,9 @@ import {
   type WaitingTierMinutes,
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
-import { readExcludedAgents, writeExcludedAgents } from "@/lib/wa-agent-filter";
-import { businessClockLabel, businessOpenAt } from "@/lib/business-clock";
+import { agentKey, readExcludedAgents, writeExcludedAgents } from "@/lib/wa-agent-filter";
+import { businessClockLabel } from "@/lib/business-clock";
+import { dayLabel } from "@/lib/wa-history";
 
 const REFRESH_MS = 30_000;
 const DEFAULT_DEPARTMENT_ID = "customer-service";
@@ -243,16 +247,31 @@ export function WaDashboardPageClient() {
   // recorded ones in the rows already do, server-side).
   const clock = data?.businessHours ?? null;
   const clockLabel = businessClockLabel(clock);
-  // After hours nobody is expected to pick the queue up, so the queue is
-  // titled for what it is then: customers waiting for the next shift.
-  const openNow = businessOpenAt(now, clock);
-  const waiting = useMemo(
-    () => currentlyWaiting(visibleRows, now, clock),
-    [visibleRows, now, clock],
+  // Open tickets from earlier days (today only), same agent picker applied.
+  const backlogRows = useMemo(
+    () =>
+      (data?.openBacklog ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
+    [data?.openBacklog, excluded],
   );
-  const queue = useMemo(
-    () => queueByDepartment(data?.queue ?? [], now),
-    [data?.queue, now],
+  // Every open conversation with the department's agents, today's and
+  // earlier days' alike.
+  const waiting = useMemo(
+    () => currentlyWaiting([...visibleRows, ...backlogRows], now, clock),
+    [visibleRows, backlogRows, now, clock],
+  );
+  // Two queues: handed over during business hours (someone should take them
+  // now) and after hours (they wait for the next shift). Both by department.
+  const queueSplit = useMemo(
+    () => splitQueueByBusinessHours(data?.queue ?? [], clock),
+    [data?.queue, clock],
+  );
+  const queueInHours = useMemo(
+    () => queueByDepartment(queueSplit.inHours, now),
+    [queueSplit.inHours, now],
+  );
+  const queueAfterHours = useMemo(
+    () => queueByDepartment(queueSplit.afterHours, now),
+    [queueSplit.afterHours, now],
   );
   const availability = useMemo(
     () => sortAvailability(data?.availability ?? []),
@@ -478,82 +497,24 @@ export function WaDashboardPageClient() {
             </section>
           )}
 
-          <section className="card overflow-hidden border-2 border-[#f3d9a4]">
-            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#fdf3dc] px-5 py-3.5">
-              <div>
-                <h2 className="flex items-center gap-2 text-base font-bold text-[#7a5a0f]">
-                  <Inbox size={18} />
-                  {openNow ? "ממתינים לשיוך נציגה" : "ממתינים אחרי שעות הפעילות"}
-                </h2>
-                <p className="mt-0.5 text-xs text-[#7a5a0f]/70">
-                  {openNow
-                    ? "הבוט העביר לנציגות ואף אחת עוד לא לקחה את הפנייה. הזמן נספר מרגע ההעברה. לא מושפע מבורר הנציגות."
-                    : "הבוט העביר מחוץ לשעות הפעילות; ייענו במשמרת הבאה. הזמן נספר מרגע ההעברה. לא מושפע מבורר הנציגות."}
-                </p>
-              </div>
-              <strong className="text-lg font-bold text-[#7a5a0f]">
-                {queue.reduce((sum, group) => sum + group.tickets.length, 0)} בתור
-              </strong>
-            </header>
-            {queue.length === 0 ? (
-              <p className="px-5 py-6 text-center text-sm text-[#1f7a55]">
-                אין פניות שממתינות לשיוך.
-              </p>
-            ) : (
-              <div className="divide-y divide-[#edf1f3]">
-                {queue.map((group) => (
-                  <div key={group.departmentName}>
-                    <div className="flex items-center justify-between bg-[#fbfcfd] px-5 py-2">
-                      <strong className="text-sm font-bold text-[#17242d]">
-                        {group.departmentName}
-                      </strong>
-                      <span className="flex items-center gap-2">
-                        {group.olderCount > 0 && (
-                          <span
-                            className="text-xs text-[#a3adb1]"
-                            title="פניות ללא שיוך שממתינות יותר מיממה — לא ברשימה, כדי שלא יסתירו את מי שממתין עכשיו"
-                          >
-                            +{group.olderCount} ישנות מיממה
-                          </span>
-                        )}
-                        <span className="rounded-lg bg-[#fdf3dc] px-2.5 py-0.5 text-xs font-bold text-[#7a5a0f]">
-                          {group.tickets.length}
-                        </span>
-                      </span>
-                    </div>
-                    {group.tickets.length > 0 && (
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[560px] border-collapse text-sm">
-                        <tbody>
-                          {group.tickets.map((ticket) => (
-                            <tr key={ticket.id} className="border-t border-[#edf1f3]">
-                              <td dir="ltr" className="w-28 px-4 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
-                                #{ticket.id}
-                              </td>
-                              <td className="px-4 py-2.5 text-[#17242d]">
-                                {ticket.customerName ?? "—"}
-                              </td>
-                              <td dir="ltr" className="px-4 py-2.5 text-right text-[#5d6d75]">
-                                {formatPhone(ticket.customerPhone)}
-                              </td>
-                              <td className="w-40 px-4 py-2.5 text-center">
-                                <span
-                                  className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(ticket.waitedSeconds))}`}
-                                >
-                                  {formatDuration(ticket.waitedSeconds)}
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <QueueSection
+              tone="amber"
+              icon={<Inbox size={18} />}
+              title="ממתינים לשיוך נציגה"
+              hint="הבוט העביר בשעות הפעילות ואף אחת עוד לא לקחה את הפנייה. הזמן נספר מרגע ההעברה. לא מושפע מבורר הנציגות."
+              empty="אין פניות שממתינות לשיוך."
+              groups={queueInHours}
+            />
+            <QueueSection
+              tone="night"
+              icon={<MoonStar size={18} />}
+              title="ממתינים אחרי שעות הפעילות"
+              hint="הבוט העביר מחוץ לשעות הפעילות; ייענו עם פתיחת המשמרת. הזמן נספר מרגע ההעברה. לא מושפע מבורר הנציגות."
+              empty="אין פניות שהגיעו אחרי שעות הפעילות."
+              groups={queueAfterHours}
+            />
+          </div>
 
           <section className="card overflow-hidden border-2 border-[#f3c1c6]">
             <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#fdebed] px-5 py-3.5">
@@ -563,8 +524,9 @@ export function WaDashboardPageClient() {
                   לקוחות ממתינים לתגובה כרגע
                 </h2>
                 <p className="mt-0.5 text-xs text-[#8a2b32]/70">
-                  הזמן נספר מההודעה הראשונה של הלקוח שעדיין לא נענתה. הודעות
-                  בוט לא נספרות כמענה.
+                  כל הפניות הפתוחות אצל הנציגות, גם מימים קודמים. הזמן נספר
+                  מההודעה הראשונה של הלקוח שעדיין לא נענתה. הודעות בוט לא
+                  נספרות כמענה.
                 </p>
               </div>
               <strong className="text-lg font-bold text-[#8a2b32]">
@@ -596,6 +558,11 @@ export function WaDashboardPageClient() {
                       <tr key={ticket.id} className="border-t border-[#edf1f3]">
                         <td dir="ltr" className="px-4 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
                           #{ticket.id}
+                          {formatIsraelDate(ticket.createdAt) !== date && (
+                            <span dir="rtl" className="mt-0.5 block font-sans font-normal text-[#2c4a7a]">
+                              נפתחה {dayLabel(formatIsraelDate(ticket.createdAt))}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-[#17242d]">
                           {ticket.customerName ?? "—"}
@@ -939,5 +906,109 @@ export function WaDashboardPageClient() {
         </>
       )}
     </div>
+  );
+}
+
+const QUEUE_SECTION_TONES = {
+  amber: {
+    border: "border-[#f3d9a4]",
+    header: "bg-[#fdf3dc]",
+    text: "text-[#7a5a0f]",
+    badge: "bg-[#fdf3dc] text-[#7a5a0f]",
+  },
+  night: {
+    border: "border-[#c5d5ee]",
+    header: "bg-[#e8f0fb]",
+    text: "text-[#2c4a7a]",
+    badge: "bg-[#e8f0fb] text-[#2c4a7a]",
+  },
+} as const;
+
+/** One queue card: unassigned tickets by department, longest wait first. */
+function QueueSection({
+  tone,
+  icon,
+  title,
+  hint,
+  empty,
+  groups,
+}: {
+  tone: keyof typeof QUEUE_SECTION_TONES;
+  icon: React.ReactNode;
+  title: string;
+  hint: string;
+  empty: string;
+  groups: QueueGroup[];
+}) {
+  const t = QUEUE_SECTION_TONES[tone];
+  return (
+    <section className={`card overflow-hidden border-2 ${t.border}`}>
+      <header
+        className={`flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] px-5 py-3.5 ${t.header}`}
+      >
+        <div>
+          <h2 className={`flex items-center gap-2 text-base font-bold ${t.text}`}>
+            {icon}
+            {title}
+          </h2>
+          <p className={`mt-0.5 text-xs opacity-70 ${t.text}`}>{hint}</p>
+        </div>
+        <strong className={`text-lg font-bold ${t.text}`}>
+          {groups.reduce((sum, group) => sum + group.tickets.length, 0)} בתור
+        </strong>
+      </header>
+      {groups.length === 0 ? (
+        <p className="px-5 py-6 text-center text-sm text-[#1f7a55]">{empty}</p>
+      ) : (
+        <div className="divide-y divide-[#edf1f3]">
+          {groups.map((group) => (
+            <div key={group.departmentName}>
+              <div className="flex items-center justify-between bg-[#fbfcfd] px-5 py-2">
+                <strong className="text-sm font-bold text-[#17242d]">{group.departmentName}</strong>
+                <span className="flex items-center gap-2">
+                  {group.olderCount > 0 && (
+                    <span
+                      className="text-xs text-[#a3adb1]"
+                      title="פניות ללא שיוך שממתינות יותר מיממה — לא ברשימה, כדי שלא יסתירו את מי שממתין עכשיו"
+                    >
+                      +{group.olderCount} ישנות מיממה
+                    </span>
+                  )}
+                  <span className={`rounded-lg px-2.5 py-0.5 text-xs font-bold ${t.badge}`}>
+                    {group.tickets.length}
+                  </span>
+                </span>
+              </div>
+              {group.tickets.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] border-collapse text-sm">
+                    <tbody>
+                      {group.tickets.map((ticket) => (
+                        <tr key={ticket.id} className="border-t border-[#edf1f3]">
+                          <td dir="ltr" className="w-28 px-4 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
+                            #{ticket.id}
+                          </td>
+                          <td className="px-4 py-2.5 text-[#17242d]">{ticket.customerName ?? "—"}</td>
+                          <td dir="ltr" className="px-4 py-2.5 text-right text-[#5d6d75]">
+                            {formatPhone(ticket.customerPhone)}
+                          </td>
+                          <td className="w-40 px-4 py-2.5 text-center">
+                            <span
+                              className={`inline-block rounded-lg px-2.5 py-1 text-xs font-bold ${tierClasses(waitingTier(ticket.waitedSeconds))}`}
+                            >
+                              {formatDuration(ticket.waitedSeconds)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

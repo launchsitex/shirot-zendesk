@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { businessClockFor, businessSecondsBetween } from "@/lib/business-clock";
+import {
+  businessClockFor,
+  businessSecondsBetween,
+  type BusinessClock,
+} from "@/lib/business-clock";
 import { normalizeSchedule } from "@/lib/business-hours";
 import { jerusalemDayBounds, jerusalemToday } from "@/lib/israel-time";
 import {
@@ -103,6 +107,86 @@ type GroupRow = {
 
 const QUEUE_LIMIT = 200;
 
+// How far back "ממתינים לתגובה" looks for open tickets from earlier days.
+const BACKLOG_DAYS = 30;
+const BACKLOG_LIMIT = 500;
+
+// Messaging tag flips (who wrote last) have been tracked since this day.
+// Before it, "no agent message on record" usually means no record, not no
+// reply — so an older ticket only counts as waiting on affirmative evidence
+// (customer_waiting_since), never on the absence of an agent message.
+const MESSAGE_DATA_COMPLETE_FROM = "2026-09-08T00:00:00.000Z";
+
+function mapTicketRow(row: Row, clock: BusinessClock): WaTicketRow {
+  const agent = (Array.isArray(row.agents) ? row.agents[0] : row.agents) as
+    | {
+        name?: string;
+        departments?:
+          | { id?: string; name?: string }
+          | { id?: string; name?: string }[];
+      }
+    | null;
+  const department = Array.isArray(agent?.departments)
+    ? agent?.departments[0]
+    : agent?.departments;
+  const closed = CLOSED_STATUSES.has(row.status);
+  // Exact when the sync saw the solved transition; otherwise the last
+  // update is the closest thing available.
+  const closedAt = row.solved_at ?? row.zendesk_updated_at;
+  const lastAgent = row.last_agent_message_at;
+  const lastCustomer = row.last_customer_message_at;
+  // The first-response clock starts when the bot hands the customer to
+  // the agents; a ticket with no recorded handoff falls back to its start
+  // and says so.
+  const clockStart = row.handed_to_agent_at ?? row.zendesk_created_at;
+  // The customer is waiting when nobody from the team has written yet, or
+  // when they wrote again after the agent's last message. The wait is
+  // counted from their first message that is still unanswered: the
+  // handoff when no agent has written, otherwise the first customer flip
+  // after the agent's last message (customer_waiting_since).
+  // Only a ticket in status "open" is waiting on the agent: "pending" and
+  // "on-hold" mean the agent parked it (waiting on the customer or a
+  // third party), "new" is still in the assignment queue, and solved or
+  // closed tickets are done.
+  const waitingSince =
+    row.status !== "open"
+      ? null
+      : lastAgent == null
+        ? row.zendesk_created_at >= MESSAGE_DATA_COMPLETE_FROM
+          ? clockStart
+          : null
+        : row.customer_waiting_since;
+  return {
+    id: row.id,
+    subject: row.subject,
+    customerName: row.requester_name,
+    customerPhone: row.requester_phone,
+    agentId: row.agent_id,
+    agentName: agent?.name ?? row.assignee_name ?? null,
+    departmentId: department?.id ?? null,
+    departmentName: department?.name ?? null,
+    status: row.status,
+    createdAt: row.zendesk_created_at,
+    updatedAt: row.zendesk_updated_at,
+    handedToAgentAt: row.handed_to_agent_at,
+    firstResponseFromHandoff: row.handed_to_agent_at != null,
+    firstResponseSeconds: row.first_agent_message_at
+      ? businessSecondsBetween(clockStart, row.first_agent_message_at, clock)
+      : null,
+    closed,
+    timeToCloseSeconds: closed
+      ? businessSecondsBetween(row.zendesk_created_at, closedAt, clock)
+      : null,
+    solvedAt: row.solved_at,
+    firstResponseAgentId: row.first_response_agent_id ??
+      (row.first_agent_message_at ? row.agent_id : null),
+    solvedByAgentId: row.solved_by_agent_id ?? (closed ? row.agent_id : null),
+    lastAgentMessageAt: lastAgent,
+    lastCustomerMessageAt: lastCustomer,
+    waitingSince,
+  };
+}
+
 export async function GET(request: NextRequest) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json(
@@ -134,7 +218,12 @@ export async function GET(request: NextRequest) {
   const departmentId =
     request.nextUrl.searchParams.get("department") ?? DEFAULT_DEPARTMENT_ID;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult] = await Promise.all([
+  const isToday = date === jerusalemToday();
+  const backlogStart = new Date(
+    Date.parse(dayStart) - BACKLOG_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -196,11 +285,25 @@ export async function GET(request: NextRequest) {
       .select("schedule")
       .eq("department_id", departmentId)
       .maybeSingle(),
+    // Open tickets from earlier days, for the live waiting list only —
+    // meaningless for a past date, so skipped there.
+    isToday
+      ? supabase
+          .from("zendesk_tickets")
+          .select(SELECT)
+          .eq("via_channel", "whatsapp")
+          .eq("status", "open")
+          .not("agent_id", "is", null)
+          .gte("zendesk_created_at", backlogStart)
+          .lt("zendesk_created_at", dayStart)
+          .order("zendesk_created_at", { ascending: true })
+          .limit(BACKLOG_LIMIT)
+      : Promise.resolve({ data: [] as Row[], error: null }),
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
     departmentsResult.error ?? agentsResult.error ?? availabilityResult.error ??
-    hoursResult.error;
+    hoursResult.error ?? backlogResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
@@ -247,73 +350,10 @@ export async function GET(request: NextRequest) {
   );
 
   const rows: WaTicketRow[] = ((rowsResult.data ?? []) as Row[])
-    .map((row) => {
-      const agent = (Array.isArray(row.agents) ? row.agents[0] : row.agents) as
-        | {
-            name?: string;
-            departments?:
-              | { id?: string; name?: string }
-              | { id?: string; name?: string }[];
-          }
-        | null;
-      const department = Array.isArray(agent?.departments)
-        ? agent?.departments[0]
-        : agent?.departments;
-      const closed = CLOSED_STATUSES.has(row.status);
-      // Exact when the sync saw the solved transition; otherwise the last
-      // update is the closest thing available.
-      const closedAt = row.solved_at ?? row.zendesk_updated_at;
-      const lastAgent = row.last_agent_message_at;
-      const lastCustomer = row.last_customer_message_at;
-      // The first-response clock starts when the bot hands the customer to
-      // the agents; a ticket with no recorded handoff falls back to its start
-      // and says so.
-      const clockStart = row.handed_to_agent_at ?? row.zendesk_created_at;
-      // The customer is waiting when nobody from the team has written yet, or
-      // when they wrote again after the agent's last message. The wait is
-      // counted from their first message that is still unanswered: the
-      // handoff when no agent has written, otherwise the first customer flip
-      // after the agent's last message (customer_waiting_since).
-      // Only a ticket in status "open" is waiting on the agent: "pending" and
-      // "on-hold" mean the agent parked it (waiting on the customer or a
-      // third party), "new" is still in the assignment queue, and solved or
-      // closed tickets are done.
-      const waitingSince =
-        row.status !== "open"
-          ? null
-          : lastAgent == null
-            ? clockStart
-            : row.customer_waiting_since;
-      return {
-        id: row.id,
-        subject: row.subject,
-        customerName: row.requester_name,
-        customerPhone: row.requester_phone,
-        agentId: row.agent_id,
-        agentName: agent?.name ?? row.assignee_name ?? null,
-        departmentId: department?.id ?? null,
-        departmentName: department?.name ?? null,
-        status: row.status,
-        createdAt: row.zendesk_created_at,
-        updatedAt: row.zendesk_updated_at,
-        handedToAgentAt: row.handed_to_agent_at,
-        firstResponseFromHandoff: row.handed_to_agent_at != null,
-        firstResponseSeconds: row.first_agent_message_at
-          ? businessSecondsBetween(clockStart, row.first_agent_message_at, clock)
-          : null,
-        closed,
-        timeToCloseSeconds: closed
-          ? businessSecondsBetween(row.zendesk_created_at, closedAt, clock)
-          : null,
-        solvedAt: row.solved_at,
-        firstResponseAgentId: row.first_response_agent_id ??
-          (row.first_agent_message_at ? row.agent_id : null),
-        solvedByAgentId: row.solved_by_agent_id ?? (closed ? row.agent_id : null),
-        lastAgentMessageAt: lastAgent,
-        lastCustomerMessageAt: lastCustomer,
-        waitingSince,
-      };
-    })
+    .map((row) => mapTicketRow(row, clock))
+    .filter((row) => row.departmentId === departmentId);
+  const openBacklog: WaTicketRow[] = ((backlogResult.data ?? []) as Row[])
+    .map((row) => mapTicketRow(row, clock))
     .filter((row) => row.departmentId === departmentId);
 
   const agents: AgentDirectory = {};
@@ -352,6 +392,7 @@ export async function GET(request: NextRequest) {
     byDepartment: summarizeByDepartment(rows),
     hourly: hourlyBuckets(rows),
     rows,
+    openBacklog,
     // This department's queue, plus anything in a group nobody has mapped to
     // a department yet — shown on every department's dashboard rather than on
     // none, so an unmapped routing group cannot hide a waiting customer.

@@ -1,4 +1,8 @@
-import { businessSecondsBetween, type BusinessClock } from "@/lib/business-clock";
+import {
+  businessOpenAt,
+  businessSecondsBetween,
+  type BusinessClock,
+} from "@/lib/business-clock";
 /**
  * Vocabulary for "דשבורד WA" / "דשבורד TV WA" — WhatsApp tickets from Zendesk
  * for a single Israel calendar day.
@@ -199,6 +203,13 @@ export type WaDashboardPayload = {
   byDepartment: WaDepartmentSummary[];
   hourly: WaHourlyBucket[];
   rows: WaTicketRow[];
+  /**
+   * Open tickets from earlier days still sitting with this department's
+   * agents (the last 30 days), so "ממתינים לתגובה" covers every open
+   * WhatsApp conversation and not only today's. Empty for a past date. Not
+   * part of totals / byAgent / tiers — those stay the day's own figures.
+   */
+  openBacklog: WaTicketRow[];
   queue: WaQueueTicket[];
   /** The department this payload is scoped to, and all the ones a viewer can pick. */
   department: { id: string; name: string };
@@ -232,6 +243,23 @@ export type QueueGroup = {
 };
 
 /** The queue by department, longest wait first inside each, as of `now`. */
+/**
+ * The queue split by when the bot handed each ticket over: during business
+ * hours (someone should pick it up now) or outside them (it waits for the
+ * next shift). Everything is "in hours" without a usable schedule.
+ */
+export function splitQueueByBusinessHours(
+  queue: WaQueueTicket[],
+  clock: BusinessClock,
+): { inHours: WaQueueTicket[]; afterHours: WaQueueTicket[] } {
+  const inHours: WaQueueTicket[] = [];
+  const afterHours: WaQueueTicket[] = [];
+  for (const ticket of queue) {
+    (businessOpenAt(ticket.handedToAgentAt, clock) ? inHours : afterHours).push(ticket);
+  }
+  return { inHours, afterHours };
+}
+
 export function queueByDepartment(
   queue: WaQueueTicket[],
   now: Date,
