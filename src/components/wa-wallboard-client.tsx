@@ -200,7 +200,24 @@ export function WaWallboardClient() {
     () => (data?.rows ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
     [data?.rows, excluded],
   );
-  const totals = useMemo(() => summarizeTickets(visibleRows), [visibleRows]);
+  // Earlier-day tickets answered/closed today, same agent picker applied —
+  // see WaDashboardPayload.respondedToday/closedToday for why these fold
+  // into totals/byAgent instead of just today's own rows.
+  const visibleExtraActivity = useMemo(
+    () => ({
+      respondedToday: (data?.respondedToday ?? []).filter(
+        (row) => !excluded.includes(agentKey(row.firstResponseAgentId ?? row.agentId)),
+      ),
+      closedToday: (data?.closedToday ?? []).filter(
+        (row) => !excluded.includes(agentKey(row.solvedByAgentId ?? row.agentId)),
+      ),
+    }),
+    [data?.respondedToday, data?.closedToday, excluded],
+  );
+  const totals = useMemo(
+    () => summarizeTickets(visibleRows, visibleExtraActivity),
+    [visibleRows, visibleExtraActivity],
+  );
   const byDepartment = useMemo(() => summarizeByDepartment(visibleRows), [visibleRows]);
   const includedCount = allAgents.filter((a) => !excluded.includes(agentKey(a.agentId))).length;
 

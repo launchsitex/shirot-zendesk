@@ -256,6 +256,71 @@ describe("summarizeByAgent", () => {
   });
 });
 
+describe("summarizeTickets / summarizeByAgent with extra activity", () => {
+  it("folds a backlog response and closure into today's counts and averages, without touching ticketCount", () => {
+    const rows = [ticket({ id: "today" })]; // opened today, untouched
+    const extra = {
+      respondedToday: [
+        ticket({ id: "old-1", firstResponseSeconds: 300, firstResponseAgentId: "a" }),
+      ],
+      closedToday: [
+        ticket({ id: "old-2", closed: true, timeToCloseSeconds: 900, solvedByAgentId: "b" }),
+      ],
+    };
+    const stats = summarizeTickets(rows, extra);
+    expect(stats.ticketCount).toBe(1); // only what opened today
+    expect(stats.respondedCount).toBe(1);
+    expect(stats.avgFirstResponseSeconds).toBe(300);
+    expect(stats.closedCount).toBe(1);
+    expect(stats.avgTimeToCloseSeconds).toBe(900);
+  });
+
+  it("surfaces an agent whose only activity today is on a ticket opened earlier, with ticketCount 0", () => {
+    const extra = {
+      respondedToday: [
+        ticket({
+          id: "old",
+          agentId: "c",
+          agentName: "ג",
+          firstResponseSeconds: 300,
+          firstResponseAgentId: "c",
+        }),
+      ],
+      closedToday: [],
+    };
+    const summary = summarizeByAgent([], { c: { name: "ג", departmentName: null } }, extra);
+    expect(summary).toHaveLength(1);
+    expect(summary[0].agentId).toBe("c");
+    expect(summary[0].ticketCount).toBe(0);
+    expect(summary[0].respondedCount).toBe(1);
+    expect(summary[0].avgFirstResponseSeconds).toBe(300);
+  });
+
+  it("a ticket answered today in the backlog credits its own firstResponseAgentId, separate from today's rows", () => {
+    const rows = [ticket({ id: "today", agentId: "a", agentName: "א" })];
+    const extra = {
+      respondedToday: [
+        ticket({
+          id: "old",
+          agentId: "b",
+          agentName: "ב",
+          firstResponseSeconds: 60,
+          firstResponseAgentId: "b",
+        }),
+      ],
+      closedToday: [],
+    };
+    const summary = summarizeByAgent(rows, {}, extra);
+    const a = summary.find((s) => s.agentId === "a")!;
+    const b = summary.find((s) => s.agentId === "b")!;
+    expect(a.ticketCount).toBe(1);
+    expect(a.respondedCount).toBe(0);
+    expect(b.ticketCount).toBe(0);
+    expect(b.respondedCount).toBe(1);
+    expect(b.avgFirstResponseSeconds).toBe(60);
+  });
+});
+
 describe("queueByDepartment", () => {
   it("groups by department, longest wait first within and across groups", () => {
     const queue = [

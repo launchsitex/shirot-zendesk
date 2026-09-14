@@ -20,6 +20,7 @@ import {
   type AgentDirectory,
   type WaAgentAvailability,
   type WaDashboardPayload,
+  type WaExtraActivity,
   type WaQueueTicket,
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
@@ -235,7 +236,7 @@ export async function GET(request: NextRequest) {
   const isToday = date === jerusalemToday();
   const backlogStart = MESSAGE_DATA_COMPLETE_FROM;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult, rolesResult, customStatusResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult, rolesResult, customStatusResult, respondedTodayResult, closedTodayResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -320,11 +321,38 @@ export async function GET(request: NextRequest) {
       .eq("status_category", "open")
       .eq("is_default", true)
       .maybeSingle(),
+    // Earlier-day tickets (since BACKLOG_FROM_DATE) whose first agent reply
+    // landed today, or that were solved today — see
+    // WaDashboardPayload.respondedToday/closedToday. Meaningless for a past
+    // date, so skipped there like openBacklog.
+    isToday
+      ? supabase
+          .from("zendesk_tickets")
+          .select(SELECT)
+          .eq("via_channel", "whatsapp")
+          .gte("zendesk_created_at", backlogStart)
+          .lt("zendesk_created_at", dayStart)
+          .gte("first_agent_message_at", dayStart)
+          .lte("first_agent_message_at", dayEnd)
+          .limit(BACKLOG_LIMIT)
+      : Promise.resolve({ data: [] as Row[], error: null }),
+    isToday
+      ? supabase
+          .from("zendesk_tickets")
+          .select(SELECT)
+          .eq("via_channel", "whatsapp")
+          .gte("zendesk_created_at", backlogStart)
+          .lt("zendesk_created_at", dayStart)
+          .gte("solved_at", dayStart)
+          .lte("solved_at", dayEnd)
+          .limit(BACKLOG_LIMIT)
+      : Promise.resolve({ data: [] as Row[], error: null }),
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
     departmentsResult.error ?? agentsResult.error ?? availabilityResult.error ??
-    hoursResult.error ?? backlogResult.error ?? rolesResult.error;
+    hoursResult.error ?? backlogResult.error ?? rolesResult.error ??
+    respondedTodayResult.error ?? closedTodayResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
@@ -379,6 +407,13 @@ export async function GET(request: NextRequest) {
   const openBacklog: WaTicketRow[] = ((backlogResult.data ?? []) as Row[])
     .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
     .filter((row) => row.departmentId === departmentId);
+  const respondedToday: WaTicketRow[] = ((respondedTodayResult.data ?? []) as Row[])
+    .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
+    .filter((row) => row.departmentId === departmentId);
+  const closedToday: WaTicketRow[] = ((closedTodayResult.data ?? []) as Row[])
+    .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
+    .filter((row) => row.departmentId === departmentId);
+  const extraActivity: WaExtraActivity = { respondedToday, closedToday };
 
   const agents: AgentDirectory = {};
   for (const agent of (agentsResult.data ?? []) as AgentRow[]) {
@@ -426,12 +461,14 @@ export async function GET(request: NextRequest) {
   const payload: WaDashboardPayload = {
     date,
     businessHours: clock,
-    totals: summarizeTickets(rows),
-    byAgent: summarizeByAgent(rows, agents),
+    totals: summarizeTickets(rows, extraActivity),
+    byAgent: summarizeByAgent(rows, agents, extraActivity),
     byDepartment: summarizeByDepartment(rows),
     hourly: hourlyBuckets(rows),
     rows,
     openBacklog,
+    respondedToday,
+    closedToday,
     // This department's queue, plus anything in a group nobody has mapped to
     // a department yet — shown on every department's dashboard rather than on
     // none, so an unmapped routing group cannot hide a waiting customer.

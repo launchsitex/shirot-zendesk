@@ -226,7 +226,24 @@ export function WaDashboardPageClient() {
       ),
     [data?.rows, excluded],
   );
-  const totals = useMemo(() => summarizeTickets(visibleRows), [visibleRows]);
+  // Earlier-day tickets answered/closed today, same agent picker applied —
+  // see WaDashboardPayload.respondedToday/closedToday for why these fold
+  // into totals instead of just today's own rows.
+  const visibleExtraActivity = useMemo(
+    () => ({
+      respondedToday: (data?.respondedToday ?? []).filter(
+        (row) => !excluded.includes(row.firstResponseAgentId ?? row.agentId ?? "unassigned"),
+      ),
+      closedToday: (data?.closedToday ?? []).filter(
+        (row) => !excluded.includes(row.solvedByAgentId ?? row.agentId ?? "unassigned"),
+      ),
+    }),
+    [data?.respondedToday, data?.closedToday, excluded],
+  );
+  const totals = useMemo(
+    () => summarizeTickets(visibleRows, visibleExtraActivity),
+    [visibleRows, visibleExtraActivity],
+  );
   const byAgent = useMemo(
     () => allAgents.filter((row) => !excluded.includes(row.agentId ?? "unassigned")),
     [allAgents, excluded],

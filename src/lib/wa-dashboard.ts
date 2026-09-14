@@ -247,10 +247,21 @@ export type WaDashboardPayload = {
   /**
    * Open tickets from earlier days still sitting with this department's
    * agents (the last 30 days), so "ממתינים לתגובה" covers every open
-   * WhatsApp conversation and not only today's. Empty for a past date. Not
-   * part of totals / byAgent / tiers — those stay the day's own figures.
+   * WhatsApp conversation and not only today's.
    */
   openBacklog: WaTicketRow[];
+  /**
+   * Earlier-day tickets whose first agent reply landed today, or that were
+   * solved today — folded into totals / byAgent (not ticketCount, which
+   * stays "opened today") so a reply or closure credits the day it actually
+   * happened, not the day the ticket was opened (account owner's rule,
+   * 2026-09-14: a ticket that arrived after hours yesterday and got its
+   * first reply at 08:05 today is a 5-minute first response *today*, not
+   * invisible because the ticket itself is a day old). Empty for a past
+   * date.
+   */
+  respondedToday: WaTicketRow[];
+  closedToday: WaTicketRow[];
   queue: WaQueueTicket[];
   /** The department this payload is scoped to, and all the ones a viewer can pick. */
   department: { id: string; name: string };
@@ -439,12 +450,33 @@ function average(values: number[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-/** Rolls a flat list of tickets up into the aggregate figures shown per row. */
-export function summarizeTickets(rows: WaTicketRow[]): WaGroupStats {
-  const responseTimes = rows
+/**
+ * Earlier-day tickets whose first reply or close landed today — see
+ * WaDashboardPayload.respondedToday/closedToday for why these exist
+ * alongside `rows`. Each list is exactly the tickets to credit for that one
+ * thing; a ticket answered *and* solved today belongs in both.
+ */
+export type WaExtraActivity = {
+  respondedToday: WaTicketRow[];
+  closedToday: WaTicketRow[];
+};
+
+const NO_EXTRA_ACTIVITY: WaExtraActivity = { respondedToday: [], closedToday: [] };
+
+/**
+ * Rolls a flat list of tickets up into the aggregate figures shown per row.
+ * `extra` folds in earlier-day tickets answered/closed today: ticketCount
+ * stays "opened today" (rows only), but respondedCount/closedCount and their
+ * averages count the reply or the close on the day it actually happened.
+ */
+export function summarizeTickets(
+  rows: WaTicketRow[],
+  extra: WaExtraActivity = NO_EXTRA_ACTIVITY,
+): WaGroupStats {
+  const responseTimes = [...rows, ...extra.respondedToday]
     .map((row) => row.firstResponseSeconds)
     .filter((value): value is number => value != null);
-  const closeTimes = rows
+  const closeTimes = [...rows.filter((row) => row.closed), ...extra.closedToday]
     .map((row) => row.timeToCloseSeconds)
     .filter((value): value is number => value != null);
   return {
@@ -452,7 +484,7 @@ export function summarizeTickets(rows: WaTicketRow[]): WaGroupStats {
     respondedCount: responseTimes.length,
     avgFirstResponseSeconds: average(responseTimes),
     awaitingReply: rows.filter((row) => row.waitingSince != null).length,
-    closedCount: rows.filter((row) => row.closed).length,
+    closedCount: rows.filter((row) => row.closed).length + extra.closedToday.length,
     avgTimeToCloseSeconds: average(closeTimes),
   };
 }
@@ -480,15 +512,18 @@ export type AgentDirectory = Record<
  * Per-agent rollup. Shared by the API route and the "דשבורד WA" page, which
  * recomputes everything client-side when the viewer excludes agents.
  *
- * Ticket count and "waiting now" follow the current assignee; first response
- * and closure are credited to the agent assigned at that moment
- * (`firstResponseAgentId` / `solvedByAgentId`), so a ticket that changed
- * hands credits each agent for their own part. `directory` names agents who
- * appear only through credit, with no ticket currently assigned.
+ * Ticket count and "waiting now" follow the current assignee, from `rows`
+ * (today's own tickets) only; first response and closure are credited to the
+ * agent assigned at that moment (`firstResponseAgentId` / `solvedByAgentId`)
+ * and also pick up `extra` — earlier-day tickets answered or solved today —
+ * so an agent whose only work today was on old tickets still shows up, with
+ * a ticketCount of 0. `directory` names agents who appear only through
+ * credit, with no ticket currently assigned.
  */
 export function summarizeByAgent(
   rows: WaTicketRow[],
   directory: AgentDirectory = {},
+  extra: WaExtraActivity = NO_EXTRA_ACTIVITY,
 ): WaAgentSummary[] {
   const keys = new Set<string>();
   for (const row of rows) {
@@ -496,17 +531,27 @@ export function summarizeByAgent(
     if (row.firstResponseAgentId) keys.add(row.firstResponseAgentId);
     if (row.solvedByAgentId) keys.add(row.solvedByAgentId);
   }
+  for (const row of extra.respondedToday) {
+    if (row.firstResponseAgentId) keys.add(row.firstResponseAgentId);
+  }
+  for (const row of extra.closedToday) {
+    if (row.solvedByAgentId) keys.add(row.solvedByAgentId);
+  }
   return [...keys]
     .map((key) => {
       const current = rows.filter((row) => (row.agentId ?? "unassigned") === key);
-      const responded = rows.filter(
-        (row) =>
-          row.firstResponseSeconds != null && row.firstResponseAgentId === key,
-      );
-      const closed = rows.filter(
-        (row) => row.closed && row.solvedByAgentId === key,
-      );
-      const sample = current[0];
+      const responded = rows
+        .filter(
+          (row) =>
+            row.firstResponseSeconds != null && row.firstResponseAgentId === key,
+        )
+        .concat(extra.respondedToday.filter((row) => row.firstResponseAgentId === key));
+      const closed = rows
+        .filter((row) => row.closed && row.solvedByAgentId === key)
+        .concat(extra.closedToday.filter((row) => row.solvedByAgentId === key));
+      const sample = current[0] ??
+        extra.respondedToday.find((row) => row.firstResponseAgentId === key) ??
+        extra.closedToday.find((row) => row.solvedByAgentId === key);
       const known = key === "unassigned" ? undefined : directory[key];
       return {
         agentId: key === "unassigned" ? null : key,
