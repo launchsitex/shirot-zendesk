@@ -121,6 +121,21 @@ export type WaTicketRow = {
   waitingSince: string | null;
 };
 
+/**
+ * A ticket on Zendesk's "pending" status: the agent already answered the
+ * customer's last message and it is now waiting on the customer. See
+ * WaDashboardPayload.pendingReplies.
+ */
+export type WaPendingTicket = WaTicketRow & {
+  /**
+   * Seconds from the customer's last message to the agent's reply to it
+   * (lastCustomerMessageAt → lastAgentMessageAt) — how fast that specific
+   * exchange was, not the ticket's first response. Null without both
+   * timestamps.
+   */
+  lastReplySeconds: number | null;
+};
+
 export type WaGroupStats = {
   ticketCount: number;
   respondedCount: number;
@@ -295,6 +310,17 @@ export type WaDashboardPayload = {
    */
   respondedToday: WaTicketRow[];
   closedToday: WaTicketRow[];
+  /**
+   * Open tickets on Zendesk's "pending" status — the agent already replied
+   * to the customer's last message and the ball is in the customer's court.
+   * Shown next to "ממתינים לתגובה" (display only, account owner's request
+   * 2026-09-14) so a manager sees both directions: who is waiting on us and
+   * who we already answered. `lastReplySeconds` is how long the agent took
+   * to answer that last customer message specifically (not the ticket's
+   * first response) — null if there is no recorded customer message before
+   * it. Live-only like `openBacklog`/`queue`: empty for a past date.
+   */
+  pendingReplies: WaPendingTicket[];
   queue: WaQueueTicket[];
   /** The department this payload is scoped to, and all the ones a viewer can pick. */
   department: { id: string; name: string };

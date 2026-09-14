@@ -272,6 +272,13 @@ export function WaDashboardPageClient() {
       (data?.openBacklog ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
     [data?.openBacklog, excluded],
   );
+  // Tickets we already answered, waiting on the customer — shown next to
+  // "ממתינים לתגובה" (display only, account owner's request 2026-09-14).
+  const pendingRows = useMemo(
+    () =>
+      (data?.pendingReplies ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
+    [data?.pendingReplies, excluded],
+  );
   // Every open conversation with the department's agents, today's and
   // earlier days' alike.
   const waiting = useMemo(
@@ -623,6 +630,74 @@ export function WaDashboardPageClient() {
                         </td>
                         <td className="px-4 py-2.5 text-center font-mono text-xs text-[#5d6d75]">
                           {formatDuration(ticket.totalSeconds)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="card overflow-hidden border-2 border-[#c8e6cf]">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#edf1f3] bg-[#eef8f0] px-5 py-3.5">
+              <div>
+                <h2 className="flex items-center gap-2 text-base font-bold text-[#1f7a55]">
+                  <MessageCircle size={18} />
+                  ענינו, ממתינות ללקוח
+                </h2>
+                <p className="mt-0.5 text-xs text-[#1f7a55]/70">
+                  פניות פתוחות שהנציגה כבר ענתה בהן על ההודעה האחרונה של הלקוח.
+                  הזמן — כמה לקח לה לענות להודעה ההיא.
+                </p>
+              </div>
+              <strong className="text-lg font-bold text-[#1f7a55]">
+                {pendingRows.length} ממתינות ללקוח
+              </strong>
+            </header>
+
+            {pendingRows.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-[#5d6d75]">
+                {isToday
+                  ? "אין כרגע פניות שממתינות ללקוח."
+                  : `אין פניות שממתינות ללקוח בפניות של ${date}.`}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] border-collapse text-sm">
+                  <thead>
+                    <tr className="text-[#5d6d75]">
+                      <th className="px-4 py-2 text-right font-semibold">מס&apos; פנייה</th>
+                      <th className="px-4 py-2 text-right font-semibold">לקוח</th>
+                      <th className="px-4 py-2 text-right font-semibold">טלפון</th>
+                      <th className="px-4 py-2 text-right font-semibold">נציגה משויכת</th>
+                      <th className="px-4 py-2 text-center font-semibold">זמן תגובה</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingRows.map((ticket) => (
+                      <tr key={ticket.id} className="border-t border-[#edf1f3]">
+                        <td dir="ltr" className="px-4 py-2.5 text-right font-mono text-xs font-bold text-[#17242d]">
+                          #{ticket.id}
+                          {formatIsraelDate(ticket.createdAt) !== date && (
+                            <span dir="rtl" className="mt-0.5 block font-sans font-normal text-[#2c4a7a]">
+                              נפתחה {dayLabel(formatIsraelDate(ticket.createdAt))}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-[#17242d]">
+                          {ticket.customerName ?? "—"}
+                        </td>
+                        <td dir="ltr" className="px-4 py-2.5 text-right text-[#5d6d75]">
+                          {formatPhone(ticket.customerPhone)}
+                        </td>
+                        <td className="px-4 py-2.5 font-semibold text-[#17242d]">
+                          {ticket.agentName ?? "ללא שיוך נציג"}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className="inline-block rounded-lg bg-[#e7f7f2] px-2.5 py-1 text-xs font-bold text-[#1f7a55]">
+                            {seconds(ticket.lastReplySeconds)}
+                          </span>
                         </td>
                       </tr>
                     ))}

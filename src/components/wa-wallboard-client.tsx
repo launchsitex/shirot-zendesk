@@ -235,6 +235,13 @@ export function WaWallboardClient() {
       (data?.openBacklog ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
     [data?.openBacklog, excluded],
   );
+  // Tickets we already answered, waiting on the customer — shown next to
+  // "ממתינים לתגובה" (display only, account owner's request 2026-09-14).
+  const pendingRows = useMemo(
+    () =>
+      (data?.pendingReplies ?? []).filter((row) => !excluded.includes(agentKey(row.agentId))),
+    [data?.pendingReplies, excluded],
+  );
   // Every open conversation with the department's agents, today's and
   // earlier days' alike — a customer from Sunday still waiting on Wednesday
   // belongs on the wall as much as one from this morning.
@@ -298,6 +305,17 @@ export function WaWallboardClient() {
       (a, b) => b.tickets[0].waitedSeconds - a.tickets[0].waitedSeconds,
     );
   }, [waiting]);
+  // Answered-tickets-waiting-on-the-customer, grouped by agent, for the
+  // green sub-list inside each agent's waiting section (display only,
+  // account owner's request 2026-09-14).
+  const pendingByAgent = useMemo(() => {
+    const groups = new Map<string, typeof pendingRows>();
+    for (const ticket of pendingRows) {
+      const key = ticket.agentId ?? "unassigned";
+      groups.set(key, [...(groups.get(key) ?? []), ticket]);
+    }
+    return groups;
+  }, [pendingRows]);
   // First response — from the bot's handoff to the agent's first message —
   // as how many tickets crossed each tier today (unanswered ones count live).
   const tiers = useMemo(
@@ -603,6 +621,33 @@ export function WaWallboardClient() {
                         );
                       })}
                     </div>
+                    {(pendingByAgent.get(group.key)?.length ?? 0) > 0 && (
+                      <div className="mt-2 border-t border-white/10 pt-2">
+                        <p className="mb-1.5 px-1 text-xs text-[#6ee0d0]/80">
+                          ענתה, ממתינות ללקוח
+                        </p>
+                        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                          {pendingByAgent.get(group.key)!.map((ticket) => (
+                            <div
+                              key={ticket.id}
+                              className="flex items-center justify-between rounded-xl bg-[#123028]/60 px-3 py-2"
+                            >
+                              <div className="min-w-0">
+                                <strong className="block truncate text-sm">
+                                  {ticket.customerName ?? formatPhone(ticket.customerPhone)}
+                                </strong>
+                                <span dir="ltr" className="block text-xs text-white/40">
+                                  #{ticket.id}
+                                </span>
+                              </div>
+                              <span className="shrink-0 text-left text-lg font-bold leading-tight text-[#6ee0d0]">
+                                {seconds(ticket.lastReplySeconds)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </section>
                 );
               })}

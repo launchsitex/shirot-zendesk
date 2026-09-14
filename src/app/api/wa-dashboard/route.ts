@@ -21,6 +21,7 @@ import {
   type WaAgentAvailability,
   type WaDashboardPayload,
   type WaExtraActivity,
+  type WaPendingTicket,
   type WaQueueTicket,
   type WaTicketRow,
 } from "@/lib/wa-dashboard";
@@ -242,7 +243,7 @@ export async function GET(request: NextRequest) {
   const isToday = date === jerusalemToday();
   const backlogStart = MESSAGE_DATA_COMPLETE_FROM;
 
-  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult, rolesResult, customStatusResult, respondedTodayResult, closedTodayResult] = await Promise.all([
+  const [rowsResult, queueResult, groupsResult, departmentsResult, agentsResult, availabilityResult, syncResult, hoursResult, backlogResult, rolesResult, customStatusResult, respondedTodayResult, closedTodayResult, pendingResult] = await Promise.all([
     supabase
       .from("zendesk_tickets")
       .select(SELECT)
@@ -353,12 +354,26 @@ export async function GET(request: NextRequest) {
           .lte("solved_at", dayEnd)
           .limit(BACKLOG_LIMIT)
       : Promise.resolve({ data: [] as Row[], error: null }),
+    // Open tickets on status "pending" — the agent already answered the
+    // customer's last message, ball in their court. Shown next to
+    // "ממתינים לתגובה" (display only, account owner's request 2026-09-14).
+    // Live-only like openBacklog/queue, meaningless for a past date.
+    isToday
+      ? supabase
+          .from("zendesk_tickets")
+          .select(SELECT)
+          .eq("via_channel", "whatsapp")
+          .eq("status", "pending")
+          .gte("zendesk_created_at", backlogStart)
+          .order("last_agent_message_at", { ascending: false })
+          .limit(BACKLOG_LIMIT)
+      : Promise.resolve({ data: [] as Row[], error: null }),
   ]);
 
   const failed = rowsResult.error ?? queueResult.error ?? groupsResult.error ??
     departmentsResult.error ?? agentsResult.error ?? availabilityResult.error ??
     hoursResult.error ?? backlogResult.error ?? rolesResult.error ??
-    respondedTodayResult.error ?? closedTodayResult.error;
+    respondedTodayResult.error ?? closedTodayResult.error ?? pendingResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_dashboard_query_failed", details: failed.message },
@@ -420,6 +435,16 @@ export async function GET(request: NextRequest) {
     .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
     .filter((row) => row.departmentId === departmentId);
   const extraActivity: WaExtraActivity = { respondedToday, closedToday };
+  const pendingReplies: WaPendingTicket[] = ((pendingResult.data ?? []) as Row[])
+    .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
+    .filter((row) => row.departmentId === departmentId)
+    .map((row) => ({
+      ...row,
+      lastReplySeconds:
+        row.lastCustomerMessageAt && row.lastAgentMessageAt
+          ? businessSecondsBetween(row.lastCustomerMessageAt, row.lastAgentMessageAt, clock)
+          : null,
+    }));
 
   const agents: AgentDirectory = {};
   for (const agent of (agentsResult.data ?? []) as AgentRow[]) {
@@ -475,6 +500,7 @@ export async function GET(request: NextRequest) {
     openBacklog,
     respondedToday,
     closedToday,
+    pendingReplies,
     // This department's queue, plus anything in a group nobody has mapped to
     // a department yet — shown on every department's dashboard rather than on
     // none, so an unmapped routing group cannot hide a waiting customer.
