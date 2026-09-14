@@ -496,6 +496,24 @@ export function WaWallboardClient() {
           />
         </section>
 
+        {byDepartment.length > 0 && (
+          <section
+            className={`grid gap-3 ${byDepartment.length > 1 ? "md:grid-cols-2" : ""}`}
+          >
+            {byDepartment.map((dept) => (
+              <DepartmentBox
+                key={dept.departmentName}
+                name={dept.departmentName}
+                ticketCount={dept.ticketCount}
+                avgFirstResponseSeconds={dept.avgFirstResponseSeconds}
+                avgAgentResponseSeconds={dept.avgAgentResponseSeconds}
+                avgTimeToCloseSeconds={dept.avgTimeToCloseSeconds}
+                over10={over10ByDepartment.get(dept.departmentName) ?? 0}
+              />
+            ))}
+          </section>
+        )}
+
         <section className="grid gap-4 md:grid-cols-2">
           <QueueBox
             tone="amber"
@@ -595,24 +613,6 @@ export function WaWallboardClient() {
             </p>
           )}
         </article>
-
-        {byDepartment.length > 0 && (
-          <section
-            className={`grid gap-3 ${byDepartment.length > 1 ? "md:grid-cols-2" : ""}`}
-          >
-            {byDepartment.map((dept) => (
-              <DepartmentBox
-                key={dept.departmentName}
-                name={dept.departmentName}
-                ticketCount={dept.ticketCount}
-                avgFirstResponseSeconds={dept.avgFirstResponseSeconds}
-                avgAgentResponseSeconds={dept.avgAgentResponseSeconds}
-                avgTimeToCloseSeconds={dept.avgTimeToCloseSeconds}
-                over10={over10ByDepartment.get(dept.departmentName) ?? 0}
-              />
-            ))}
-          </section>
-        )}
 
         {availability.length > 0 && (
           <article className="rounded-3xl border border-white/10 bg-white/5 p-5">
