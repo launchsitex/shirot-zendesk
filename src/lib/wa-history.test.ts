@@ -23,6 +23,8 @@ function row(overrides: Partial<WaDailyRow>): WaDailyRow {
     timeToCloseSecondsSum: 0,
     respondedCount: 0,
     firstResponseSecondsSum: 0,
+    agentRespondedCount: 0,
+    agentResponseSecondsSum: 0,
     under3Count: 0,
     over3Count: 0,
     over7Count: 0,
@@ -49,9 +51,21 @@ describe("sumRows", () => {
   it("has null averages with nothing to average", () => {
     const stats = sumRows([row({ ticketCount: 2 })]);
     expect(stats.avgFirstResponseSeconds).toBeNull();
+    expect(stats.avgAgentResponseSeconds).toBeNull();
     expect(stats.avgTimeToCloseSeconds).toBeNull();
     expect(stats.under3Share).toBeNull();
     expect(sumRows([]).activeDays).toBe(0);
+  });
+
+  it("averages זמן תגובה נציגה separately, over only agentRespondedCount", () => {
+    // A day before zendesk_ticket_transitions existed: responded but no
+    // agent-response data at all.
+    const stats = sumRows([
+      row({ respondedCount: 2, firstResponseSecondsSum: 200, agentRespondedCount: 1, agentResponseSecondsSum: 40 }),
+      row({ day: "2026-09-10", respondedCount: 1, firstResponseSecondsSum: 50, agentRespondedCount: 0, agentResponseSecondsSum: 0 }),
+    ]);
+    expect(stats.avgFirstResponseSeconds).toBe(250 / 3);
+    expect(stats.avgAgentResponseSeconds).toBe(40);
   });
 });
 
@@ -112,7 +126,7 @@ describe("agentsToCsv", () => {
     expect(csv.charCodeAt(0)).toBe(0xfeff);
     const lines = csv.slice(1).split("\n");
     expect(lines).toHaveLength(3);
-    expect(lines[1]).toBe('נציגה א,"סה""כ",2,0,0,2,2:05,,1,1,0,0');
+    expect(lines[1]).toBe('נציגה א,"סה""כ",2,0,0,2,2:05,,,1,1,0,0');
     expect(lines[2].startsWith("נציגה א,2026-09-09,")).toBe(true);
   });
 });

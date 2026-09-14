@@ -102,6 +102,7 @@ function StatCells({ stats }: { stats: WaPeriodStats }) {
       <td className="px-3 py-2 text-center text-[#5d6d75]">{stats.openCount}</td>
       <td className="px-3 py-2 text-center">{stats.respondedCount}</td>
       <td className="px-3 py-2 text-center font-mono">{seconds(stats.avgFirstResponseSeconds)}</td>
+      <td className="px-3 py-2 text-center font-mono">{seconds(stats.avgAgentResponseSeconds)}</td>
       <td className="px-3 py-2 text-center font-mono">{seconds(stats.avgTimeToCloseSeconds)}</td>
       <td className="px-3 py-2 text-center">
         <span className="font-semibold text-[#158f83]">{stats.under3Count}</span>
@@ -271,7 +272,8 @@ const STAT_HEADERS = [
   "נסגרו",
   "עדיין פתוחות",
   "נענו",
-  "תגובה ראשונה ממוצעת",
+  "תגובה מוקד ממוצעת",
+  "תגובה נציגה ממוצעת",
   "זמן סגירה ממוצע",
   "נענו תוך פחות מ-3 דק׳",
   "מעל 3 דק׳",
@@ -396,7 +398,9 @@ export function WaHistoryPageClient() {
           </h1>
           <p className="mt-1 text-sm text-[#5d6d75]">
             הרשומה היומית של כל נציגה בוואטסאפ, לפי היום שבו נפתחה הפנייה: כמה לקחה,
-            כמה סגרה, תגובה ראשונה וזמן סגירה. להשוואה בין ימים, שבועות ונציגות.
+            כמה סגרה, זמן תגובה וזמן סגירה. להשוואה בין ימים, שבועות ונציגות.
+            &quot;תגובה מוקד&quot; — מרגע שהבוט העביר לתור; &quot;תגובה נציגה&quot; —
+            מרגע שהפנייה שויכה בפועל לנציגה.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -498,17 +502,25 @@ export function WaHistoryPageClient() {
 
       {data && (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <Tile label="פניות" value={String(totals.ticketCount)}>
               <Delta current={totals.ticketCount} previous={previousTotals.ticketCount} format={String} />
             </Tile>
             <Tile label="נסגרו" value={String(totals.closedCount)}>
               <Delta current={totals.closedCount} previous={previousTotals.closedCount} format={String} />
             </Tile>
-            <Tile label="תגובה ראשונה ממוצעת" value={seconds(totals.avgFirstResponseSeconds)}>
+            <Tile label="תגובה מוקד ממוצעת" value={seconds(totals.avgFirstResponseSeconds)}>
               <Delta
                 current={totals.avgFirstResponseSeconds}
                 previous={previousTotals.avgFirstResponseSeconds}
+                format={formatSecondsLabel}
+                lowerIsBetter
+              />
+            </Tile>
+            <Tile label="תגובה נציגה ממוצעת" value={seconds(totals.avgAgentResponseSeconds)}>
+              <Delta
+                current={totals.avgAgentResponseSeconds}
+                previous={previousTotals.avgAgentResponseSeconds}
                 format={formatSecondsLabel}
                 lowerIsBetter
               />

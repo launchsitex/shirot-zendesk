@@ -22,7 +22,7 @@ const DEFAULT_DEPARTMENT_ID = "customer-service";
 const MAX_RANGE_DAYS = 92;
 
 const SELECT =
-  "day,department_id,agent_id,ticket_count,open_count,closed_count,time_to_close_seconds_sum,responded_count,first_response_seconds_sum,under_3_count,over_3_count,over_7_count,over_10_count,computed_at,agents!agent_id(name)";
+  "day,department_id,agent_id,ticket_count,open_count,closed_count,time_to_close_seconds_sum,responded_count,first_response_seconds_sum,agent_responded_count,agent_response_seconds_sum,under_3_count,over_3_count,over_7_count,over_10_count,computed_at,agents!agent_id(name)";
 
 type Row = {
   day: string;
@@ -34,6 +34,8 @@ type Row = {
   time_to_close_seconds_sum: number | string;
   responded_count: number;
   first_response_seconds_sum: number | string;
+  agent_responded_count: number;
+  agent_response_seconds_sum: number | string;
   under_3_count: number;
   over_3_count: number;
   over_7_count: number;
@@ -163,6 +165,8 @@ export async function GET(request: NextRequest) {
       timeToCloseSecondsSum: Number(row.time_to_close_seconds_sum),
       respondedCount: row.responded_count,
       firstResponseSecondsSum: Number(row.first_response_seconds_sum),
+      agentRespondedCount: row.agent_responded_count,
+      agentResponseSecondsSum: Number(row.agent_response_seconds_sum),
       under3Count: row.under_3_count,
       over3Count: row.over_3_count,
       over7Count: row.over_7_count,

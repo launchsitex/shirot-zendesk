@@ -18,6 +18,13 @@ export type WaDailyRow = {
   timeToCloseSecondsSum: number;
   respondedCount: number;
   firstResponseSecondsSum: number;
+  /**
+   * "זמן תגובה נציגה" — can be lower than respondedCount: null before
+   * 2026-09-09 (when zendesk_ticket_transitions started) or when a ticket
+   * was answered before ever getting a real assignee transition.
+   */
+  agentRespondedCount: number;
+  agentResponseSecondsSum: number;
   under3Count: number;
   over3Count: number;
   over7Count: number;
@@ -29,7 +36,13 @@ export type WaPeriodStats = {
   openCount: number;
   closedCount: number;
   respondedCount: number;
+  /** "זמן תגובה מוקד" — handoff to the queue to first response, unchanged. */
   avgFirstResponseSeconds: number | null;
+  /**
+   * "זמן תגובה נציגה" — from actual assignment to first response. Averaged
+   * only over tickets that have it (see WaDailyRow.agentRespondedCount).
+   */
+  avgAgentResponseSeconds: number | null;
   avgTimeToCloseSeconds: number | null;
   under3Count: number;
   over3Count: number;
@@ -68,6 +81,8 @@ export function sumRows(rows: WaDailyRow[]): WaPeriodStats {
   let closedCount = 0;
   let respondedCount = 0;
   let firstResponseSum = 0;
+  let agentRespondedCount = 0;
+  let agentResponseSum = 0;
   let timeToCloseSum = 0;
   let under3Count = 0;
   let over3Count = 0;
@@ -80,6 +95,8 @@ export function sumRows(rows: WaDailyRow[]): WaPeriodStats {
     closedCount += row.closedCount;
     respondedCount += row.respondedCount;
     firstResponseSum += row.firstResponseSecondsSum;
+    agentRespondedCount += row.agentRespondedCount;
+    agentResponseSum += row.agentResponseSecondsSum;
     timeToCloseSum += row.timeToCloseSecondsSum;
     under3Count += row.under3Count;
     over3Count += row.over3Count;
@@ -96,6 +113,8 @@ export function sumRows(rows: WaDailyRow[]): WaPeriodStats {
     respondedCount,
     avgFirstResponseSeconds:
       respondedCount > 0 ? firstResponseSum / respondedCount : null,
+    avgAgentResponseSeconds:
+      agentRespondedCount > 0 ? agentResponseSum / agentRespondedCount : null,
     avgTimeToCloseSeconds: closedCount > 0 ? timeToCloseSum / closedCount : null,
     under3Count,
     over3Count,
@@ -233,7 +252,8 @@ export function agentsToCsv(agents: WaAgentPeriod[]): string {
     "נסגרו",
     "עדיין פתוחות",
     "נענו",
-    "תגובה ראשונה ממוצעת",
+    "תגובה מוקד ממוצעת",
+    "תגובה נציגה ממוצעת",
     "זמן סגירה ממוצע",
     "נענו תוך פחות מ-3 דק'",
     "מעל 3 דק'",
@@ -249,6 +269,7 @@ export function agentsToCsv(agents: WaAgentPeriod[]): string {
       stats.openCount,
       stats.respondedCount,
       csvDuration(stats.avgFirstResponseSeconds),
+      csvDuration(stats.avgAgentResponseSeconds),
       csvDuration(stats.avgTimeToCloseSeconds),
       stats.under3Count,
       stats.over3Count,
