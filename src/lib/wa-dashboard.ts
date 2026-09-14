@@ -20,11 +20,22 @@ import {
  * and `last_*_message_at` on the ticket). Everything below is derived from
  * them:
  *
- * - first response time: from the moment the bot handed the conversation to
- *   the agents (`handedToAgentAt`) to the agent's first WhatsApp message
- *   (`firstResponseSeconds`, null until an agent has written). A person, not
- *   the bot — the bot does not fire the trigger, and the time it spends
- *   before the handoff is not the customer waiting for a person.
+ * - first response time, split into two (account owner's request, 2026-09-14
+ *   — ticket 74539 sat 70 minutes unassigned in the queue before the agent
+ *   who answered even had it, which a single number hid):
+ *   - "זמן תגובה מוקד": from the moment the bot handed the conversation to
+ *     the agents (`handedToAgentAt`) to the agent's first WhatsApp message
+ *     (`firstResponseSeconds`, null until an agent has written) — the
+ *     customer's full wait, including time unassigned in the queue.
+ *   - "זמן תגובה נציגה": from the moment a person was actually assigned
+ *     (`assignedToAgentAt`) to that same first message (`agentResponseSeconds`,
+ *     null with no assignee transition recorded before it — e.g. tickets from
+ *     before 2026-09-09, when zendesk_ticket_transitions started). The
+ *     agent's own responsiveness, without the queue wait she does not
+ *     control.
+ *   Neither is derived from the bot itself — it does not fire the Messaging
+ *   trigger, and the time it spends before the handoff is not the customer
+ *   waiting for a person.
  * - waiting: a ticket where the customer wrote last (or nobody from the team
  *   has written at all) and the ticket is still open. `waitingSince` is the
  *   customer's first message that is still unanswered — the account owner's
@@ -64,9 +75,24 @@ export type WaTicketRow = {
   firstResponseFromHandoff: boolean;
   /**
    * Seconds from the handoff (or createdAt, see above) to the agent's first
-   * WhatsApp message; null if no agent has written yet.
+   * WhatsApp message; null if no agent has written yet. "זמן תגובה מוקד" —
+   * the customer's full wait, including any time unassigned in the queue.
    */
   firstResponseSeconds: number | null;
+  /**
+   * When a person was actually assigned to the ticket, from the last real
+   * assignee transition at or before the first agent message — not the
+   * bot's handoff to the queue, which can be much earlier. Null when no such
+   * transition is on record.
+   */
+  assignedToAgentAt: string | null;
+  /**
+   * Seconds from `assignedToAgentAt` to the agent's first WhatsApp message;
+   * null if no agent has written yet, or no assignee transition is on
+   * record. "זמן תגובה נציגה" — the agent's own responsiveness, without
+   * queue time she does not control.
+   */
+  agentResponseSeconds: number | null;
   closed: boolean;
   /**
    * Seconds from createdAt to the moment the ticket was set to solved
@@ -98,7 +124,14 @@ export type WaTicketRow = {
 export type WaGroupStats = {
   ticketCount: number;
   respondedCount: number;
+  /** "זמן תגובה מוקד" — average from the bot's handoff to first response. */
   avgFirstResponseSeconds: number | null;
+  /**
+   * "זמן תגובה נציגה" — average from actual assignment to first response.
+   * Averaged only over tickets that have an `agentResponseSeconds` (see
+   * WaTicketRow), which can be fewer than `respondedCount`.
+   */
+  avgAgentResponseSeconds: number | null;
   /** Tickets currently awaiting a reply to the customer's latest message. */
   awaitingReply: number;
   closedCount: number;
@@ -476,6 +509,9 @@ export function summarizeTickets(
   const responseTimes = [...rows, ...extra.respondedToday]
     .map((row) => row.firstResponseSeconds)
     .filter((value): value is number => value != null);
+  const agentResponseTimes = [...rows, ...extra.respondedToday]
+    .map((row) => row.agentResponseSeconds)
+    .filter((value): value is number => value != null);
   const closeTimes = [...rows.filter((row) => row.closed), ...extra.closedToday]
     .map((row) => row.timeToCloseSeconds)
     .filter((value): value is number => value != null);
@@ -483,6 +519,7 @@ export function summarizeTickets(
     ticketCount: rows.length,
     respondedCount: responseTimes.length,
     avgFirstResponseSeconds: average(responseTimes),
+    avgAgentResponseSeconds: average(agentResponseTimes),
     awaitingReply: rows.filter((row) => row.waitingSince != null).length,
     closedCount: rows.filter((row) => row.closed).length + extra.closedToday.length,
     avgTimeToCloseSeconds: average(closeTimes),
@@ -561,6 +598,11 @@ export function summarizeByAgent(
         respondedCount: responded.length,
         avgFirstResponseSeconds: average(
           responded.map((row) => row.firstResponseSeconds as number),
+        ),
+        avgAgentResponseSeconds: average(
+          responded
+            .map((row) => row.agentResponseSeconds)
+            .filter((value): value is number => value != null),
         ),
         awaitingReply: current.filter((row) => row.waitingSince != null).length,
         closedCount: closed.length,

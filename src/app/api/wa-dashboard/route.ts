@@ -43,7 +43,7 @@ const DEFAULT_DEPARTMENT_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,custom_status_id,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents!agent_id(name,departments!department_id(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,custom_status_id,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,assigned_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents!agent_id(name,departments!department_id(id,name))";
 
 type Row = {
   id: string;
@@ -57,6 +57,7 @@ type Row = {
   zendesk_created_at: string;
   zendesk_updated_at: string;
   handed_to_agent_at: string | null;
+  assigned_to_agent_at: string | null;
   first_agent_message_at: string | null;
   last_agent_message_at: string | null;
   last_customer_message_at: string | null;
@@ -188,6 +189,11 @@ function mapTicketRow(
     firstResponseSeconds: row.first_agent_message_at
       ? businessSecondsBetween(clockStart, row.first_agent_message_at, clock)
       : null,
+    assignedToAgentAt: row.assigned_to_agent_at,
+    agentResponseSeconds:
+      row.assigned_to_agent_at && row.first_agent_message_at
+        ? businessSecondsBetween(row.assigned_to_agent_at, row.first_agent_message_at, clock)
+        : null,
     closed,
     timeToCloseSeconds: closed
       ? businessSecondsBetween(row.zendesk_created_at, closedAt, clock)

@@ -698,6 +698,7 @@ export function WaWallboardClient() {
                 name={dept.departmentName}
                 ticketCount={dept.ticketCount}
                 avgFirstResponseSeconds={dept.avgFirstResponseSeconds}
+                avgAgentResponseSeconds={dept.avgAgentResponseSeconds}
                 avgTimeToCloseSeconds={dept.avgTimeToCloseSeconds}
                 over10={over10ByDepartment.get(dept.departmentName) ?? 0}
               />
@@ -835,12 +836,14 @@ function DepartmentBox({
   name,
   ticketCount,
   avgFirstResponseSeconds,
+  avgAgentResponseSeconds,
   avgTimeToCloseSeconds,
   over10,
 }: {
   name: string;
   ticketCount: number;
   avgFirstResponseSeconds: number | null;
+  avgAgentResponseSeconds: number | null;
   avgTimeToCloseSeconds: number | null;
   over10: number;
 }) {
@@ -869,9 +872,15 @@ function DepartmentBox({
       </div>
       <div className="flex items-end gap-6">
         <div>
-          <span className={`block text-xs ${tone.label}`}>תגובה ראשונה</span>
+          <span className={`block text-xs ${tone.label}`}>תגובה מוקד</span>
           <strong className={`block text-3xl font-bold ${tone.accent}`}>
             {seconds(avgFirstResponseSeconds)}
+          </strong>
+        </div>
+        <div>
+          <span className={`block text-xs ${tone.label}`}>תגובה נציגה</span>
+          <strong className={`block text-2xl font-bold text-white/80`}>
+            {seconds(avgAgentResponseSeconds)}
           </strong>
         </div>
         <div>

@@ -640,20 +640,33 @@ export function WaDashboardPageClient() {
                   תגובה ראשונה של נציגה
                 </h2>
                 <p className="mt-0.5 text-xs text-[#718087]">
-                  מרגע שהבוט העביר את השיחה לנציגות ועד ההודעה הראשונה של
-                  נציגה. פניות שטרם נענו נספרות בזמן אמת.
+                  מוקד: מרגע שהבוט העביר את השיחה לתור ועד ההודעה הראשונה של
+                  נציגה (כולל זמן המתנה בתור ללא שיוך). נציגה: מרגע שהפנייה
+                  שויכה בפועל לנציגה ועד ההודעה שלה. פניות שטרם נענו נספרות
+                  בזמן אמת (מוקד בלבד).
                   {withoutHandoff > 0 &&
                     ` ל-${withoutHandoff} פניות אין רישום העברה — נספרות מפתיחת הפנייה.`}
                 </p>
               </div>
-              <div className="text-left">
-                <span className="block text-xs text-[#718087]">ממוצע</span>
-                <strong className="block text-2xl font-bold text-[#17242d]">
-                  {seconds(totals.avgFirstResponseSeconds)}
-                </strong>
-                <span className="block text-[11px] text-[#a3adb1]">
-                  {totals.respondedCount} נענו מתוך {totals.ticketCount}
-                </span>
+              <div className="flex items-start gap-6 text-left">
+                <div>
+                  <span className="block text-xs text-[#718087]">ממוצע מוקד</span>
+                  <strong className="block text-2xl font-bold text-[#17242d]">
+                    {seconds(totals.avgFirstResponseSeconds)}
+                  </strong>
+                  <span className="block text-[11px] text-[#a3adb1]">
+                    {totals.respondedCount} נענו מתוך {totals.ticketCount}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-xs text-[#718087]">ממוצע נציגה</span>
+                  <strong className="block text-2xl font-bold text-[#17242d]">
+                    {seconds(totals.avgAgentResponseSeconds)}
+                  </strong>
+                  <span className="block text-[11px] text-[#a3adb1]">
+                    מרגע השיוך בפועל
+                  </span>
+                </div>
               </div>
             </header>
             <div className="grid grid-cols-4 divide-x divide-x-reverse divide-[#edf1f3]">
@@ -721,9 +734,15 @@ export function WaDashboardPageClient() {
                   </div>
                   <div className="flex items-end gap-5">
                     <div>
-                      <span className="block text-[11px] text-[#a3adb1]">תגובה ראשונה</span>
+                      <span className="block text-[11px] text-[#a3adb1]">תגובה מוקד</span>
                       <strong className="text-xl font-bold text-[#17242d]">
                         {seconds(dept.avgFirstResponseSeconds)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="block text-[11px] text-[#a3adb1]">תגובה נציגה</span>
+                      <strong className="text-xl font-bold text-[#17242d]">
+                        {seconds(dept.avgAgentResponseSeconds)}
                       </strong>
                     </div>
                     <div>
@@ -793,7 +812,8 @@ export function WaDashboardPageClient() {
                     <th className="px-3 py-2.5 text-center font-semibold">נסגרו היום</th>
                     <th className="px-3 py-2.5 text-center font-semibold">עדיין פתוחות</th>
                     <th className="px-3 py-2.5 text-center font-semibold">ממתינים לתגובה כרגע</th>
-                    <th className="px-3 py-2.5 text-center font-semibold">תגובה ראשונה ממוצעת</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">תגובה מוקד ממוצעת</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">תגובה נציגה ממוצעת</th>
                     <th className="px-3 py-2.5 text-center font-semibold">זמן סגירה ממוצע</th>
                   </tr>
                 </thead>
@@ -842,6 +862,9 @@ export function WaDashboardPageClient() {
                         <td className="px-3 py-3.5 text-center font-mono text-[#17242d]">
                           {seconds(row.avgFirstResponseSeconds)}
                         </td>
+                        <td className="px-3 py-3.5 text-center font-mono text-[#17242d]">
+                          {seconds(row.avgAgentResponseSeconds)}
+                        </td>
                         <td className="px-3 py-3.5 text-center font-mono text-[#5d6d75]">
                           {seconds(row.avgTimeToCloseSeconds)}
                         </td>
@@ -849,7 +872,7 @@ export function WaDashboardPageClient() {
 
                       {isOpen && (
                         <tr>
-                        <td colSpan={8} className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-4">
+                        <td colSpan={9} className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-4">
                           {tickets.length > 0 ? (
                             <div className="overflow-x-auto">
                               <table className="w-full min-w-[820px] border-collapse text-sm">

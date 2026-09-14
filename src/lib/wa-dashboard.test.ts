@@ -35,6 +35,8 @@ function ticket(overrides: Partial<WaTicketRow>): WaTicketRow {
     handedToAgentAt: null,
     firstResponseFromHandoff: false,
     firstResponseSeconds: null,
+    assignedToAgentAt: null,
+    agentResponseSeconds: null,
     closed: false,
     timeToCloseSeconds: null,
     solvedAt: null,
@@ -235,6 +237,7 @@ describe("summarizeByAgent", () => {
         agentId: "b",
         agentName: "ב",
         firstResponseSeconds: 90,
+        agentResponseSeconds: 45,
         firstResponseAgentId: "a",
         closed: true,
         status: "solved",
@@ -248,6 +251,7 @@ describe("summarizeByAgent", () => {
     expect(a.ticketCount).toBe(0);
     expect(a.respondedCount).toBe(1);
     expect(a.avgFirstResponseSeconds).toBe(90);
+    expect(a.avgAgentResponseSeconds).toBe(45);
     expect(a.closedCount).toBe(0);
     expect(b.ticketCount).toBe(1);
     expect(b.respondedCount).toBe(0);
@@ -364,6 +368,7 @@ describe("summarizeTickets", () => {
       ticketCount: 0,
       respondedCount: 0,
       avgFirstResponseSeconds: null,
+      avgAgentResponseSeconds: null,
       awaitingReply: 0,
       closedCount: 0,
       avgTimeToCloseSeconds: null,
@@ -398,6 +403,28 @@ describe("summarizeTickets", () => {
     expect(stats.awaitingReply).toBe(1);
     expect(stats.closedCount).toBe(1);
     expect(stats.avgTimeToCloseSeconds).toBe(900);
+  });
+
+  it("averages זמן תגובה נציגה separately, over only the tickets that have it", () => {
+    // Ticket 74539-style split: the queue-wait-inclusive figure and the
+    // agent's-own-time figure differ, and a ticket with no assignee
+    // transition on record (agentResponseSeconds null) does not skew the
+    // second average.
+    const rows = [
+      ticket({
+        id: "1",
+        firstResponseSeconds: 76 * 60,
+        agentResponseSeconds: 7 * 60,
+      }),
+      ticket({
+        id: "2",
+        firstResponseSeconds: 50,
+        agentResponseSeconds: null, // no assignee transition on record
+      }),
+    ];
+    const stats = summarizeTickets(rows);
+    expect(stats.avgFirstResponseSeconds).toBe((76 * 60 + 50) / 2);
+    expect(stats.avgAgentResponseSeconds).toBe(7 * 60);
   });
 });
 
