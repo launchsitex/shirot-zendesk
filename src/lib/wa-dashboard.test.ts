@@ -118,6 +118,20 @@ describe("currentlyWaiting", () => {
     expect(waiting[0].totalSeconds).toBe(12 * 60);
   });
 
+  it("counts real wall-clock time, not business hours — the customer is still waiting outside them", () => {
+    // Thursday 20:00 (after hours) to Sunday 08:12 — 2 days 12h12m of real
+    // time, spanning a weekend the business clock would otherwise skip.
+    const rows = [
+      ticket({
+        id: "1",
+        createdAt: "2026-09-03T20:00:00.000Z",
+        waitingSince: "2026-09-03T20:00:00.000Z",
+      }),
+    ];
+    const waiting = currentlyWaiting(rows, NOW);
+    expect(waiting[0].waitedSeconds).toBe(2 * 86400 + 12 * 3600 + 12 * 60);
+  });
+
   it("sorts longest-waiting first", () => {
     const rows = [
       ticket({ id: "recent", waitingSince: "2026-09-06T08:10:00.000Z" }), // 2 min

@@ -440,8 +440,16 @@ export async function GET(request: NextRequest) {
     .filter((row) => row.departmentId === departmentId)
     .map((row) => ({
       ...row,
+      // Only a real "she answered this message" pair when the agent's last
+      // message is actually after the customer's — last_*_message_at are
+      // each just the latest of their kind, not a matched pair, so a ticket
+      // can show status "pending" while a customer message technically
+      // out-paces the agent one (sync lag on the status flip, e.g.). Without
+      // this guard businessSecondsBetween would clamp the reversed/equal gap
+      // to a misleading "0 seconds" (account owner, 2026-09-14).
       lastReplySeconds:
-        row.lastCustomerMessageAt && row.lastAgentMessageAt
+        row.lastCustomerMessageAt && row.lastAgentMessageAt &&
+        Date.parse(row.lastAgentMessageAt) > Date.parse(row.lastCustomerMessageAt)
           ? businessSecondsBetween(row.lastCustomerMessageAt, row.lastAgentMessageAt, clock)
           : null,
     }));

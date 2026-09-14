@@ -131,7 +131,11 @@ export type WaPendingTicket = WaTicketRow & {
    * Seconds from the customer's last message to the agent's reply to it
    * (lastCustomerMessageAt → lastAgentMessageAt) — how fast that specific
    * exchange was, not the ticket's first response. Null without both
-   * timestamps.
+   * timestamps, or when the agent's message isn't actually after the
+   * customer's — last_*_message_at are each just the latest of their kind,
+   * not a matched pair, so a "pending" ticket can still show the customer's
+   * one out-pacing the agent's (a status-flip sync lag, e.g.); showing a
+   * duration there would read as a misleadingly fast reply.
    */
   lastReplySeconds: number | null;
 };
@@ -423,18 +427,24 @@ function secondsSince(iso: string, nowMs: number): number {
  * Tickets whose customer is currently waiting (`waitingSince` set), each
  * carrying how long that has been as of `now` — recomputed on every call
  * rather than stored, since it grows every second the page is open.
+ *
+ * Wall-clock, not the business clock: the customer is still waiting outside
+ * business hours even though no agent is measured on that time (account
+ * owner, 2026-09-14 — same reasoning as the queue's own wall clock above).
+ * The stored/historical averages ("תגובה מוקד/נציגה", "ביצועי WA") are
+ * untouched — only this live view and the escalation-tier colors it drives.
  */
 export function currentlyWaiting(
   rows: WaTicketRow[],
   now: Date,
-  clock: BusinessClock = null,
 ): WaitingTicket[] {
+  const nowMs = now.getTime();
   return rows
     .filter((row) => row.waitingSince != null)
     .map((row) => ({
       ...row,
-      waitedSeconds: businessSecondsBetween(row.waitingSince!, now, clock),
-      totalSeconds: businessSecondsBetween(row.createdAt, now, clock),
+      waitedSeconds: secondsSince(row.waitingSince!, nowMs),
+      totalSeconds: secondsSince(row.createdAt, nowMs),
     }))
     .sort((a, b) => b.waitedSeconds - a.waitedSeconds);
 }

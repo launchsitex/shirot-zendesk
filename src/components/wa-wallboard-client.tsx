@@ -244,10 +244,11 @@ export function WaWallboardClient() {
   );
   // Every open conversation with the department's agents, today's and
   // earlier days' alike — a customer from Sunday still waiting on Wednesday
-  // belongs on the wall as much as one from this morning.
+  // belongs on the wall as much as one from this morning. Wall clock, not
+  // business hours — the customer is still waiting outside them.
   const waiting = useMemo(
-    () => currentlyWaiting([...visibleRows, ...backlogRows], now, clock),
-    [visibleRows, backlogRows, now, clock],
+    () => currentlyWaiting([...visibleRows, ...backlogRows], now),
+    [visibleRows, backlogRows, now],
   );
   // Two queues: tickets the bot handed over during business hours (someone
   // should take them now) and ones handed over after hours (they wait for

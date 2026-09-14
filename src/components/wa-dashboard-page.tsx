@@ -280,10 +280,11 @@ export function WaDashboardPageClient() {
     [data?.pendingReplies, excluded],
   );
   // Every open conversation with the department's agents, today's and
-  // earlier days' alike.
+  // earlier days' alike. Wall clock, not business hours — the customer is
+  // still waiting outside them (see currentlyWaiting).
   const waiting = useMemo(
-    () => currentlyWaiting([...visibleRows, ...backlogRows], now, clock),
-    [visibleRows, backlogRows, now, clock],
+    () => currentlyWaiting([...visibleRows, ...backlogRows], now),
+    [visibleRows, backlogRows, now],
   );
   // Two queues: handed over during business hours (someone should take them
   // now) and after hours (they wait for the next shift). Both by department.
