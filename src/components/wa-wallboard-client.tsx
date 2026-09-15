@@ -539,20 +539,30 @@ export function WaWallboardClient() {
           <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
             {availableNow.map((agent) => {
               const away = agent.status !== "online";
-              const free = freeMessagingSlots(agent);
-              const blink = !away && hasLiveQueue && free > 0;
+              // Zendesk won't route her new chats while away, so
+              // freeMessagingSlots is always 0 for her — but a manager can
+              // still nudge her by hand, so blink off her real workload
+              // (work items vs. max capacity) instead (account owner,
+              // 2026-09-15).
+              const rawFree = agent.messagingMaxCapacity != null
+                ? Math.max(0, agent.messagingMaxCapacity - agent.messagingWorkItems)
+                : 0;
+              const free = away ? rawFree : freeMessagingSlots(agent);
+              const blink = hasLiveQueue && free > 0;
               return (
                 <div
                   key={agent.agentId}
                   className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
                     away
-                      ? "border-white/10 bg-white/5 opacity-60"
+                      ? blink
+                        ? "animate-pulse border-[#e08a3c] bg-[#c45d2a]/30"
+                        : "border-[#c45d2a]/30 bg-[#c45d2a]/10"
                       : blink
                       ? "animate-pulse border-[#4fd39a] bg-[#1f9d72]/30"
                       : "border-[#1f9d72]/30 bg-[#1f9d72]/10"
                   }`}
                 >
-                  <strong className={`truncate text-sm ${away ? "text-white/70" : "text-[#4fd39a]"}`}>
+                  <strong className={`truncate text-sm ${away ? "text-[#f0a15a]" : "text-[#4fd39a]"}`}>
                     {agent.agentName}
                   </strong>
                   <span className="shrink-0 text-[11px] text-white/60">
