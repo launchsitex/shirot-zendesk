@@ -46,3 +46,6 @@ verify_jwt = false
 
 [functions.sync-aircall-users]
 verify_jwt = false
+
+[functions.survey-public]
+verify_jwt = false

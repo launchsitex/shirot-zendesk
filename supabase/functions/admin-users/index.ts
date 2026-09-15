@@ -24,6 +24,9 @@ const ALL_PAGES = [
   "wa-dashboard-history",
   "ai-analysis",
   "agent-ai-analysis",
+  "surveys",
+  "surveys-import",
+  "surveys-queue",
   "system-logs",
   "settings",
   "users",
@@ -427,6 +430,12 @@ function pageLabel(id: PageKey) {
       return "ניתוח AI";
     case "agent-ai-analysis":
       return "ניתוח נציג AI";
+    case "surveys":
+      return "סקרים";
+    case "surveys-import":
+      return "ייבוא לקוחות לסקר";
+    case "surveys-queue":
+      return "תור שליחה";
     case "system-logs":
       return "לוג מערכת";
     case "settings":

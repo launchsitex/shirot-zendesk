@@ -9,6 +9,52 @@
 
 ---
 
+## [2026-09-15] — מודול סקרי שביעות רצון (חדש)
+
+- **מה**: מודול חדש לגמרי לסקר שביעות רצון ללקוח, נשלח **פעם אחת לכל לקוח**
+  אחרי שכל מסע ההזמנה הסתיים (מכירה → תיאום → אספקה), עם 3 דירוגי כוכבים
+  (מוכר/סניף, תיאום/משרד, מוביל) ו-2 שדות פידבק חופשי (חיובי/שלילי).
+  - טבלאות חדשות: `survey_branches`, `survey_coordinators`, `survey_movers`,
+    `survey_message_template`, `survey_pending_sends`, `survey_responses`
+    (RLS: `for all to authenticated using(true)`, בלי מדיניות anon — הגישה
+    הציבורית עוברת רק דרך edge function עם service role).
+  - עמודת `profiles.branch_id` נוספה (עדיין לא נאכפת ב-RLS — "branch
+    manager" role נדחה במכוון ל-fast-follow עתידי).
+  - עמוד ציבורי `/s/[token]` (בלי login) — עוצב לפי מיתוג rcity.co.il
+    (Rubik, נייבי #18376C, אדום #E63447), בעוד שהדשבורד הפנימי (`/surveys`,
+    `/surveys/import`, `/surveys/queue`) עוצב לפי מערכת העיצוב הפנימית
+    הקיימת של City Live. `src/proxy.ts` עודכן לאפשר גישה ל-`/s/` בלי
+    אימות (matcher exclusion).
+  - Edge function `survey-public` (GET/POST, `verify_jwt=false`) מגיש את
+    הסקר ומקבל תשובות; כולל CORS headers מפורשים.
+  - מסך ייבוא (`/surveys/import`) — קובץ Excel עם שמות עמודות בעברית,
+    יוצר טוקן ייחודי וקישור לכל לקוח.
+  - מסך תור שליחה (`/surveys/queue`) — סינון ממתינים/נשלחו/הכל, ייצוא
+    Excel (טלפון + הודעה מוכנה ל-InfoU) עם סימון אוטומטי כ"נשלח", וביטול
+    שליחה ידני.
+  - מקור נתונים נוכחי לתור: משיכה חצי-ידנית מ-Priority דרך MyPriority MCP
+    (session בלבד, לא אינטגרציה חיה) — הזמנות בסטטוס "סופקה" **וגם** עם
+    תעודת משלוח בפועל בטווח תאריכים, לפי סניפי לקוח מאושרים
+    (2,3,4,5,6,7,20,8). קוד 8 = "אתר אינטרנט" (הזמנות אתר), קודים 10/16
+    ("סניפי שירות") מוחרגים במכוון לעת עתה.
+  - עוקב גם אחרי סניף וגם אחרי סוכן/ת המכירות (`AGENTNAME` מפריוריטי)
+    כמטא-דאטה על כל שורה בתור.
+  - נרשם ב-`app-pages.ts` / `sidebar.tsx` / `ALL_PAGES`+`pageLabel` ב-
+    `admin-users` (עמודים חדשים חסומים כברירת מחדל ל-admin עד הענקת
+    גישה מפורשת ב"ניהול משתמשים").
+- **למה**: בקשת בעל החשבון למדוד שביעות רצון לקוח לאורך כל תהליך ההזמנה
+  (מכירה, תיאום, אספקה) בלי לגעת בניתוח ביקורות גוגל.
+- **קבצים עיקריים**: `supabase/migrations/20260915090000_survey_module_core.sql`,
+  `supabase/migrations/20260915100000_survey_agent_name.sql`,
+  `supabase/functions/survey-public/index.ts`, `src/app/s/[token]/page.tsx`,
+  `src/components/survey-form.tsx`, `src/app/surveys/**`,
+  `src/components/survey-import-client.tsx`,
+  `src/components/survey-queue-client.tsx`, `src/lib/survey-export.ts`,
+  `src/proxy.ts`, `src/lib/app-pages.ts`, `src/components/sidebar.tsx`,
+  `supabase/functions/admin-users/index.ts`.
+
+---
+
 ## [2026-09-15] — תיקון הרשאות: משתמשת שאינה admin לא ראתה את "ממתינים לשיוך נציגה"
 
 - **מה**: מדיניות ה-RLS על `zendesk_tickets` קבעה מי מותר לה לראות פנייה

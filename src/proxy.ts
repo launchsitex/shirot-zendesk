@@ -49,5 +49,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health).*)"],
+  // "s/" = public customer survey pages (/s/[token]) — no login, must stay reachable.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health|s/).*)"],
 };
