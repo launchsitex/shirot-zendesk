@@ -281,6 +281,20 @@ export function WaWallboardClient() {
     [availability, data?.roles],
   );
   const answering = useMemo(() => answeringAgents(availability), [availability]);
+  // Quick-glance strip near the top: online agents (who can take a ticket
+  // right now) plus away/"on break" ones (shown muted, for context) — not
+  // transfers_only/offline, which stay in the full "זמינות נציגות" section
+  // below (account owner, 2026-09-15).
+  const availableNow = useMemo(
+    () =>
+      answering
+        .filter((agent) => agent.status === "online" || agent.status === "away")
+        .sort((a, b) => (a.status === b.status ? 0 : a.status === "online" ? -1 : 1)),
+    [answering],
+  );
+  // A customer is waiting for assignment, in business hours, right now —
+  // the trigger to draw a manager's eye to whoever has room to take it.
+  const hasLiveQueue = queueSplit.inHours.length > 0;
   // Tickets each agent is credited with solving today (the same figure as
   // "נסגרו היום" in the dashboard's agent table), shown on her availability card.
   const closedToday = useMemo(
@@ -514,6 +528,35 @@ export function WaWallboardClient() {
             tone="teal"
           />
         </section>
+
+        {availableNow.length > 0 && (
+          <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+            {availableNow.map((agent) => {
+              const away = agent.status === "away";
+              const free = freeMessagingSlots(agent);
+              const blink = !away && hasLiveQueue && free > 0;
+              return (
+                <div
+                  key={agent.agentId}
+                  className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
+                    away
+                      ? "border-white/10 bg-white/5 opacity-60"
+                      : blink
+                      ? "animate-pulse border-[#4fd39a] bg-[#1f9d72]/30"
+                      : "border-[#1f9d72]/30 bg-[#1f9d72]/10"
+                  }`}
+                >
+                  <strong className={`truncate text-sm ${away ? "text-white/70" : "text-[#4fd39a]"}`}>
+                    {agent.agentName}
+                  </strong>
+                  <span className="shrink-0 text-[11px] text-white/60">
+                    {away ? "בהפסקה" : free > 0 ? `פנויה לעוד ${free}` : "מלאה"}
+                  </span>
+                </div>
+              );
+            })}
+          </section>
+        )}
 
         {byDepartment.length > 0 && (
           <section
