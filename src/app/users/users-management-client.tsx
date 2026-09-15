@@ -55,6 +55,21 @@ const roleLabels: Record<AppRole, string> = {
   viewer: "צופה",
 };
 
+/**
+ * `/api/users` requires an admin session; when it has expired mid-page,
+ * `proxy.ts` 307-redirects the fetch to `/login` and the browser silently
+ * follows it, so `response.json()` would otherwise try to parse the login
+ * page's HTML ("Unexpected token '<'"). Detect that redirect and send the
+ * user to log in again instead of showing the raw parse error.
+ */
+async function parseUsersResponse(response: Response) {
+  if (response.redirected && response.url.includes("/login")) {
+    window.location.href = "/login";
+    throw new Error("ההתחברות פגה - מעביר אותך למסך ההתחברות...");
+  }
+  return response.json();
+}
+
 export function UsersManagementClient() {
   const [data, setData] = useState<UsersPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,7 +99,7 @@ export function UsersManagementClient() {
     setError("");
     try {
       const response = await fetch("/api/users", { cache: "no-store" });
-      const result = await response.json();
+      const result = await parseUsersResponse(response);
       if (!response.ok) throw new Error(result.error);
       setData(result);
     } catch (loadError) {
@@ -157,7 +172,7 @@ export function UsersManagementClient() {
           editingId ? { id: editingId, ...payload } : payload,
         ),
       });
-      const result = await response.json();
+      const result = await parseUsersResponse(response);
       if (!response.ok) throw new Error(result.error);
       setShowForm(false);
       await load();
@@ -179,7 +194,7 @@ export function UsersManagementClient() {
       const response = await fetch(`/api/users?id=${encodeURIComponent(user.id)}`, {
         method: "DELETE",
       });
-      const result = await response.json();
+      const result = await parseUsersResponse(response);
       if (!response.ok) throw new Error(result.error);
       await load();
     } catch (deleteError) {
