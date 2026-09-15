@@ -2,6 +2,13 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  // Public customer survey pages (/s/[token]) — no login, must stay reachable
+  // regardless of the matcher below (checked here too so this can never
+  // regress silently if the matcher regex ever fails to exclude it).
+  if (request.nextUrl.pathname.startsWith("/s/")) {
+    return NextResponse.next();
+  }
+
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
