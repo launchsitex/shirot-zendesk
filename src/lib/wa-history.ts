@@ -61,6 +61,18 @@ export type WaAgentPeriod = WaPeriodStats & {
   days: WaDayStats[];
 };
 
+/**
+ * "אינטראקציה יומית" — distinct customers the department's agents actually
+ * messaged on this day, regardless of when their ticket was opened (unlike
+ * WaDailyRow.ticketCount, which is keyed by the ticket's own open day).
+ * Sourced from the WhatsApp message log, which only starts 2026-09-09 — a
+ * day missing from the array (not a zero row) means it predates that.
+ */
+export type WaDailyInteractionRow = {
+  day: string;
+  customerCount: number;
+};
+
 export type WaHistoryPayload = {
   from: string;
   to: string;
@@ -70,10 +82,17 @@ export type WaHistoryPayload = {
   departments: { id: string; name: string }[];
   rows: WaDailyRow[];
   previousRows: WaDailyRow[];
+  dailyInteractions: WaDailyInteractionRow[];
+  previousDailyInteractions: WaDailyInteractionRow[];
   businessHoursLabel: string | null;
   /** When the newest row in the range was computed. */
   computedAt: string | null;
 };
+
+/** Total distinct customers messaged across the rows (days summed, not deduped across days). */
+export function sumInteractions(rows: WaDailyInteractionRow[]): number {
+  return rows.reduce((sum, row) => sum + row.customerCount, 0);
+}
 
 export function sumRows(rows: WaDailyRow[]): WaPeriodStats {
   let ticketCount = 0;

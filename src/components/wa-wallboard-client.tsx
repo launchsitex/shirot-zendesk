@@ -282,13 +282,19 @@ export function WaWallboardClient() {
   );
   const answering = useMemo(() => answeringAgents(availability), [availability]);
   // Quick-glance strip near the top: online agents (who can take a ticket
-  // right now) plus away/"on break" ones (shown muted, for context) — not
+  // right now) plus "on break" ones (shown muted, for context) — not
   // transfers_only/offline, which stay in the full "זמינות נציגות" section
-  // below (account owner, 2026-09-15).
+  // below (account owner, 2026-09-15). "On break" is anything that isn't
+  // one of the three known statuses: Zendesk custom statuses carry their
+  // own name (e.g. "הפסקה"), never the literal string "away".
   const availableNow = useMemo(
     () =>
       answering
-        .filter((agent) => agent.status === "online" || agent.status === "away")
+        .filter(
+          (agent) =>
+            agent.status === "online" ||
+            (agent.status !== "transfers_only" && agent.status !== "offline"),
+        )
         .sort((a, b) => (a.status === b.status ? 0 : a.status === "online" ? -1 : 1)),
     [answering],
   );
@@ -532,7 +538,7 @@ export function WaWallboardClient() {
         {availableNow.length > 0 && (
           <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
             {availableNow.map((agent) => {
-              const away = agent.status === "away";
+              const away = agent.status !== "online";
               const free = freeMessagingSlots(agent);
               const blink = !away && hasLiveQueue && free > 0;
               return (
@@ -550,7 +556,7 @@ export function WaWallboardClient() {
                     {agent.agentName}
                   </strong>
                   <span className="shrink-0 text-[11px] text-white/60">
-                    {away ? "בהפסקה" : free > 0 ? `פנויה לעוד ${free}` : "מלאה"}
+                    {away ? agentStatusLabel(agent.status) : free > 0 ? `פנויה לעוד ${free}` : "מלאה"}
                   </span>
                 </div>
               );

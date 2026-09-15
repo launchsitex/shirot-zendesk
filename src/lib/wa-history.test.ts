@@ -7,6 +7,7 @@ import {
   previousRange,
   statsByAgent,
   statsByDay,
+  sumInteractions,
   sumRows,
   type WaDailyRow,
 } from "@/lib/wa-history";
@@ -32,6 +33,21 @@ function row(overrides: Partial<WaDailyRow>): WaDailyRow {
     ...overrides,
   };
 }
+
+describe("sumInteractions", () => {
+  it("adds customerCount across days", () => {
+    expect(
+      sumInteractions([
+        { day: "2026-09-09", customerCount: 5 },
+        { day: "2026-09-10", customerCount: 3 },
+      ]),
+    ).toBe(8);
+  });
+
+  it("is zero for an empty range", () => {
+    expect(sumInteractions([])).toBe(0);
+  });
+});
 
 describe("sumRows", () => {
   it("adds counts and averages from the sums", () => {

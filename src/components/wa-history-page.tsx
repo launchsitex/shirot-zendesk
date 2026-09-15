@@ -21,6 +21,7 @@ import {
   RANGE_PRESETS,
   statsByAgent,
   statsByDay,
+  sumInteractions,
   sumRows,
   type RangePreset,
   type WaHistoryPayload,
@@ -37,6 +38,8 @@ function dayCountLabel(days: number): string {
 const DEFAULT_DEPARTMENT_ID = "customer-service";
 /** First day with complete handoff data; earlier days have partial response figures. */
 const COMPLETE_FROM = "2026-09-08";
+/** First day the WhatsApp message log exists; "אינטראקציה יומית" has no data before it. */
+const INTERACTIONS_FROM = "2026-09-09";
 
 function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
@@ -377,6 +380,18 @@ export function WaHistoryPageClient() {
   const days = useMemo(() => statsByDay(rows), [rows]);
   const agents = useMemo(() => statsByAgent(rows), [rows]);
   const maxDayTickets = Math.max(1, ...days.map((day) => day.ticketCount));
+  const interactionsByDay = useMemo(
+    () => new Map(data?.dailyInteractions.map((row) => [row.day, row.customerCount]) ?? []),
+    [data?.dailyInteractions],
+  );
+  const totalInteractions = useMemo(
+    () => sumInteractions(data?.dailyInteractions ?? []),
+    [data?.dailyInteractions],
+  );
+  const previousTotalInteractions = useMemo(
+    () => sumInteractions(data?.previousDailyInteractions ?? []),
+    [data?.previousDailyInteractions],
+  );
 
   function downloadCsv() {
     const blob = new Blob([agentsToCsv(agents)], { type: "text/csv;charset=utf-8" });
@@ -502,7 +517,14 @@ export function WaHistoryPageClient() {
 
       {data && (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+            <Tile label="לקוחות שדיברנו איתם" value={String(totalInteractions)}>
+              {to < INTERACTIONS_FROM ? (
+                <span className="text-xs text-[#a3adb1]">אין נתונים לפני {dayLabel(INTERACTIONS_FROM)}</span>
+              ) : (
+                <Delta current={totalInteractions} previous={previousTotalInteractions} format={String} />
+              )}
+            </Tile>
             <Tile label="פניות" value={String(totals.ticketCount)}>
               <Delta current={totals.ticketCount} previous={previousTotals.ticketCount} format={String} />
             </Tile>
@@ -556,6 +578,8 @@ export function WaHistoryPageClient() {
               : " · הזמנים מסביב לשעון"}
             {from < COMPLETE_FROM &&
               ` · נתוני תגובה ראשונה מלאים מ-${dayLabel(COMPLETE_FROM)}; לפני כן חלקיים`}
+            {from < INTERACTIONS_FROM &&
+              ` · "לקוחות שדיברנו איתם" קיים רק מ-${dayLabel(INTERACTIONS_FROM)}`}
           </p>
 
           <section className="card overflow-hidden">
@@ -575,6 +599,7 @@ export function WaHistoryPageClient() {
                         {header}
                       </th>
                     ))}
+                    <th className="px-3 py-2 text-center font-semibold">לקוחות שדיברנו איתם</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -592,11 +617,14 @@ export function WaHistoryPageClient() {
                         </div>
                       </td>
                       <StatCells stats={day} />
+                      <td className="px-3 py-2 text-center">
+                        {interactionsByDay.has(day.day) ? interactionsByDay.get(day.day) : "—"}
+                      </td>
                     </tr>
                   ))}
                   {days.length === 0 && (
                     <tr>
-                      <td colSpan={STAT_HEADERS.length + 1} className="px-3 py-8 text-center text-[#a3adb1]">
+                      <td colSpan={STAT_HEADERS.length + 2} className="px-3 py-8 text-center text-[#a3adb1]">
                         אין פניות וואטסאפ בטווח זה
                       </td>
                     </tr>
@@ -607,6 +635,7 @@ export function WaHistoryPageClient() {
                     <tr>
                       <td className="px-3 py-2 text-[#17242d]">סה״כ</td>
                       <StatCells stats={totals} />
+                      <td className="px-3 py-2 text-center">{totalInteractions}</td>
                     </tr>
                   </tfoot>
                 )}

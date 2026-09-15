@@ -10,6 +10,7 @@ import {
   daysBetween,
   presetRange,
   previousRange,
+  type WaDailyInteractionRow,
   type WaDailyRow,
   type WaHistoryPayload,
 } from "@/lib/wa-history";
@@ -105,7 +106,14 @@ export async function GET(request: NextRequest) {
   // Two separate queries, not one contiguous range split at `from`: a
   // manually picked comparison period need not be adjacent to the current
   // one at all.
-  const [rowsResult, previousRowsResult, departmentsResult, hoursResult] = await Promise.all([
+  const [
+    rowsResult,
+    previousRowsResult,
+    departmentsResult,
+    hoursResult,
+    interactionsResult,
+    previousInteractionsResult,
+  ] = await Promise.all([
     supabase
       .from("wa_agent_daily")
       .select(SELECT)
@@ -130,10 +138,25 @@ export async function GET(request: NextRequest) {
       .select("schedule")
       .eq("department_id", departmentId)
       .maybeSingle(),
+    supabase
+      .from("wa_department_daily_interactions")
+      .select("day,customer_count")
+      .eq("department_id", departmentId)
+      .gte("day", from)
+      .lte("day", to)
+      .order("day", { ascending: true }),
+    supabase
+      .from("wa_department_daily_interactions")
+      .select("day,customer_count")
+      .eq("department_id", departmentId)
+      .gte("day", previous.from)
+      .lte("day", previous.to)
+      .order("day", { ascending: true }),
   ]);
 
   const failed = rowsResult.error ?? previousRowsResult.error ??
-    departmentsResult.error ?? hoursResult.error;
+    departmentsResult.error ?? hoursResult.error ??
+    interactionsResult.error ?? previousInteractionsResult.error;
   if (failed) {
     return NextResponse.json(
       { error: "wa_history_query_failed", details: failed.message },
@@ -179,6 +202,17 @@ export async function GET(request: NextRequest) {
   });
   const previousRows = ((previousRowsResult.data ?? []) as Row[]).map(mapRow);
 
+  const mapInteractionRow = (row: { day: string; customer_count: number }): WaDailyInteractionRow => ({
+    day: row.day,
+    customerCount: row.customer_count,
+  });
+  const dailyInteractions = (
+    (interactionsResult.data ?? []) as { day: string; customer_count: number }[]
+  ).map(mapInteractionRow);
+  const previousDailyInteractions = (
+    (previousInteractionsResult.data ?? []) as { day: string; customer_count: number }[]
+  ).map(mapInteractionRow);
+
   const payload: WaHistoryPayload = {
     from,
     to,
@@ -187,6 +221,8 @@ export async function GET(request: NextRequest) {
     departments,
     rows,
     previousRows,
+    dailyInteractions,
+    previousDailyInteractions,
     businessHoursLabel: businessClockLabel(
       businessClockFor(hoursResult.data ? normalizeSchedule(hoursResult.data.schedule) : null),
     ),

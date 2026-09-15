@@ -138,6 +138,8 @@ Agent pay and bonuses are computed from these figures; every definition below is
 
 **Stored daily record:** `wa_agent_daily` (sums, not averages) rebuilt by pg_cron `wa-agent-daily-rollup` (today + yesterday, every 10 min) and `wa-agent-daily-rollup-nightly` (31 days, 00:30 UTC — so `recompute_wa_agent_daily`'s definition for a day cannot change once that day is more than 31 days old, short of a manual re-run). Backfilled from 2026-08-01. Read by `/api/wa-history`.
 
+**"לקוחות שדיברנו איתם" (2026-09-15, display only):** distinct WhatsApp customers a department's agents actually messaged on a given day, keyed by the *message's* day — not the ticket's open day like everything else in `wa_agent_daily`, so a ticket opened yesterday and answered today counts today. Stored in `wa_department_daily_interactions` (day, department_id, customer_count), rebuilt by the same pg_cron pattern as `wa_agent_daily` (`recompute_wa_department_daily_interactions`, 10-min + nightly jobs), sourced from `zendesk_whatsapp_messages` (`direction = 'agent'`), which only goes back to 2026-09-09 — no data before that. Shown in "ביצועי WA" (summary tile + a column in the by-day table). Does not feed any average/calculation.
+
 ## Key Supabase tables / concepts
 
 - `calls` — live + history; `status`: `in_progress` | `answered` | `missed`
@@ -155,6 +157,7 @@ Agent pay and bonuses are computed from these figures; every definition below is
 - `zendesk_agent_availability` — live agent status + messaging load (one row per Zendesk agent)
 - `zendesk_custom_statuses` — every Zendesk custom status (id, category, agent label, `is_default`); synced alongside availability, tells "פתוחה" apart from "תזכורת" etc. within status `open`
 - `wa_agent_daily` — stored daily WhatsApp record per agent (see WhatsApp section)
+- `wa_department_daily_interactions` — stored daily distinct-customer count per department, keyed by message day (see WhatsApp section)
 - `israel_holidays`, `department_business_hours` — the business clock's inputs
 - `zendesk_sync_state` — export cursors (`last_start_time`, `last_events_start_time`); rewind via SQL to replay
 
