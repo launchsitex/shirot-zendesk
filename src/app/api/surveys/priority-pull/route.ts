@@ -27,7 +27,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("survey_priority_pull_requests")
     .select(
-      "id, date_from, date_to, status, inserted_count, matched_count, result_summary, error_message, created_at, processed_at",
+      "id, date_from, date_to, include_service_calls, status, inserted_count, matched_count, result_summary, error_message, created_at, processed_at",
     )
     .order("created_at", { ascending: false })
     .limit(10);
@@ -43,6 +43,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null);
   const dateFrom = body?.dateFrom;
   const dateTo = body?.dateTo;
+  const includeServiceCalls = body?.includeServiceCalls === true;
   if (typeof dateFrom !== "string" || typeof dateTo !== "string" || !DATE_RE.test(dateFrom) || !DATE_RE.test(dateTo)) {
     return NextResponse.json({ error: "טווח תאריכים לא תקין" }, { status: 400 });
   }
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
   const { error } = await supabase.from("survey_priority_pull_requests").insert({
     date_from: dateFrom,
     date_to: dateTo,
+    include_service_calls: includeServiceCalls,
     status: "pending",
     requested_by: auth.profile.id,
   });

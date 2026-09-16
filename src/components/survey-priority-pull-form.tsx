@@ -7,6 +7,7 @@ type PullRequest = {
   id: string;
   date_from: string;
   date_to: string;
+  include_service_calls: boolean;
   status: "pending" | "processing" | "done" | "error";
   inserted_count: number | null;
   matched_count: number | null;
@@ -46,6 +47,7 @@ function todayIso(): string {
 export function SurveyPriorityPullForm() {
   const [dateFrom, setDateFrom] = useState(todayIso());
   const [dateTo, setDateTo] = useState(todayIso());
+  const [includeServiceCalls, setIncludeServiceCalls] = useState(false);
   const [requests, setRequests] = useState<PullRequest[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -78,7 +80,7 @@ export function SurveyPriorityPullForm() {
       const response = await fetch("/api/surveys/priority-pull", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dateFrom, dateTo }),
+        body: JSON.stringify({ dateFrom, dateTo, includeServiceCalls }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "הבקשה נכשלה");
@@ -110,7 +112,8 @@ export function SurveyPriorityPullForm() {
         <>
           <p className="text-sm" style={{ color: "var(--muted)" }}>
             שולף הזמנות בסטטוס &quot;סופקה&quot; עם תעודת משלוח בפועל בטווח התאריכים שתבחר, בסניפים המאושרים
-            בלבד. הריצה מתבצעת ברקע ולא מיידית — עד שעה מרגע השליחה.
+            בלבד — וללא הזמנות של סניפי שירות (קריאות שירות/חלפים), אלא אם תסמן את האפשרות למטה. הריצה
+            מתבצעת ברקע ולא מיידית — עד שעה מרגע השליחה.
           </p>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -133,6 +136,14 @@ export function SurveyPriorityPullForm() {
                 className="rounded-lg border px-3 py-2 text-sm"
                 style={{ borderColor: "var(--line)" }}
               />
+            </label>
+            <label className="flex h-10 items-center gap-2 text-sm" style={{ color: "var(--ink)" }}>
+              <input
+                type="checkbox"
+                checked={includeServiceCalls}
+                onChange={(event) => setIncludeServiceCalls(event.target.checked)}
+              />
+              כלול גם קריאות שירות
             </label>
             <button
               type="button"
@@ -166,6 +177,7 @@ export function SurveyPriorityPullForm() {
                 <thead>
                   <tr className="text-right" style={{ color: "var(--muted)" }}>
                     <th className="px-3 py-1.5 font-medium">טווח</th>
+                    <th className="px-3 py-1.5 font-medium">קריאות שירות</th>
                     <th className="px-3 py-1.5 font-medium">סטטוס</th>
                     <th className="px-3 py-1.5 font-medium">תוצאה</th>
                     <th className="px-3 py-1.5 font-medium">נשלח</th>
@@ -176,6 +188,9 @@ export function SurveyPriorityPullForm() {
                     <tr key={req.id} className="border-t" style={{ borderColor: "var(--line)" }}>
                       <td className="whitespace-nowrap px-3 py-2">
                         {req.date_from} — {req.date_to}
+                      </td>
+                      <td className="px-3 py-2" style={{ color: "var(--muted)" }}>
+                        {req.include_service_calls ? "כן" : "לא"}
                       </td>
                       <td className="px-3 py-2">
                         <span className="font-medium" style={{ color: STATUS_COLOR[req.status] }}>

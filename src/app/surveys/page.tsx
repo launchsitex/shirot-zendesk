@@ -8,8 +8,7 @@ export default async function SurveysPage() {
   const supabase = await createSupabaseServerClient();
 
   const [
-    { data: scoreRows },
-    { data: recentRows },
+    { data: responseRows },
     { data: branches },
     { data: movers },
     { count: pendingCount },
@@ -17,15 +16,11 @@ export default async function SurveysPage() {
   ] = await Promise.all([
     supabase
       .from("survey_responses")
-      .select("score_branch, score_coordination, score_mover, branch_id, mover_id, agent_name")
-      .limit(2000),
-    supabase
-      .from("survey_responses")
       .select(
-        "id, order_number, score_branch, score_coordination, score_mover, feedback_positive, feedback_negative, submitted_at, survey_branches!branch_id(name)",
+        "id, order_number, branch_id, mover_id, agent_name, score_branch, score_coordination, score_mover, feedback_positive, feedback_negative, submitted_at, survey_branches!branch_id(name), survey_movers!mover_id(name), survey_pending_sends!pending_send_id(customer_name, phone)",
       )
       .order("submitted_at", { ascending: false })
-      .limit(20),
+      .limit(5000),
     supabase.from("survey_branches").select("id, name"),
     supabase.from("survey_movers").select("id, name"),
     supabase
@@ -38,18 +33,19 @@ export default async function SurveysPage() {
       .eq("status", "sent"),
   ]);
 
-  const normalizedRecentRows = (recentRows ?? []).map((row) => ({
+  const normalizedResponses = (responseRows ?? []).map((row) => ({
     ...row,
-    survey_branches: Array.isArray(row.survey_branches)
-      ? (row.survey_branches[0] ?? null)
-      : row.survey_branches,
+    survey_branches: Array.isArray(row.survey_branches) ? (row.survey_branches[0] ?? null) : row.survey_branches,
+    survey_movers: Array.isArray(row.survey_movers) ? (row.survey_movers[0] ?? null) : row.survey_movers,
+    survey_pending_sends: Array.isArray(row.survey_pending_sends)
+      ? (row.survey_pending_sends[0] ?? null)
+      : row.survey_pending_sends,
   }));
 
   return (
     <AppShell>
       <SurveysOverview
-        scoreRows={scoreRows ?? []}
-        recentRows={normalizedRecentRows}
+        responses={normalizedResponses}
         branches={branches ?? []}
         movers={movers ?? []}
         pendingCount={pendingCount ?? 0}
