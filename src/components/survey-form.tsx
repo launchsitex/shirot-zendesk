@@ -20,7 +20,7 @@ type Scores = {
 
 const RATING_FIELDS: { key: keyof Scores; label: string }[] = [
   { key: "branch", label: "המוכר/ת והסניף" },
-  { key: "coordination", label: "התיאום מול המשרד" },
+  { key: "coordination", label: "תיאום אספקה" },
   { key: "mover", label: "המוביל/ים" },
 ];
 

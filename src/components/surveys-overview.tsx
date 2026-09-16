@@ -51,7 +51,7 @@ export function SurveysOverview({
 }) {
   const kpis = [
     { label: "ממוצע מוכר/ת וסניף", value: average(scoreRows, "score_branch") },
-    { label: "ממוצע תיאום מול המשרד", value: average(scoreRows, "score_coordination") },
+    { label: "ממוצע תיאום אספקה", value: average(scoreRows, "score_coordination") },
     { label: "ממוצע מוביל/ים", value: average(scoreRows, "score_mover") },
   ];
 
