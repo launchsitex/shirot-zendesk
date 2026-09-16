@@ -11,6 +11,7 @@ type QueueRow = {
   message_text: string;
   status: "pending" | "sent";
   agent_name: string | null;
+  delivered_at: string | null;
   sent_at: string | null;
   responded_at: string | null;
   created_at: string;
@@ -27,6 +28,15 @@ function formatDateTime(value: string | null): string {
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleDateString("he-IL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
   });
 }
 
@@ -176,6 +186,7 @@ export function SurveyQueueClient() {
                 <th className="px-4 py-2 font-medium">לקוח</th>
                 <th className="px-4 py-2 font-medium">טלפון</th>
                 <th className="px-4 py-2 font-medium">הזמנה</th>
+                <th className="px-4 py-2 font-medium">סופק ב-</th>
                 <th className="px-4 py-2 font-medium">סניף</th>
                 <th className="px-4 py-2 font-medium">מוביל</th>
                 <th className="px-4 py-2 font-medium">סוכן/ת</th>
@@ -187,14 +198,14 @@ export function SurveyQueueClient() {
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                  <td colSpan={10} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                     טוען...
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                  <td colSpan={10} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                     אין לקוחות בתור
                   </td>
                 </tr>
@@ -213,6 +224,9 @@ export function SurveyQueueClient() {
                   <td className="px-4 py-3 font-medium">{row.customer_name}</td>
                   <td className="px-4 py-3">{row.phone}</td>
                   <td className="px-4 py-3">{row.order_number}</td>
+                  <td className="px-4 py-3 whitespace-nowrap" style={{ color: "var(--muted)" }}>
+                    {formatDate(row.delivered_at)}
+                  </td>
                   <td className="px-4 py-3">{row.survey_branches?.name ?? "—"}</td>
                   <td className="px-4 py-3">{row.survey_movers?.name ?? "—"}</td>
                   <td className="px-4 py-3">{row.agent_name ?? "—"}</td>

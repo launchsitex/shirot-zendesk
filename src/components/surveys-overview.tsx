@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Inbox, Upload } from "lucide-react";
+import { SurveyPriorityPullForm } from "@/components/survey-priority-pull-form";
 
 type ScoreRow = {
   score_branch: number;
@@ -84,6 +85,8 @@ export function SurveysOverview({
           </Link>
         </div>
       </div>
+
+      <SurveyPriorityPullForm />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((kpi) => (

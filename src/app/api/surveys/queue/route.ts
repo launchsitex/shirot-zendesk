@@ -27,7 +27,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from("survey_pending_sends")
     .select(
-      "id, customer_name, phone, order_number, message_text, status, agent_name, sent_at, responded_at, created_at, survey_branches!branch_id(name), survey_movers!mover_id(name)",
+      "id, customer_name, phone, order_number, message_text, status, agent_name, delivered_at, sent_at, responded_at, created_at, survey_branches!branch_id(name), survey_movers!mover_id(name)",
     )
     .order("created_at", { ascending: false })
     .limit(500);
