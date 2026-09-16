@@ -118,6 +118,36 @@ export function SurveyQueueClient() {
     }
   }
 
+  async function handleSendDirect() {
+    if (selectedRows.length === 0) return;
+    const confirmed = window.confirm(
+      `לשלוח SMS אמיתי ל-${selectedRows.length} לקוחות עכשיו? פעולה זו לא הפיכה.`,
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/surveys/send-sms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedRows.map((row) => row.id) }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "השליחה נכשלה");
+      const failedCount = payload.failed?.length ?? 0;
+      setMessage(
+        failedCount > 0
+          ? `נשלחו ${payload.sent} בהצלחה, ${failedCount} נכשלו`
+          : `נשלחו ${payload.sent} הודעות בהצלחה`,
+      );
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "השליחה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleUnmark(id: string) {
     setBusy(true);
     try {
@@ -171,6 +201,16 @@ export function SurveyQueueClient() {
             style={{ background: "var(--blue)" }}
           >
             ייצוא {selectedRows.length > 0 ? `(${selectedRows.length})` : ""} וסימון כנשלח
+          </button>
+
+          <button
+            type="button"
+            disabled={selectedRows.length === 0 || busy}
+            onClick={handleSendDirect}
+            className="rounded-lg border px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
+            style={{ borderColor: "var(--teal)", color: "var(--teal)" }}
+          >
+            שלח SMS ישירות {selectedRows.length > 0 ? `(${selectedRows.length})` : ""}
           </button>
 
           <div className="flex items-center gap-1.5 rounded-lg border px-2 py-1" style={{ borderColor: "var(--line)" }}>
