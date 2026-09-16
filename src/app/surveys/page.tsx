@@ -11,12 +11,13 @@ export default async function SurveysPage() {
     { data: scoreRows },
     { data: recentRows },
     { data: branches },
+    { data: movers },
     { count: pendingCount },
     { count: sentCount },
   ] = await Promise.all([
     supabase
       .from("survey_responses")
-      .select("score_branch, score_coordination, score_mover, branch_id")
+      .select("score_branch, score_coordination, score_mover, branch_id, mover_id, agent_name")
       .limit(2000),
     supabase
       .from("survey_responses")
@@ -26,6 +27,7 @@ export default async function SurveysPage() {
       .order("submitted_at", { ascending: false })
       .limit(20),
     supabase.from("survey_branches").select("id, name"),
+    supabase.from("survey_movers").select("id, name"),
     supabase
       .from("survey_pending_sends")
       .select("id", { count: "exact", head: true })
@@ -49,6 +51,7 @@ export default async function SurveysPage() {
         scoreRows={scoreRows ?? []}
         recentRows={normalizedRecentRows}
         branches={branches ?? []}
+        movers={movers ?? []}
         pendingCount={pendingCount ?? 0}
         sentCount={sentCount ?? 0}
       />

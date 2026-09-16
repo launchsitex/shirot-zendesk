@@ -8,6 +8,8 @@ type ScoreRow = {
   score_coordination: number;
   score_mover: number;
   branch_id: string | null;
+  mover_id: string | null;
+  agent_name: string | null;
 };
 
 type RecentRow = {
@@ -23,6 +25,7 @@ type RecentRow = {
 };
 
 type Branch = { id: string; name: string };
+type Mover = { id: string; name: string };
 
 function avgOf(row: { score_branch: number; score_coordination: number; score_mover: number }): number {
   return (row.score_branch + row.score_coordination + row.score_mover) / 3;
@@ -51,12 +54,14 @@ function formatDate(value: string): string {
 
 function Bar({
   label,
+  count,
   value,
   maxValue,
   displayValue,
   color,
 }: {
   label: string;
+  count?: number;
   value: number;
   maxValue: number;
   displayValue: string;
@@ -65,8 +70,14 @@ function Bar({
   const width = maxValue > 0 ? Math.max((value / maxValue) * 100, 3) : 0;
   return (
     <div className="flex items-center gap-3">
-      <span className="w-28 shrink-0 truncate text-sm font-medium" style={{ color: "var(--ink)" }}>
+      <span className="w-32 shrink-0 truncate text-sm font-medium" style={{ color: "var(--ink)" }}>
         {label}
+        {count !== undefined && (
+          <span className="text-xs font-normal" style={{ color: "var(--muted)" }}>
+            {" "}
+            ({count})
+          </span>
+        )}
       </span>
       <div className="h-2.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--line)" }}>
         <div
@@ -85,12 +96,14 @@ export function SurveysOverview({
   scoreRows,
   recentRows,
   branches,
+  movers,
   pendingCount,
   sentCount,
 }: {
   scoreRows: ScoreRow[];
   recentRows: RecentRow[];
   branches: Branch[];
+  movers: Mover[];
   pendingCount: number;
   sentCount: number;
 }) {
@@ -119,6 +132,22 @@ export function SurveysOverview({
       return { name: branch.name, value: average(rows.map(avgOf)), count: rows.length };
     })
     .filter((branch) => branch.count > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+  const agentNames = [...new Set(scoreRows.map((row) => row.agent_name).filter((name): name is string => Boolean(name)))];
+  const agentAverages = agentNames
+    .map((name) => {
+      const rows = scoreRows.filter((row) => row.agent_name === name);
+      return { name, value: average(rows.map((row) => row.score_branch)), count: rows.length };
+    })
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+  const moverAverages = movers
+    .map((mover) => {
+      const rows = scoreRows.filter((row) => row.mover_id === mover.id);
+      return { name: mover.name, value: average(rows.map((row) => row.score_mover)), count: rows.length };
+    })
+    .filter((mover) => mover.count > 0)
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
 
   const feed = recentRows.slice(0, 8);
@@ -266,6 +295,64 @@ export function SurveysOverview({
             ))}
           </div>
         )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card flex flex-col gap-4 p-6">
+          <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
+            ציון ממוצע לפי סוכן/ת מכירות
+          </h2>
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            ציון &quot;מוכר/ת וסניף&quot; בלבד, מפולח לפי הסוכן/ת שרשום/ה בהזמנה בפריוריטי.
+          </p>
+          {agentAverages.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              אין עדיין תשובות
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {agentAverages.map((agent) => (
+                <Bar
+                  key={agent.name}
+                  label={agent.name}
+                  count={agent.count}
+                  value={agent.value ?? 0}
+                  maxValue={5}
+                  displayValue={formatScore(agent.value)}
+                  color="var(--blue)"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card flex flex-col gap-4 p-6">
+          <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
+            ציון ממוצע לפי מוביל
+          </h2>
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            ציון &quot;מוביל/ים&quot; בלבד, מפולח לפי המוביל שביצע את האספקה.
+          </p>
+          {moverAverages.length === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              אין עדיין תשובות
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {moverAverages.map((mover) => (
+                <Bar
+                  key={mover.name}
+                  label={mover.name}
+                  count={mover.count}
+                  value={mover.value ?? 0}
+                  maxValue={5}
+                  displayValue={formatScore(mover.value)}
+                  color="var(--teal)"
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <SurveyPriorityPullForm />
