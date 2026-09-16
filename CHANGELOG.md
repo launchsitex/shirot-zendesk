@@ -9,6 +9,29 @@
 
 ---
 
+## [2026-09-16] — תור שליחה: שליחת SMS ישירה דרך InfoU (בלי Excel)
+
+- **מה**: כפתור חדש "שלח SMS ישירות" ב-"תור שליחה", לצד ה-ייצוא ל-
+  Excel הקיים. קורא ל-InfoU SMS API (`POST
+  https://capi.inforu.co.il/api/v2/SMS/SendSms`) — קריאה נפרדת לכל
+  נמען (כי כל לקוח מקבל הודעה שונה לגמרי, לא רק שם מוחלף בתבנית),
+  עם אישור `confirm()` לפני שליחה בפועל (בלתי הפיך). על הצלחה מסמן
+  את השורה כ-`sent`; כשלונות מדווחים בנפרד ולא מסומנים.
+  - `User`+`Token` של InfoU (Basic Auth) נשמרים ב-Supabase Vault
+    (`infou-api-user`, `infou-api-token`) — **לא** בקוד ולא כ-env
+    גלוי. נגישים רק דרך פונקציית RPC `public.get_infou_credentials()`
+    (security definer, מוגבל ל-`authenticated`).
+  - Sender שנקבע: `"RhityCity"` (ללא רווח — InfoU אוסר רווחים בשם
+    השולח, ומגביל ל-11 תווים).
+  - נבדק בפועל מול ה-API האמיתי לפני הפריסה (הודעת בדיקה לטלפון
+    הבעלים, `StatusId: 1` הצלחה).
+- **למה**: בקשת הבעלים לשלוח סקרים ישירות מהדשבורד בלי לעבור דרך
+  ייצוא/הדבקה ידנית ב-InfoU בכל פעם.
+- **קבצים**: `supabase/migrations/20260916130000_infou_credentials_rpc.sql`,
+  `src/app/api/surveys/send-sms/route.ts`, `src/components/survey-queue-client.tsx`.
+
+---
+
 ## [2026-09-16] — סקרים: ייבוא אוטומטי מפריוריטי לפי טווח תאריכים
 
 - **מה**: עד עכשיו שליפת לקוחות שסופקו מפריוריטי לתור הסקרים דרשה
