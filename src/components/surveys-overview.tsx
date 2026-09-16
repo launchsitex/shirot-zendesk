@@ -7,6 +7,7 @@ type ScoreRow = {
   score_branch: number;
   score_coordination: number;
   score_mover: number;
+  branch_id: string | null;
 };
 
 type RecentRow = {
@@ -19,18 +20,25 @@ type RecentRow = {
   feedback_negative: string | null;
   submitted_at: string;
   survey_branches: { name: string } | null;
-  survey_coordinators: { name: string } | null;
-  survey_movers: { name: string } | null;
 };
 
-function average(rows: ScoreRow[], key: keyof ScoreRow): number | null {
-  if (rows.length === 0) return null;
-  const sum = rows.reduce((total, row) => total + row[key], 0);
-  return sum / rows.length;
+type Branch = { id: string; name: string };
+
+function avgOf(row: { score_branch: number; score_coordination: number; score_mover: number }): number {
+  return (row.score_branch + row.score_coordination + row.score_mover) / 3;
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
 function formatScore(value: number | null): string {
   return value === null ? "—" : value.toFixed(1);
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "—" : `${Math.round(value)}%`;
 }
 
 function formatDate(value: string): string {
@@ -41,20 +49,79 @@ function formatDate(value: string): string {
   });
 }
 
+function Bar({
+  label,
+  value,
+  maxValue,
+  displayValue,
+  color,
+}: {
+  label: string;
+  value: number;
+  maxValue: number;
+  displayValue: string;
+  color: string;
+}) {
+  const width = maxValue > 0 ? Math.max((value / maxValue) * 100, 3) : 0;
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-28 shrink-0 truncate text-sm font-medium" style={{ color: "var(--ink)" }}>
+        {label}
+      </span>
+      <div className="h-2.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--line)" }}>
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${width}%`, background: color }}
+        />
+      </div>
+      <span className="w-10 shrink-0 text-left text-sm font-semibold" dir="ltr" style={{ color: "var(--ink)" }}>
+        {displayValue}
+      </span>
+    </div>
+  );
+}
+
 export function SurveysOverview({
   scoreRows,
   recentRows,
+  branches,
   pendingCount,
+  sentCount,
 }: {
   scoreRows: ScoreRow[];
   recentRows: RecentRow[];
+  branches: Branch[];
   pendingCount: number;
+  sentCount: number;
 }) {
-  const kpis = [
-    { label: "ממוצע מוכר/ת וסניף", value: average(scoreRows, "score_branch") },
-    { label: "ממוצע תיאום אספקה", value: average(scoreRows, "score_coordination") },
-    { label: "ממוצע מוביל/ים", value: average(scoreRows, "score_mover") },
+  const totalResponses = scoreRows.length;
+  const responseRate = sentCount > 0 ? (totalResponses / sentCount) * 100 : null;
+  const overallAvg = average(scoreRows.map(avgOf));
+
+  const categoryAverages = [
+    { label: "מוכר/ת וסניף", value: average(scoreRows.map((row) => row.score_branch)) },
+    { label: "תיאום אספקה", value: average(scoreRows.map((row) => row.score_coordination)) },
+    { label: "מוביל/ים", value: average(scoreRows.map((row) => row.score_mover)) },
   ];
+
+  const satisfied = scoreRows.filter((row) => avgOf(row) >= 4).length;
+  const neutral = scoreRows.filter((row) => avgOf(row) >= 3 && avgOf(row) < 4).length;
+  const unsatisfied = scoreRows.filter((row) => avgOf(row) < 3).length;
+  const distribution = [
+    { label: "מרוצים (4-5)", count: satisfied, color: "var(--teal)" },
+    { label: "ניטרלי (3-4)", count: neutral, color: "var(--amber)" },
+    { label: "לא מרוצים (1-3)", count: unsatisfied, color: "var(--red)" },
+  ];
+
+  const branchAverages = branches
+    .map((branch) => {
+      const rows = scoreRows.filter((row) => row.branch_id === branch.id);
+      return { name: branch.name, value: average(rows.map(avgOf)), count: rows.length };
+    })
+    .filter((branch) => branch.count > 0)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+  const feed = recentRows.slice(0, 8);
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -87,95 +154,193 @@ export function SurveysOverview({
         </div>
       </div>
 
-      <SurveyPriorityPullForm />
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((kpi) => (
-          <div key={kpi.label} className="card flex flex-col gap-1 p-5">
-            <span className="text-sm" style={{ color: "var(--muted)" }}>
-              {kpi.label}
-            </span>
-            <span className="text-2xl font-bold" style={{ color: "var(--ink)" }} dir="ltr">
-              {formatScore(kpi.value)}
-              <span className="text-sm font-normal" style={{ color: "var(--muted)" }}>
-                {" "}
-                / 5
-              </span>
-            </span>
-          </div>
-        ))}
-        <div className="card flex flex-col gap-1 p-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="card flex flex-col gap-1 p-6">
           <span className="text-sm" style={{ color: "var(--muted)" }}>
-            בתור לשליחה
+            אחוז מענה לסקר
           </span>
-          <span className="text-2xl font-bold" style={{ color: "var(--blue)" }}>
-            {pendingCount}
+          <span className="text-4xl font-bold" style={{ color: "var(--ink)" }}>
+            {formatPercent(responseRate)}
+          </span>
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            {totalResponses} תשובות מתוך {sentCount} שנשלחו
+          </span>
+        </div>
+        <div className="card flex flex-col gap-1 p-6">
+          <span className="text-sm" style={{ color: "var(--muted)" }}>
+            תשובות שהתקבלו
+          </span>
+          <span className="text-4xl font-bold" style={{ color: "var(--ink)" }}>
+            {totalResponses}
+          </span>
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            {pendingCount} עוד ממתינים בתור
+          </span>
+        </div>
+        <div className="card flex flex-col gap-1 p-6">
+          <span className="text-sm" style={{ color: "var(--muted)" }}>
+            ציון ממוצע כללי
+          </span>
+          <span className="text-4xl font-bold" dir="ltr" style={{ color: "var(--teal)" }}>
+            {formatScore(overallAvg)}
+            <span className="text-lg font-normal" style={{ color: "var(--muted)" }}>
+              {" "}
+              / 5
+            </span>
+          </span>
+          <span className="text-xs" style={{ color: "var(--muted)" }}>
+            ממוצע שלושת התחומים יחד
           </span>
         </div>
       </div>
 
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card flex flex-col gap-4 p-6">
+          <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
+            התפלגות שביעות רצון
+          </h2>
+          {totalResponses === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              אין עדיין תשובות
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {distribution.map((item) => (
+                <Bar
+                  key={item.label}
+                  label={item.label}
+                  value={item.count}
+                  maxValue={totalResponses}
+                  displayValue={`${Math.round((item.count / totalResponses) * 100)}%`}
+                  color={item.color}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="card flex flex-col gap-4 p-6">
+          <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
+            ציון ממוצע לפי תחום
+          </h2>
+          {totalResponses === 0 ? (
+            <p className="text-sm" style={{ color: "var(--muted)" }}>
+              אין עדיין תשובות
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {categoryAverages.map((item) => (
+                <Bar
+                  key={item.label}
+                  label={item.label}
+                  value={item.value ?? 0}
+                  maxValue={5}
+                  displayValue={formatScore(item.value)}
+                  color="var(--blue)"
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card flex flex-col gap-4 p-6">
+        <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
+          ציון ממוצע לפי סניף
+        </h2>
+        {branchAverages.length === 0 ? (
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            אין עדיין תשובות
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {branchAverages.map((branch) => (
+              <Bar
+                key={branch.name}
+                label={branch.name}
+                value={branch.value ?? 0}
+                maxValue={5}
+                displayValue={formatScore(branch.value)}
+                color="var(--teal)"
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <SurveyPriorityPullForm />
       <SurveyScoreExport />
 
       <div className="card overflow-hidden">
         <div className="border-b p-4" style={{ borderColor: "var(--line)" }}>
           <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
-            תשובות אחרונות
+            משוב אחרון
           </h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-right" style={{ color: "var(--muted)" }}>
-                <th className="px-4 py-2 font-medium">הזמנה</th>
-                <th className="px-4 py-2 font-medium">סניף</th>
-                <th className="px-4 py-2 font-medium">תיאום</th>
-                <th className="px-4 py-2 font-medium">מוביל</th>
-                <th className="px-4 py-2 font-medium">ציונים</th>
-                <th className="px-4 py-2 font-medium">משוב</th>
-                <th className="px-4 py-2 font-medium">תאריך</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentRows.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-4 py-8 text-center"
-                    style={{ color: "var(--muted)" }}
-                  >
-                    אין תשובות עדיין
-                  </td>
-                </tr>
-              )}
-              {recentRows.map((row) => (
-                <tr key={row.id} className="border-t" style={{ borderColor: "var(--line)" }}>
-                  <td className="px-4 py-3 font-medium">{row.order_number}</td>
-                  <td className="px-4 py-3">{row.survey_branches?.name ?? "—"}</td>
-                  <td className="px-4 py-3">{row.survey_coordinators?.name ?? "—"}</td>
-                  <td className="px-4 py-3">{row.survey_movers?.name ?? "—"}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {row.score_branch}/{row.score_coordination}/{row.score_mover}
-                  </td>
-                  <td className="max-w-64 px-4 py-3">
-                    {row.feedback_positive && (
-                      <p className="truncate" style={{ color: "var(--teal)" }}>
-                        + {row.feedback_positive}
-                      </p>
-                    )}
-                    {row.feedback_negative && (
-                      <p className="truncate" style={{ color: "var(--red)" }}>
-                        − {row.feedback_negative}
-                      </p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap" style={{ color: "var(--muted)" }}>
-                    {formatDate(row.submitted_at)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {feed.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm" style={{ color: "var(--muted)" }}>
+            אין תשובות עדיין
+          </p>
+        ) : (
+          <div className="divide-y" style={{ borderColor: "var(--line)" }}>
+            {feed.map((row) => {
+              const branchName = row.survey_branches?.name ?? "—";
+              const avg = avgOf(row);
+              return (
+                <div key={row.id} className="flex flex-col gap-2 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                        {row.order_number}
+                      </span>
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>
+                        {branchName}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold" dir="ltr" style={{ color: "var(--teal)" }}>
+                        {avg.toFixed(1)} / 5
+                      </span>
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>
+                        {formatDate(row.submitted_at)}
+                      </span>
+                    </div>
+                  </div>
+                  {(row.feedback_positive || row.feedback_negative) && (
+                    <div className="flex flex-col gap-1.5">
+                      {row.feedback_positive && (
+                        <div className="flex items-start gap-2">
+                          <span
+                            className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                            style={{ background: "var(--teal-soft)", color: "var(--teal)" }}
+                          >
+                            חיובי
+                          </span>
+                          <p className="text-sm" style={{ color: "var(--ink)" }}>
+                            {row.feedback_positive}
+                          </p>
+                        </div>
+                      )}
+                      {row.feedback_negative && (
+                        <div className="flex items-start gap-2">
+                          <span
+                            className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                            style={{ background: "#fbe9ea", color: "var(--red)" }}
+                          >
+                            לשיפור
+                          </span>
+                          <p className="text-sm" style={{ color: "var(--ink)" }}>
+                            {row.feedback_negative}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
