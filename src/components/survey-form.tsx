@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 
 const NAVY = "#18376C";
@@ -111,13 +110,11 @@ export function SurveyForm({ token }: { token: string }) {
         style={{ background: NAVY }}
       >
         <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm">
-          <Image
+          {/* eslint-disable-next-line @next/next/no-img-element -- small static asset; avoids depending on the host's /_next/image optimizer */}
+          <img
             src="/rcity-logo.png"
             alt="רהיטי הסיטי"
-            width={56}
-            height={56}
             className="h-14 w-14 object-contain"
-            priority
           />
         </div>
         <h1 className="text-center text-lg font-bold text-white">
