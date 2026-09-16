@@ -9,6 +9,38 @@
 
 ---
 
+## [2026-09-16] — חיבור ישיר לפריוריטי: "משוך עכשיו" (בלי המתנה, בלי תור)
+
+- **מה**: כפתור חדש "משוך עכשיו" בטופס המשיכה מפריוריטי (עמוד סקרים).
+  בניגוד לכפתור "שלח בקשה" הקיים (כותב שורה ל-`survey_priority_pull_requests`
+  וממתין לשגרת הענן השעתית), הכפתור החדש קורא ישירות ל-API של פריוריטי
+  (OData) ומכניס לתור באופן מיידי וסינכרוני — בלי המתנה ובלי תלות בשגרת
+  ענן. הכפתור הישן נשאר כגיבוי.
+- **חיבור לפריוריטי**: גלעד הגדיר ב-Supabase (Edge Function project
+  secrets — **לא** Vault, לא בגיט) שלושה ערכים: `priority_user`,
+  `priority_password`, `priority_url`. גילינו/אימתנו דרך `priority_url`
+  (שהכיל דוגמת קריאה מלאה) את מבנה ה-API: OData על
+  `https://city-priority.d-m.org.il/odata/Priority/tabula.ini/recity/ORDERS`,
+  Basic Auth. שדות רלוונטיים: `CUSTNAME` (סניף מאושר), `BRANCHNAME` (סינון
+  סניפי שירות), `AGENTNAME`, `CDES` (שם לקוח), `SHIPPERNAME` (מוביל),
+  `STATUSDATE` (תאריך אספקה), `ORDSTATUSDES eq 'סופקה'` (סטטוס), וטלפון
+  דרך `$expand=SHIPTO2_SUBFORM` → `PHONENUM`/`CELLPHONE` (השדה
+  `SHAY_PHONENUM` על ORDERS חסום הרשאות למשתמש ה-API הזה).
+- **Edge Function חדש**: `priority-pull-now` (verify_jwt=false, מאומת עם
+  header `x-priority-secret` מול `get_priority_pull_secret()` — סוד חדש
+  ב-Vault, מוענק ל-`authenticated` בלבד, כדי שרק שרת ה-Next.js של האפליקציה
+  עצמה יוכל להפעיל אותו). מריץ את אותה לוגיקת סינון בדיוק כמו שגרת הענן
+  השעתית (CUSTNAME מאושר + החרגת BRANCHNAME של סניפי שירות, עם
+  `includeServiceCalls` אופציונלי), כותב ישירות ל-`survey_pending_sends`.
+  נבדק בפועל על 16.09: 134 הזמנות תואמות, 120 נוספו לתור (14 כבר היו שם
+  משגרת הענן), 0 זליגות לסניפי שירות, 0 טלפונים לא תקינים.
+- **קובץ**: `supabase/functions/priority-pull-now/index.ts`,
+  `supabase/migrations/20260916122418_priority_pull_secret.sql`,
+  `src/app/api/surveys/priority-pull-now/route.ts`,
+  `src/components/survey-priority-pull-form.tsx`.
+
+---
+
 ## [2026-09-16] — תיקון זליגת סניפי שירות לסקר + סינון ו-drill-down בדשבורד
 
 - **הבאג**: הסינון (גם במשיכות ידניות וגם בשגרת הענן השעתית) בדק רק

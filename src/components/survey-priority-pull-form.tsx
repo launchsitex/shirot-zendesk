@@ -50,6 +50,7 @@ export function SurveyPriorityPullForm() {
   const [includeServiceCalls, setIncludeServiceCalls] = useState(false);
   const [requests, setRequests] = useState<PullRequest[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [pullingNow, setPullingNow] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -93,6 +94,28 @@ export function SurveyPriorityPullForm() {
     }
   }
 
+  async function handlePullNow() {
+    setPullingNow(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/surveys/priority-pull-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dateFrom, dateTo, includeServiceCalls }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "המשיכה נכשלה");
+      setMessage(
+        `נמצאו ${payload.matchedCount} הזמנות תואמות, ${payload.insertedCount} חדשות נוספו לתור` +
+          (payload.skippedNoPhone ? ` (${payload.skippedNoPhone} ללא טלפון, דולגו)` : ""),
+      );
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "המשיכה נכשלה");
+    } finally {
+      setPullingNow(false);
+    }
+  }
+
   return (
     <div className="card flex flex-col gap-4 p-5">
       <button
@@ -112,8 +135,9 @@ export function SurveyPriorityPullForm() {
         <>
           <p className="text-sm" style={{ color: "var(--muted)" }}>
             שולף הזמנות בסטטוס &quot;סופקה&quot; עם תעודת משלוח בפועל בטווח התאריכים שתבחר, בסניפים המאושרים
-            בלבד — וללא הזמנות של סניפי שירות (קריאות שירות/חלפים), אלא אם תסמן את האפשרות למטה. הריצה
-            מתבצעת ברקע ולא מיידית — עד שעה מרגע השליחה.
+            בלבד — וללא הזמנות של סניפי שירות (קריאות שירות/חלפים), אלא אם תסמן את האפשרות למטה.
+            &quot;משוך עכשיו&quot; מתחבר ישירות לפריוריטי ומכניס לתור מיידית. &quot;שלח בקשה&quot; מוסיף
+            לתור עיבוד ברקע (עד שעה) — שימושי כגיבוי אם המשיכה המיידית לא זמינה.
           </p>
 
           <div className="flex flex-wrap items-end gap-3">
@@ -147,12 +171,21 @@ export function SurveyPriorityPullForm() {
             </label>
             <button
               type="button"
-              disabled={submitting}
-              onClick={handleSubmit}
+              disabled={pullingNow || submitting}
+              onClick={handlePullNow}
               className="h-10 rounded-lg px-5 text-sm font-semibold text-white disabled:opacity-50"
-              style={{ background: "var(--blue)" }}
+              style={{ background: "var(--teal)" }}
             >
-              {submitting ? "שולח..." : "שלח בקשה"}
+              {pullingNow ? "מושך..." : "משוך עכשיו"}
+            </button>
+            <button
+              type="button"
+              disabled={submitting || pullingNow}
+              onClick={handleSubmit}
+              className="h-10 rounded-lg border px-5 text-sm font-semibold disabled:opacity-50"
+              style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+            >
+              {submitting ? "שולח..." : "שלח בקשה (ברקע)"}
             </button>
             <button
               type="button"
