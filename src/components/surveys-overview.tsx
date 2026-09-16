@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Inbox, Upload } from "lucide-react";
 import { SurveyPriorityPullForm } from "@/components/survey-priority-pull-form";
+import { SurveyScoreExport } from "@/components/survey-score-export";
 
 type ScoreRow = {
   score_branch: number;
@@ -112,6 +113,8 @@ export function SurveysOverview({
           </span>
         </div>
       </div>
+
+      <SurveyScoreExport />
 
       <div className="card overflow-hidden">
         <div className="border-b p-4" style={{ borderColor: "var(--line)" }}>
