@@ -9,6 +9,44 @@
 
 ---
 
+## [2026-09-16] — סקרים: ייבוא אוטומטי מפריוריטי לפי טווח תאריכים
+
+- **מה**: עד עכשיו שליפת לקוחות שסופקו מפריוריטי לתור הסקרים דרשה
+  שהבעלים יבקש מקלוד להריץ את זה ידנית בסשן. עכשיו יש כפתור במסך
+  "סקרים" (מתחת לכפתורי הפעולה) שפותח טופס תאריכים ("מתאריך" / "עד
+  תאריך") וכותב בקשה לטבלה חדשה `survey_priority_pull_requests`.
+  Routine בענן (לא חלק מהאתר עצמו) עם גישה ל-Supabase MCP ול-MyPriority
+  MCP רץ **כל שעה בשעה עגולה**, מרוקן בקשה אחת ממתינה: שולף תעודות
+  משלוח + הזמנות בסטטוס "סופקה" מפריוריטי, מסנן לפי `CUSTNAME`
+  (קוד סניף/ערוץ — **לא** `BRANCHNAME`) מול הסניפים המאושרים
+  (2,3,4,5,6,7,8,20), מוסיף ל-`survey_pending_sends` עם
+  `on conflict (order_number) do nothing`, ומעדכן את הבקשה לסטטוס
+  `done`/`error` עם ספירת תואמים/נוספו וסיכום קצר. הדשבורד מציג את 10
+  הבקשות האחרונות וסטטוס שלהן (ממתין/מתבצע/הושלם/שגיאה), מתרענן כל 30
+  שניות.
+  - `token` על `survey_pending_sends` קיבל `default gen_random_uuid()`
+    כדי שה-routine יוכל להכניס שורה בלי לייצר UUID בעצמו (ה-`message_text`
+    מתמלא אחר כך ב-UPDATE שמטמיע את ה-token שנוצר בקישור).
+  - עמודת `delivered_at` (date) נוספה ל-`survey_pending_sends`
+    ומוצגת כעמודה חדשה ("סופק ב-") במסך "תור שליחה".
+  - ה-routine **לא** רץ מיידית עם לחיצת הכפתור — המינימום שהמערכת
+    מאפשרת לבדיקה אוטומטית הוא פעם בשעה, וזה תואם ציפייה שהוסברה
+    לבעל החשבון לפני הבנייה.
+- **למה**: בקשת בעל החשבון להפסיק להזדקק לקלוד בכל פעם שרוצים למשוך
+  לקוחות חדשים מפריוריטי — "כפתור שאומר לקלוד להביא את הנתונים",
+  בלי לדרוש פרטי API ישירים לפריוריטי מהאתר עצמו.
+- **קבצים**: `supabase/migrations/20260916100000_survey_priority_pull_requests.sql`,
+  `supabase/migrations/20260916110000_survey_token_default.sql`,
+  `src/app/api/surveys/priority-pull/route.ts`,
+  `src/components/survey-priority-pull-form.tsx`,
+  `src/components/surveys-overview.tsx`,
+  `src/components/survey-queue-client.tsx`,
+  `src/app/api/surveys/queue/route.ts`. ה-routine עצמו מנוהל ב-
+  claude.ai/code/routines (לא קובץ בריפו) — שם `Survey Priority
+  pull-request drain (hourly)`.
+
+---
+
 ## [2026-09-15] — מודול סקרי שביעות רצון (חדש)
 
 - **מה**: מודול חדש לגמרי לסקר שביעות רצון ללקוח, נשלח **פעם אחת לכל לקוח**
