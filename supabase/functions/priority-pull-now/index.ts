@@ -50,7 +50,7 @@ interface OrderRow {
   AGENTNAME: string | null;
   CDES: string | null;
   SHIPPERNAME: string | null;
-  STATUSDATE: string | null;
+  SHAY_SDATE: string | null;
   SHIPTO2_SUBFORM?: ShipTo | null;
 }
 
@@ -77,10 +77,19 @@ Deno.serve(async (req) => {
   const root = priorityUrl.replace(/\/+$/, "").replace(/\/ORDERS.*$/, "");
   const authHeader = "Basic " + btoa(`${priorityUser}:${priorityPassword}`);
 
+  // Deliberately narrow: exact status 'סופקה' (not 'סופקה חלקית' or others) and
+  // SHAY_SDATE (the delivery-coordination date field) in range. This misses
+  // roughly 30% of real deliveries — orders with a different/partial status,
+  // or with no SHAY_SDATE at all (seen mostly on pure closet/sofa orders,
+  // product families 7/71/72, which often skip the delivery-coordination
+  // step). That's accepted: the hourly cloud routine (survey-priority-pull
+  // request queue, using the correct priority_deliveries source) still picks
+  // up everything this misses, deduped by order_number. See CHANGELOG.md
+  // 2026-09-16.
   const filter =
-    `ORDSTATUSDES eq 'סופקה' and STATUSDATE ge ${dateFrom}T00:00:00+03:00 and STATUSDATE le ${dateTo}T23:59:59+03:00`;
+    `ORDSTATUSDES eq 'סופקה' and SHAY_SDATE ge ${dateFrom}T00:00:00+03:00 and SHAY_SDATE le ${dateTo}T23:59:59+03:00`;
   const params = new URLSearchParams();
-  params.set("$select", "ORDNAME,CUSTNAME,BRANCHNAME,AGENTNAME,CDES,SHIPPERNAME,STATUSDATE");
+  params.set("$select", "ORDNAME,CUSTNAME,BRANCHNAME,AGENTNAME,CDES,SHIPPERNAME,SHAY_SDATE");
   params.set("$expand", "SHIPTO2_SUBFORM");
   params.set("$filter", filter);
   params.set("$top", "200");
@@ -145,7 +154,7 @@ Deno.serve(async (req) => {
     branch_id: entry.row.CUSTNAME,
     mover_id: entry.row.SHIPPERNAME || null,
     agent_name: entry.row.AGENTNAME || null,
-    delivered_at: (entry.row.STATUSDATE || "").slice(0, 10) || null,
+    delivered_at: (entry.row.SHAY_SDATE || "").slice(0, 10) || null,
     status: "pending" as const,
     message_text: "",
   }));

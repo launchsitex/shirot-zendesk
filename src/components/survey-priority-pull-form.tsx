@@ -106,7 +106,7 @@ export function SurveyPriorityPullForm() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "המשיכה נכשלה");
       setMessage(
-        `נמצאו ${payload.matchedCount} הזמנות תואמות, ${payload.insertedCount} חדשות נוספו לתור` +
+        `נמצאו ${payload.matchedCount} הזמנות תואמות (מתוך הסטטוס/תאריך המצומצם), ${payload.insertedCount} חדשות נוספו לתור` +
           (payload.skippedNoPhone ? ` (${payload.skippedNoPhone} ללא טלפון, דולגו)` : ""),
       );
     } catch (err) {
@@ -136,8 +136,11 @@ export function SurveyPriorityPullForm() {
           <p className="text-sm" style={{ color: "var(--muted)" }}>
             שולף הזמנות בסטטוס &quot;סופקה&quot; עם תעודת משלוח בפועל בטווח התאריכים שתבחר, בסניפים המאושרים
             בלבד — וללא הזמנות של סניפי שירות (קריאות שירות/חלפים), אלא אם תסמן את האפשרות למטה.
-            &quot;משוך עכשיו&quot; מתחבר ישירות לפריוריטי ומכניס לתור מיידית. &quot;שלח בקשה&quot; מוסיף
-            לתור עיבוד ברקע (עד שעה) — שימושי כגיבוי אם המשיכה המיידית לא זמינה.
+          </p>
+          <p className="rounded-lg px-3 py-2 text-sm font-medium" style={{ background: "#fdf3e0", color: "#8a5a00" }}>
+            &quot;משוך עכשיו&quot; מזהה כ-70% מהההזמנות באופן מיידי (סטטוס &quot;סופקה&quot; מדויק + תאריך
+            תיאום קיים). את שאר ההזמנות (סטטוס &quot;סופקה חלקית&quot;, או בלי תאריך תיאום — בעיקר ארונות/
+            סלונים) &quot;שלח בקשה (ברקע)&quot; ימשיך לתפוס תוך עד שעה, ללא כפילויות.
           </p>
 
           <div className="flex flex-wrap items-end gap-3">
