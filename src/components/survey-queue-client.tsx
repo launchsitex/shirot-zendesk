@@ -47,6 +47,7 @@ export function SurveyQueueClient() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [countInput, setCountInput] = useState("50");
 
   async function load() {
     setLoading(true);
@@ -81,6 +82,12 @@ export function SurveyQueueClient() {
       else next.add(id);
       return next;
     });
+  }
+
+  function selectCount() {
+    const count = Number(countInput);
+    if (!Number.isFinite(count) || count <= 0) return;
+    setSelected(new Set(rows.slice(0, Math.floor(count)).map((row) => row.id)));
   }
 
   const selectedRows = useMemo(
@@ -155,7 +162,7 @@ export function SurveyQueueClient() {
       </div>
 
       {statusFilter === "pending" && (
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             disabled={selectedRows.length === 0 || busy}
@@ -165,6 +172,43 @@ export function SurveyQueueClient() {
           >
             ייצוא {selectedRows.length > 0 ? `(${selectedRows.length})` : ""} וסימון כנשלח
           </button>
+
+          <div className="flex items-center gap-1.5 rounded-lg border px-2 py-1" style={{ borderColor: "var(--line)" }}>
+            <span className="text-sm" style={{ color: "var(--muted)" }}>
+              בחר
+            </span>
+            <input
+              type="number"
+              min={1}
+              value={countInput}
+              onChange={(event) => setCountInput(event.target.value)}
+              className="w-16 rounded border px-2 py-1 text-sm"
+              style={{ borderColor: "var(--line)" }}
+            />
+            <span className="text-sm" style={{ color: "var(--muted)" }}>
+              אחרונים
+            </span>
+            <button
+              type="button"
+              onClick={selectCount}
+              className="rounded px-2 py-1 text-sm font-medium"
+              style={{ color: "var(--blue)" }}
+            >
+              סמן
+            </button>
+          </div>
+
+          {selected.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelected(new Set())}
+              className="text-sm underline"
+              style={{ color: "var(--muted)" }}
+            >
+              נקה בחירה
+            </button>
+          )}
+
           {message && (
             <span className="text-sm" style={{ color: "var(--teal)" }}>
               {message}
