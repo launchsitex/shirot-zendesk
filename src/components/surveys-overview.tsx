@@ -1,3 +1,6 @@
+import Link from "next/link";
+import { Inbox, Upload } from "lucide-react";
+
 type ScoreRow = {
   score_branch: number;
   score_coordination: number;
@@ -53,13 +56,33 @@ export function SurveysOverview({
 
   return (
     <div className="flex flex-col gap-6 p-6">
-      <div>
-        <h1 className="text-xl font-semibold" style={{ color: "var(--ink)" }}>
-          סקרי שביעות רצון
-        </h1>
-        <p className="text-sm" style={{ color: "var(--muted)" }}>
-          סקר אחד ללקוח, נשלח לאחר שההזמנה סופקה במלואה — מוכר/סניף, תיאום ומוביל.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold" style={{ color: "var(--ink)" }}>
+            סקרי שביעות רצון
+          </h1>
+          <p className="text-sm" style={{ color: "var(--muted)" }}>
+            סקר אחד ללקוח, נשלח לאחר שההזמנה סופקה במלואה — מוכר/סניף, תיאום ומוביל.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/surveys/import"
+            className="flex h-10 items-center gap-2 rounded-lg px-4 text-sm font-semibold text-white"
+            style={{ background: "var(--blue)" }}
+          >
+            <Upload size={16} />
+            ייבוא לקוחות לסקר
+          </Link>
+          <Link
+            href="/surveys/queue"
+            className="flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-semibold"
+            style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+          >
+            <Inbox size={16} />
+            תור שליחה
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -68,7 +91,7 @@ export function SurveysOverview({
             <span className="text-sm" style={{ color: "var(--muted)" }}>
               {kpi.label}
             </span>
-            <span className="text-2xl font-bold" style={{ color: "var(--ink)" }}>
+            <span className="text-2xl font-bold" style={{ color: "var(--ink)" }} dir="ltr">
               {formatScore(kpi.value)}
               <span className="text-sm font-normal" style={{ color: "var(--muted)" }}>
                 {" "}
