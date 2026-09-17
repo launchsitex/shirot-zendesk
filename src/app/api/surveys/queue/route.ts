@@ -62,3 +62,26 @@ export async function PATCH(request: Request) {
 
   return NextResponse.json({ ok: true, count: ids.length });
 }
+
+export async function DELETE(request: Request) {
+  const auth = await requireQueueAccess();
+  if (auth.error) return auth.error;
+
+  const body = await request.json().catch(() => null);
+  const ids = Array.isArray(body?.ids) ? body.ids.filter((id: unknown) => typeof id === "string") : [];
+  if (ids.length === 0) {
+    return NextResponse.json({ error: "בקשה לא תקינה" }, { status: 400 });
+  }
+
+  const supabase = await createSupabaseServerClient();
+  // Only ever remove rows still pending — never delete a row that was
+  // actually sent (that history matters even if a customer never responds).
+  const { error, count } = await supabase
+    .from("survey_pending_sends")
+    .delete({ count: "exact" })
+    .in("id", ids)
+    .eq("status", "pending");
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true, count: count ?? 0 });
+}

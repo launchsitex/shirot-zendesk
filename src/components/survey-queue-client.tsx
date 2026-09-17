@@ -152,6 +152,31 @@ export function SurveyQueueClient() {
     }
   }
 
+  async function handleRemoveFromQueue() {
+    if (selectedRows.length === 0) return;
+    const confirmed = window.confirm(
+      `להסיר ${selectedRows.length} לקוחות מהתור לגמרי (לא נשלח להם SMS, לא יסומנו כ"נשלח")? לא ניתן לבטל.`,
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/surveys/queue", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedRows.map((row) => row.id) }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "ההסרה נכשלה");
+      setMessage(`הוסרו ${payload.count} לקוחות מהתור`);
+      await load();
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "ההסרה נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleUnmark(id: string) {
     setBusy(true);
     try {
@@ -215,6 +240,16 @@ export function SurveyQueueClient() {
             style={{ borderColor: "var(--teal)", color: "var(--teal)" }}
           >
             שלח SMS ישירות {selectedRows.length > 0 ? `(${selectedRows.length})` : ""}
+          </button>
+
+          <button
+            type="button"
+            disabled={selectedRows.length === 0 || busy}
+            onClick={handleRemoveFromQueue}
+            className="rounded-lg border px-5 py-2.5 text-sm font-semibold disabled:opacity-50"
+            style={{ borderColor: "var(--red)", color: "var(--red)" }}
+          >
+            הסר מהתור {selectedRows.length > 0 ? `(${selectedRows.length})` : ""}
           </button>
 
           <div className="flex items-center gap-1.5 rounded-lg border px-2 py-1" style={{ borderColor: "var(--line)" }}>
