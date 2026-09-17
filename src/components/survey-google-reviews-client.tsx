@@ -275,6 +275,22 @@ export function SurveyGoogleReviewsClient() {
     });
   }
 
+  async function handleSkipSelected() {
+    if (selectedRows.length === 0) return;
+    const confirmed = window.confirm(
+      `להסיר ${selectedRows.length} לקוחות מהרשימה? לא נשלח להם כלום, הם פשוט ייעלמו מכאן.`,
+    );
+    if (!confirmed) return;
+    const ids = selectedRows.map((row) => row.id);
+    setRows((current) => current.filter((row) => !ids.includes(row.id)));
+    setSelected(new Set());
+    await fetch("/api/surveys/five-star", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div>
@@ -401,6 +417,16 @@ export function SurveyGoogleReviewsClient() {
             style={{ background: "var(--teal)" }}
           >
             שלח בקשת ביקורת {selectedRows.length > 0 ? `(${selectedRows.length})` : ""}
+          </button>
+
+          <button
+            type="button"
+            disabled={selectedRows.length === 0}
+            onClick={() => void handleSkipSelected()}
+            className="h-9 rounded-lg border px-5 text-sm font-semibold disabled:opacity-50"
+            style={{ borderColor: "var(--red)", color: "var(--red)" }}
+          >
+            הסר נבחרים {selectedRows.length > 0 ? `(${selectedRows.length})` : ""}
           </button>
 
           {message && (

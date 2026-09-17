@@ -62,8 +62,12 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null);
-  const id = body?.id;
-  if (typeof id !== "string") {
+  const ids = Array.isArray(body?.ids)
+    ? body.ids.filter((id: unknown): id is string => typeof id === "string")
+    : typeof body?.id === "string"
+      ? [body.id]
+      : [];
+  if (ids.length === 0) {
     return NextResponse.json({ error: "נתונים לא תקינים" }, { status: 400 });
   }
 
@@ -71,8 +75,8 @@ export async function POST(request: Request) {
   const { error } = await supabase
     .from("survey_responses")
     .update({ google_review_skipped_at: new Date().toISOString() })
-    .eq("id", id);
+    .in("id", ids);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, count: ids.length });
 }
