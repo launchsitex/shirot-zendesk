@@ -27,33 +27,28 @@ function formatDateTime(value: string): string {
   });
 }
 
-function GoogleLinksSettings() {
-  const [links, setLinks] = useState<GoogleLink[]>([]);
+function GoogleLinksSettings({
+  links,
+  loading,
+  onSaved,
+}: {
+  links: GoogleLink[];
+  loading: boolean;
+  onSaved: () => Promise<void>;
+}) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [syncedLinks, setSyncedLinks] = useState(links);
 
-  async function load() {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/surveys/google-links");
-      const payload = await response.json();
-      const rows: GoogleLink[] = response.ok ? payload.links : [];
-      setLinks(rows);
-      setDrafts(Object.fromEntries(rows.map((row) => [row.branchId, row.url])));
-    } finally {
-      setLoading(false);
-    }
+  // Re-derive drafts whenever the links prop changes (e.g. after a save) —
+  // done during render, not an effect, per React's "adjusting state on prop
+  // change" pattern, to avoid an extra cascading render.
+  if (links !== syncedLinks) {
+    setSyncedLinks(links);
+    setDrafts(Object.fromEntries(links.map((row) => [row.branchId, row.url])));
   }
-
-  useEffect(() => {
-    // Deferred a tick so the synchronous setState inside load does not cascade
-    // into the render.
-    const timer = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   async function handleSave(branchId: string) {
     setSavingId(branchId);
@@ -66,7 +61,7 @@ function GoogleLinksSettings() {
       });
       if (!response.ok) throw new Error();
       setMessage("נשמר");
-      await load();
+      await onSaved();
     } catch {
       setMessage("השמירה נכשלה");
     } finally {
@@ -155,17 +150,18 @@ export function SurveyGoogleReviewsClient() {
   const [manualBusy, setManualBusy] = useState(false);
   const [manualMessage, setManualMessage] = useState<string | null>(null);
 
+  async function loadLinks() {
+    const response = await fetch("/api/surveys/google-links");
+    const payload = await response.json();
+    setLinks(response.ok ? payload.links : []);
+  }
+
   async function load() {
     setLoading(true);
     try {
-      const [rowsRes, linksRes] = await Promise.all([
-        fetch("/api/surveys/five-star"),
-        fetch("/api/surveys/google-links"),
-      ]);
+      const [rowsRes] = await Promise.all([fetch("/api/surveys/five-star"), loadLinks()]);
       const rowsPayload = await rowsRes.json();
-      const linksPayload = await linksRes.json();
       setRows(rowsRes.ok ? rowsPayload.rows : []);
-      setLinks(linksRes.ok ? linksPayload.links : []);
       setSelected(new Set());
     } finally {
       setLoading(false);
@@ -177,6 +173,7 @@ export function SurveyGoogleReviewsClient() {
     // into the render.
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const allSelected = rows.length > 0 && selected.size === rows.length;
@@ -272,7 +269,7 @@ export function SurveyGoogleReviewsClient() {
         </p>
       </div>
 
-      <GoogleLinksSettings />
+      <GoogleLinksSettings links={links} loading={loading} onSaved={loadLinks} />
 
       <div className="card flex flex-col gap-3 p-5">
         <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
