@@ -61,6 +61,16 @@ function formatDate(value: string): string {
   });
 }
 
+function formatDateTime(value: string): string {
+  return new Date(value).toLocaleString("he-IL", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function SelectFilter({
   label,
   value,
@@ -707,7 +717,7 @@ export function SurveysOverview({
                         {avg.toFixed(1)} / 5
                       </span>
                       <span className="text-xs" style={{ color: "var(--muted)" }}>
-                        {formatDate(row.submitted_at)}
+                        {formatDateTime(row.submitted_at)}
                       </span>
                     </div>
                   </div>
