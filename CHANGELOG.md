@@ -9,6 +9,43 @@
 
 ---
 
+## [2026-09-17] — עמוד סקרים: עדכון הודעת ההזמנה, בקשת ביקורות בגוגל, החרגת תשובה מהממוצע
+
+- **הודעת הסקר הראשונה** (`survey_message_template`, id='default') עודכנה לנוסח החדש
+  של גלעד. נבדקה בפועל בשליחת SMS אמיתי ל-4 מספרי בדיקה (גלעד טובול, רומי בלילטי,
+  בן אלפסי, יוני אלפסי) — אושרה, נשלחה.
+  - ניסיון לשנות את שם השולח ב-InfoU ל"רהיטי הסיטי" (עברית) נכשל —
+    InfoU מחזיר `Invalid sender identification`; שם שולח בעברית דורש
+    רישום/אישור מראש מול InfoU. נשאר `RhityCity` בינתיים.
+- **עמוד חדש `/surveys/reviews`** ("בקשת ביקורות בגוגל", עמוד הרשאה נפרד
+  `surveys-reviews`):
+  - מציג לקוחות שנתנו **5 בדיוק בכל שלושת התחומים** (לא רק ממוצע), שעדיין
+    לא נשלחה להם בקשת ביקורת (`google_review_requested_at is null`).
+  - בחירה: מספר ("50 אחרונים") או ידנית, כמו בתור השליחה.
+  - קישור הביקורת בגוגל נבחר **לפי סניף אחד לכל השליחה כולה** — לא לפי
+    הסניף שבו כל לקוח בפועל קנה (החלטת בעלים מפורשת). 6 קישורים (לפי
+    ראשון/פ״ת/ירושלים/אשדוד/ב״ש/חיפה) ניתנים לעריכה ישירות במסך
+    ההגדרות שבראש העמוד — לא צריך לשלוח אותם בצ'אט.
+  - שליחה ישירה דרך InfoU (כמו תור השליחה), עם תבנית הודעה נפרדת
+    (`survey_message_template` id='google_review').
+  - **שליחה ידנית ללקוח בודד**: תיבת טקסט להזנת מספר הזמנה או טלפון +
+    בחירת קישור סניף, ושליחה ישירה — לא דורש סקר שמולא או ציון 5 בכלל
+    (`src/app/api/surveys/google-review-send-manual/route.ts`).
+- **החרגת תשובה מהממוצע**: בכל תשובה (בפיד "משוב אחרון" ובחלון ה-drill-down
+  של סוכן/מוביל) יש כפתור "החרג מהממוצע" עם סיבה (טעות / לא רלוונטית
+  לתחום). תשובה מוחרגת נשארת במערכת (לא נמחקת) ונספרת עדיין כ"תשובה
+  שהתקבלה", אבל יוצאת מכל חישוב ממוצע/התפלגות (כללי, לפי תחום, סניף,
+  סוכן, מוביל).
+- **קובץ**: `supabase/migrations/20260917094912_survey_google_reviews_and_exclude.sql`,
+  `src/app/surveys/reviews/page.tsx`, `src/components/survey-google-reviews-client.tsx`,
+  `src/app/api/surveys/google-links/route.ts`, `src/app/api/surveys/five-star/route.ts`,
+  `src/app/api/surveys/google-review-send/route.ts`, `src/app/api/surveys/google-review-send-manual/route.ts`,
+  `src/app/api/surveys/responses/route.ts`,
+  `src/components/surveys-overview.tsx`, `src/lib/app-pages.ts`, `src/components/sidebar.tsx`,
+  `supabase/functions/admin-users/index.ts` (עמוד הרשאה חדש `surveys-reviews`).
+
+---
+
 ## [2026-09-16] — "משוך עכשיו" הופעל מחדש: SHAY_SDATE, כיסוי חלקי מכוון
 
 - **מה**: לאחר בדיקה מדוקדקת (ראה הרשומה למטה) הוחלט להפעיל את הכפתור

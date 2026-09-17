@@ -38,6 +38,11 @@ export const APP_PAGES = [
   { id: "surveys", href: "/surveys", label: "סקרים" },
   { id: "surveys-import", href: "/surveys/import", label: "ייבוא לקוחות לסקר" },
   { id: "surveys-queue", href: "/surveys/queue", label: "תור שליחה" },
+  {
+    id: "surveys-reviews",
+    href: "/surveys/reviews",
+    label: "בקשת ביקורות בגוגל",
+  },
   { id: "system-logs", href: "/system-logs", label: "לוג מערכת" },
   { id: "settings", href: "/settings", label: "הגדרות" },
   { id: "users", href: "/users", label: "ניהול משתמשים" },

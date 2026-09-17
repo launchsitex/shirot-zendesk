@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ChevronDown, Inbox, Upload, X } from "lucide-react";
+import { ChevronDown, Inbox, Star, Upload, X } from "lucide-react";
 import { SurveyPriorityPullForm } from "@/components/survey-priority-pull-form";
 import { SurveyScoreExport } from "@/components/survey-score-export";
 
@@ -18,9 +18,16 @@ type ResponseRow = {
   feedback_positive: string | null;
   feedback_negative: string | null;
   submitted_at: string;
+  excluded_from_average: boolean;
+  excluded_reason: string | null;
   survey_branches: { name: string } | null;
   survey_movers: { name: string } | null;
   survey_pending_sends: { customer_name: string; phone: string } | null;
+};
+
+const EXCLUDE_REASON_LABEL: Record<string, string> = {
+  error: "טעות",
+  not_relevant: "לא רלוונטית לתחום",
 };
 
 type Branch = { id: string; name: string };
@@ -144,6 +151,91 @@ function Bar({
   );
 }
 
+function ExcludeToggle({
+  row,
+  open,
+  onOpen,
+  onClose,
+  onUpdate,
+}: {
+  row: ResponseRow;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onUpdate: (excluded: boolean, reason: string | null) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function submit(excluded: boolean, reason: string | null) {
+    setSaving(true);
+    try {
+      await onUpdate(excluded, reason);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (row.excluded_from_average) {
+    return (
+      <div className="flex items-center gap-2">
+        <span
+          className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+          style={{ background: "#f1e6fb", color: "#7a3fc2" }}
+        >
+          מוחרג מהממוצע{row.excluded_reason ? ` · ${EXCLUDE_REASON_LABEL[row.excluded_reason] ?? row.excluded_reason}` : ""}
+        </span>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void submit(false, null)}
+          className="text-xs underline disabled:opacity-50"
+          style={{ color: "var(--muted)" }}
+        >
+          בטל החרגה
+        </button>
+      </div>
+    );
+  }
+
+  if (open) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs" style={{ color: "var(--muted)" }}>
+          סיבה:
+        </span>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void submit(true, "error")}
+          className="rounded-full border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50"
+          style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+        >
+          טעות
+        </button>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void submit(true, "not_relevant")}
+          className="rounded-full border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50"
+          style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+        >
+          לא רלוונטית לתחום
+        </button>
+        <button type="button" onClick={onClose} className="text-xs underline" style={{ color: "var(--muted)" }}>
+          ביטול
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button type="button" onClick={onOpen} className="text-xs underline" style={{ color: "var(--muted)" }}>
+      החרג מהממוצע
+    </button>
+  );
+}
+
 export function SurveysOverview({
   responses,
   branches,
@@ -157,18 +249,34 @@ export function SurveysOverview({
   pendingCount: number;
   sentCount: number;
 }) {
+  const [localResponses, setLocalResponses] = useState(responses);
   const [branchFilter, setBranchFilter] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
   const [moverFilter, setMoverFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
+  const [excludeEditorId, setExcludeEditorId] = useState<string | null>(null);
+
+  async function handleExcludeUpdate(id: string, excluded: boolean, reason: string | null) {
+    const response = await fetch("/api/surveys/responses", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, excluded, reason }),
+    });
+    if (!response.ok) return;
+    setLocalResponses((current) =>
+      current.map((row) =>
+        row.id === id ? { ...row, excluded_from_average: excluded, excluded_reason: reason } : row,
+      ),
+    );
+  }
 
   const allAgentNames = useMemo(
-    () => [...new Set(responses.map((row) => row.agent_name).filter((name): name is string => Boolean(name)))].sort(
+    () => [...new Set(localResponses.map((row) => row.agent_name).filter((name): name is string => Boolean(name)))].sort(
       (a, b) => a.localeCompare(b, "he"),
     ),
-    [responses],
+    [localResponses],
   );
 
   const hasFilters = Boolean(branchFilter || agentFilter || moverFilter || dateFrom || dateTo);
@@ -182,7 +290,7 @@ export function SurveysOverview({
   }
 
   const filteredResponses = useMemo(() => {
-    return responses.filter((row) => {
+    return localResponses.filter((row) => {
       if (branchFilter && row.branch_id !== branchFilter) return false;
       if (agentFilter && row.agent_name !== agentFilter) return false;
       if (moverFilter && row.mover_id !== moverFilter) return false;
@@ -190,21 +298,29 @@ export function SurveysOverview({
       if (dateTo && row.submitted_at > `${dateTo}T23:59:59`) return false;
       return true;
     });
-  }, [responses, branchFilter, agentFilter, moverFilter, dateFrom, dateTo]);
+  }, [localResponses, branchFilter, agentFilter, moverFilter, dateFrom, dateTo]);
+
+  // Excluded responses still count as "a response was received" (hero stats,
+  // response rate) but never enter any average/distribution calculation.
+  const averagingResponses = useMemo(
+    () => filteredResponses.filter((row) => !row.excluded_from_average),
+    [filteredResponses],
+  );
 
   const totalResponses = filteredResponses.length;
   const responseRate = !hasFilters && sentCount > 0 ? (totalResponses / sentCount) * 100 : null;
-  const overallAvg = average(filteredResponses.map(avgOf));
+  const overallAvg = average(averagingResponses.map(avgOf));
 
   const categoryAverages = [
-    { label: "מוכר/ת וסניף", value: average(filteredResponses.map((row) => row.score_branch)) },
-    { label: "תיאום אספקה", value: average(filteredResponses.map((row) => row.score_coordination)) },
-    { label: "מוביל/ים", value: average(filteredResponses.map((row) => row.score_mover)) },
+    { label: "מוכר/ת וסניף", value: average(averagingResponses.map((row) => row.score_branch)) },
+    { label: "תיאום אספקה", value: average(averagingResponses.map((row) => row.score_coordination)) },
+    { label: "מוביל/ים", value: average(averagingResponses.map((row) => row.score_mover)) },
   ];
 
-  const satisfied = filteredResponses.filter((row) => avgOf(row) >= 4).length;
-  const neutral = filteredResponses.filter((row) => avgOf(row) >= 3 && avgOf(row) < 4).length;
-  const unsatisfied = filteredResponses.filter((row) => avgOf(row) < 3).length;
+  const satisfied = averagingResponses.filter((row) => avgOf(row) >= 4).length;
+  const neutral = averagingResponses.filter((row) => avgOf(row) >= 3 && avgOf(row) < 4).length;
+  const unsatisfied = averagingResponses.filter((row) => avgOf(row) < 3).length;
+  const distributionTotal = averagingResponses.length;
   const distribution = [
     { label: "מרוצים (4-5)", count: satisfied, color: "var(--teal)" },
     { label: "ניטרלי (3-4)", count: neutral, color: "var(--amber)" },
@@ -213,7 +329,7 @@ export function SurveysOverview({
 
   const branchAverages = branches
     .map((branch) => {
-      const rows = filteredResponses.filter((row) => row.branch_id === branch.id);
+      const rows = averagingResponses.filter((row) => row.branch_id === branch.id);
       return { id: branch.id, name: branch.name, value: average(rows.map(avgOf)), count: rows.length };
     })
     .filter((branch) => branch.count > 0)
@@ -221,7 +337,7 @@ export function SurveysOverview({
 
   const agentAverages = allAgentNames
     .map((name) => {
-      const rows = filteredResponses.filter((row) => row.agent_name === name);
+      const rows = averagingResponses.filter((row) => row.agent_name === name);
       return { name, value: average(rows.map((row) => row.score_branch)), count: rows.length };
     })
     .filter((agent) => agent.count > 0)
@@ -229,7 +345,7 @@ export function SurveysOverview({
 
   const moverAverages = movers
     .map((mover) => {
-      const rows = filteredResponses.filter((row) => row.mover_id === mover.id);
+      const rows = averagingResponses.filter((row) => row.mover_id === mover.id);
       return { id: mover.id, name: mover.name, value: average(rows.map((row) => row.score_mover)), count: rows.length };
     })
     .filter((mover) => mover.count > 0)
@@ -248,7 +364,9 @@ export function SurveysOverview({
 
   const drilldownAvg = drilldown
     ? average(
-        drilldownRows.map((row) => (drilldown.type === "agent" ? row.score_branch : row.score_mover)),
+        drilldownRows
+          .filter((row) => !row.excluded_from_average)
+          .map((row) => (drilldown.type === "agent" ? row.score_branch : row.score_mover)),
       )
     : null;
 
@@ -279,6 +397,14 @@ export function SurveysOverview({
           >
             <Inbox size={16} />
             תור שליחה
+          </Link>
+          <Link
+            href="/surveys/reviews"
+            className="flex h-10 items-center gap-2 rounded-lg border px-4 text-sm font-semibold"
+            style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+          >
+            <Star size={16} />
+            בקשת ביקורות בגוגל
           </Link>
         </div>
       </div>
@@ -386,7 +512,7 @@ export function SurveysOverview({
           <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
             התפלגות שביעות רצון
           </h2>
-          {totalResponses === 0 ? (
+          {distributionTotal === 0 ? (
             <p className="text-sm" style={{ color: "var(--muted)" }}>
               אין תשובות תואמות
             </p>
@@ -397,8 +523,8 @@ export function SurveysOverview({
                   key={item.label}
                   label={item.label}
                   value={item.count}
-                  maxValue={totalResponses}
-                  displayValue={`${Math.round((item.count / totalResponses) * 100)}%`}
+                  maxValue={distributionTotal}
+                  displayValue={`${Math.round((item.count / distributionTotal) * 100)}%`}
                   color={item.color}
                 />
               ))}
@@ -410,7 +536,7 @@ export function SurveysOverview({
           <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
             ציון ממוצע לפי תחום
           </h2>
-          {totalResponses === 0 ? (
+          {distributionTotal === 0 ? (
             <p className="text-sm" style={{ color: "var(--muted)" }}>
               אין תשובות תואמות
             </p>
@@ -585,6 +711,13 @@ export function SurveysOverview({
                       )}
                     </div>
                   )}
+                  <ExcludeToggle
+                    row={row}
+                    open={excludeEditorId === row.id}
+                    onOpen={() => setExcludeEditorId(row.id)}
+                    onClose={() => setExcludeEditorId(null)}
+                    onUpdate={(excluded, reason) => handleExcludeUpdate(row.id, excluded, reason)}
+                  />
                 </div>
               );
             })}
@@ -661,6 +794,13 @@ export function SurveysOverview({
                         )}
                       </div>
                     )}
+                    <ExcludeToggle
+                      row={row}
+                      open={excludeEditorId === row.id}
+                      onOpen={() => setExcludeEditorId(row.id)}
+                      onClose={() => setExcludeEditorId(null)}
+                      onUpdate={(excluded, reason) => handleExcludeUpdate(row.id, excluded, reason)}
+                    />
                   </div>
                 ))
               )}

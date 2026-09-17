@@ -27,6 +27,7 @@ const ALL_PAGES = [
   "surveys",
   "surveys-import",
   "surveys-queue",
+  "surveys-reviews",
   "system-logs",
   "settings",
   "users",
@@ -436,6 +437,8 @@ function pageLabel(id: PageKey) {
       return "ייבוא לקוחות לסקר";
     case "surveys-queue":
       return "תור שליחה";
+    case "surveys-reviews":
+      return "בקשת ביקורות בגוגל";
     case "system-logs":
       return "לוג מערכת";
     case "settings":

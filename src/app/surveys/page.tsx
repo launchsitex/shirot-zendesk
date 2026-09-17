@@ -17,7 +17,7 @@ export default async function SurveysPage() {
     supabase
       .from("survey_responses")
       .select(
-        "id, order_number, branch_id, mover_id, agent_name, score_branch, score_coordination, score_mover, feedback_positive, feedback_negative, submitted_at, survey_branches!branch_id(name), survey_movers!mover_id(name), survey_pending_sends!pending_send_id(customer_name, phone)",
+        "id, order_number, branch_id, mover_id, agent_name, score_branch, score_coordination, score_mover, feedback_positive, feedback_negative, submitted_at, excluded_from_average, excluded_reason, survey_branches!branch_id(name), survey_movers!mover_id(name), survey_pending_sends!pending_send_id(customer_name, phone)",
       )
       .order("submitted_at", { ascending: false })
       .limit(5000),

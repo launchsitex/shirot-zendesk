@@ -24,6 +24,7 @@ import {
   Sparkles,
   Star,
   Target,
+  ThumbsUp,
   Timer,
   Upload,
   UserRoundCog,
@@ -165,6 +166,13 @@ const items: {
     label: "תור שליחה",
     pageId: "surveys-queue",
     icon: Inbox,
+    child: true,
+  },
+  {
+    href: "/surveys/reviews",
+    label: "בקשת ביקורות בגוגל",
+    pageId: "surveys-reviews",
+    icon: ThumbsUp,
     child: true,
   },
   {
