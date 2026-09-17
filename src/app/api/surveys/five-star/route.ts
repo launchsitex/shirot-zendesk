@@ -19,7 +19,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from("survey_responses")
     .select(
-      "id, order_number, submitted_at, survey_pending_sends!pending_send_id(customer_name, phone), survey_branches!branch_id(name)",
+      "id, order_number, submitted_at, feedback_positive, feedback_negative, survey_pending_sends!pending_send_id(customer_name, phone), survey_branches!branch_id(name)",
     )
     .eq("score_branch", 5)
     .eq("score_coordination", 5)
@@ -43,6 +43,8 @@ export async function GET() {
       customerName: pending?.customer_name ?? "",
       phone: pending?.phone ?? "",
       branchName: branch?.name ?? "—",
+      feedbackPositive: row.feedback_positive,
+      feedbackNegative: row.feedback_negative,
     };
   });
 

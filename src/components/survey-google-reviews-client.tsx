@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { ChevronDown, Star } from "lucide-react";
 
 type FiveStarRow = {
@@ -10,6 +10,8 @@ type FiveStarRow = {
   customerName: string;
   phone: string;
   branchName: string;
+  feedbackPositive: string | null;
+  feedbackNegative: string | null;
 };
 
 type GoogleLink = {
@@ -422,18 +424,55 @@ export function SurveyGoogleReviewsClient() {
                 </tr>
               )}
               {rows.map((row) => (
-                <tr key={row.id} className="border-t" style={{ borderColor: "var(--line)" }}>
-                  <td className="px-4 py-3">
-                    <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row.id)} />
-                  </td>
-                  <td className="px-4 py-3 font-medium">{row.customerName}</td>
-                  <td className="px-4 py-3">{row.phone}</td>
-                  <td className="px-4 py-3">{row.orderNumber}</td>
-                  <td className="px-4 py-3">{row.branchName}</td>
-                  <td className="px-4 py-3 whitespace-nowrap" style={{ color: "var(--muted)" }}>
-                    {formatDateTime(row.submittedAt)}
-                  </td>
-                </tr>
+                <Fragment key={row.id}>
+                  <tr className="border-t" style={{ borderColor: "var(--line)" }}>
+                    <td className="px-4 py-3">
+                      <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggleRow(row.id)} />
+                    </td>
+                    <td className="px-4 py-3 font-medium">{row.customerName}</td>
+                    <td className="px-4 py-3">{row.phone}</td>
+                    <td className="px-4 py-3">{row.orderNumber}</td>
+                    <td className="px-4 py-3">{row.branchName}</td>
+                    <td className="px-4 py-3 whitespace-nowrap" style={{ color: "var(--muted)" }}>
+                      {formatDateTime(row.submittedAt)}
+                    </td>
+                  </tr>
+                  {(row.feedbackPositive || row.feedbackNegative) && (
+                    <tr style={{ borderColor: "var(--line)" }}>
+                      <td />
+                      <td colSpan={5} className="px-4 pb-3">
+                        <div className="flex flex-col gap-1.5">
+                          {row.feedbackPositive && (
+                            <div className="flex items-start gap-2">
+                              <span
+                                className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                                style={{ background: "var(--teal-soft)", color: "var(--teal)" }}
+                              >
+                                חיובי
+                              </span>
+                              <p className="text-sm" style={{ color: "var(--ink)" }}>
+                                {row.feedbackPositive}
+                              </p>
+                            </div>
+                          )}
+                          {row.feedbackNegative && (
+                            <div className="flex items-start gap-2">
+                              <span
+                                className="mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+                                style={{ background: "#fbe9ea", color: "var(--red)" }}
+                              >
+                                לשיפור
+                              </span>
+                              <p className="text-sm" style={{ color: "var(--ink)" }}>
+                                {row.feedbackNegative}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
