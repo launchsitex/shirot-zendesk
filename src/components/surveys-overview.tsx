@@ -20,6 +20,7 @@ type ResponseRow = {
   submitted_at: string;
   excluded_from_average: boolean;
   excluded_reason: string | null;
+  google_review_requested_at: string | null;
   survey_branches: { name: string } | null;
   survey_movers: { name: string } | null;
   survey_pending_sends: { customer_name: string; phone: string } | null;
@@ -257,6 +258,7 @@ export function SurveysOverview({
   const [dateTo, setDateTo] = useState("");
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
   const [excludeEditorId, setExcludeEditorId] = useState<string | null>(null);
+  const [feedPage, setFeedPage] = useState(0);
 
   async function handleExcludeUpdate(id: string, excluded: boolean, reason: string | null) {
     const response = await fetch("/api/surveys/responses", {
@@ -299,6 +301,16 @@ export function SurveysOverview({
       return true;
     });
   }, [localResponses, branchFilter, agentFilter, moverFilter, dateFrom, dateTo]);
+
+  // Reset the feed to page 1 whenever the filters change — adjusted during
+  // render (not an effect) per React's "resetting state on prop/derived
+  // change" pattern, to avoid an extra cascading render.
+  const filterKey = `${branchFilter}|${agentFilter}|${moverFilter}|${dateFrom}|${dateTo}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setFeedPage(0);
+  }
 
   // Excluded responses still count as "a response was received" (hero stats,
   // response rate) but never enter any average/distribution calculation.
@@ -351,9 +363,14 @@ export function SurveysOverview({
     .filter((mover) => mover.count > 0)
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
 
-  const feed = [...filteredResponses]
-    .sort((a, b) => b.submitted_at.localeCompare(a.submitted_at))
-    .slice(0, 8);
+  const FEED_PAGE_SIZE = 8;
+  const sortedFeed = useMemo(
+    () => [...filteredResponses].sort((a, b) => b.submitted_at.localeCompare(a.submitted_at)),
+    [filteredResponses],
+  );
+  const feedTotalPages = Math.max(1, Math.ceil(sortedFeed.length / FEED_PAGE_SIZE));
+  const feedPageClamped = Math.min(feedPage, feedTotalPages - 1);
+  const feed = sortedFeed.slice(feedPageClamped * FEED_PAGE_SIZE, (feedPageClamped + 1) * FEED_PAGE_SIZE);
 
   const drilldownRows = useMemo(() => {
     if (!drilldown) return [];
@@ -647,10 +664,15 @@ export function SurveysOverview({
       <SurveyScoreExport />
 
       <div className="card overflow-hidden">
-        <div className="border-b p-4" style={{ borderColor: "var(--line)" }}>
+        <div className="flex items-center justify-between border-b p-4" style={{ borderColor: "var(--line)" }}>
           <h2 className="text-base font-semibold" style={{ color: "var(--ink)" }}>
             משוב אחרון
           </h2>
+          {sortedFeed.length > 0 && (
+            <span className="text-xs" style={{ color: "var(--muted)" }}>
+              {sortedFeed.length} תשובות
+            </span>
+          )}
         </div>
         {feed.length === 0 ? (
           <p className="px-4 py-8 text-center text-sm" style={{ color: "var(--muted)" }}>
@@ -673,6 +695,14 @@ export function SurveysOverview({
                       </span>
                     </div>
                     <div className="flex items-center gap-3">
+                      {row.google_review_requested_at && (
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                          style={{ background: "#fff4d6", color: "#8a6a00" }}
+                        >
+                          נשלחה בקשת ביקורת
+                        </span>
+                      )}
                       <span className="text-sm font-semibold" dir="ltr" style={{ color: "var(--teal)" }}>
                         {avg.toFixed(1)} / 5
                       </span>
@@ -721,6 +751,31 @@ export function SurveysOverview({
                 </div>
               );
             })}
+          </div>
+        )}
+        {feedTotalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 border-t p-3" style={{ borderColor: "var(--line)" }}>
+            <button
+              type="button"
+              disabled={feedPageClamped === 0}
+              onClick={() => setFeedPage(feedPageClamped - 1)}
+              className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-40"
+              style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+            >
+              הקודם
+            </button>
+            <span className="text-sm" style={{ color: "var(--muted)" }}>
+              עמוד {feedPageClamped + 1} מתוך {feedTotalPages}
+            </span>
+            <button
+              type="button"
+              disabled={feedPageClamped >= feedTotalPages - 1}
+              onClick={() => setFeedPage(feedPageClamped + 1)}
+              className="rounded-lg border px-3 py-1.5 text-sm font-medium disabled:opacity-40"
+              style={{ borderColor: "var(--line)", color: "var(--ink)" }}
+            >
+              הבא
+            </button>
           </div>
         )}
       </div>

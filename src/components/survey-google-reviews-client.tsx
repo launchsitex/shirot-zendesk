@@ -259,6 +259,22 @@ export function SurveyGoogleReviewsClient() {
     }
   }
 
+  async function handleSkip(id: string) {
+    const confirmed = window.confirm("להסיר את הלקוח הזה מהרשימה? לא נשלח לו כלום, הוא פשוט ייעלם מכאן.");
+    if (!confirmed) return;
+    setRows((current) => current.filter((row) => row.id !== id));
+    setSelected((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    await fetch("/api/surveys/five-star", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+  }
+
   return (
     <div className="flex flex-col gap-6 p-6">
       <div>
@@ -406,19 +422,20 @@ export function SurveyGoogleReviewsClient() {
                 <th className="px-4 py-2 font-medium">הזמנה</th>
                 <th className="px-4 py-2 font-medium">סניף (של הלקוח)</th>
                 <th className="px-4 py-2 font-medium">תאריך תשובה</th>
+                <th className="px-4 py-2 font-medium" />
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                  <td colSpan={7} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                     טוען...
                   </td>
                 </tr>
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
+                  <td colSpan={7} className="px-4 py-8 text-center" style={{ color: "var(--muted)" }}>
                     אין כרגע לקוחות עם ציון 5 מלא שלא נשלחה להם בקשה
                   </td>
                 </tr>
@@ -436,11 +453,21 @@ export function SurveyGoogleReviewsClient() {
                     <td className="px-4 py-3 whitespace-nowrap" style={{ color: "var(--muted)" }}>
                       {formatDateTime(row.submittedAt)}
                     </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => void handleSkip(row.id)}
+                        className="text-xs underline"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        הסר
+                      </button>
+                    </td>
                   </tr>
                   {(row.feedbackPositive || row.feedbackNegative) && (
                     <tr style={{ borderColor: "var(--line)" }}>
                       <td />
-                      <td colSpan={5} className="px-4 pb-3">
+                      <td colSpan={6} className="px-4 pb-3">
                         <div className="flex flex-col gap-1.5">
                           {row.feedbackPositive && (
                             <div className="flex items-start gap-2">

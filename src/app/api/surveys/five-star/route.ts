@@ -26,6 +26,7 @@ export async function GET() {
     .eq("score_mover", 5)
     .eq("excluded_from_average", false)
     .is("google_review_requested_at", null)
+    .is("google_review_skipped_at", null)
     .order("submitted_at", { ascending: false })
     .limit(1000);
 
@@ -49,4 +50,29 @@ export async function GET() {
   });
 
   return NextResponse.json({ rows });
+}
+
+export async function POST(request: Request) {
+  if (!isSupabaseConfigured()) {
+    return NextResponse.json({ error: "Supabase אינו מחובר" }, { status: 400 });
+  }
+  const profile = await getCurrentProfile();
+  if (!profile || !canAccessPage(profile, "surveys-reviews")) {
+    return NextResponse.json({ error: "אין הרשאה" }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => null);
+  const id = body?.id;
+  if (typeof id !== "string") {
+    return NextResponse.json({ error: "נתונים לא תקינים" }, { status: 400 });
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const { error } = await supabase
+    .from("survey_responses")
+    .update({ google_review_skipped_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
 }
