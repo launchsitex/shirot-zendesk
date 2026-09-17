@@ -97,6 +97,10 @@ export function SurveyQueueClient() {
 
   async function handleExportSelected() {
     if (selectedRows.length === 0) return;
+    const confirmed = window.confirm(
+      `לייצא ל-Excel ולסמן ${selectedRows.length} לקוחות כ"נשלח"? זה לא שולח SMS בפועל — רק מסמן שהם כבר נשלחו.`,
+    );
+    if (!confirmed) return;
     setBusy(true);
     setMessage(null);
     try {
