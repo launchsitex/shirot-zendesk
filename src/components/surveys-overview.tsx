@@ -698,6 +698,9 @@ export function SurveysOverview({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold" style={{ color: "var(--ink)" }}>
+                        {row.survey_pending_sends?.customer_name ?? "—"}
+                      </span>
+                      <span className="text-xs" style={{ color: "var(--muted)" }}>
                         {row.order_number}
                       </span>
                       <span className="text-xs" style={{ color: "var(--muted)" }}>
