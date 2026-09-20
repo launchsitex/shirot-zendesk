@@ -266,6 +266,7 @@ export function SurveysOverview({
   const [moverFilter, setMoverFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [orderNumberFilter, setOrderNumberFilter] = useState("");
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null);
   const [excludeEditorId, setExcludeEditorId] = useState<string | null>(null);
   const [feedPage, setFeedPage] = useState(0);
@@ -291,7 +292,9 @@ export function SurveysOverview({
     [localResponses],
   );
 
-  const hasFilters = Boolean(branchFilter || agentFilter || moverFilter || dateFrom || dateTo);
+  const hasFilters = Boolean(
+    branchFilter || agentFilter || moverFilter || dateFrom || dateTo || orderNumberFilter,
+  );
 
   function clearFilters() {
     setBranchFilter("");
@@ -299,23 +302,26 @@ export function SurveysOverview({
     setMoverFilter("");
     setDateFrom("");
     setDateTo("");
+    setOrderNumberFilter("");
   }
 
   const filteredResponses = useMemo(() => {
+    const orderNumberQuery = orderNumberFilter.trim().toLowerCase();
     return localResponses.filter((row) => {
       if (branchFilter && row.branch_id !== branchFilter) return false;
       if (agentFilter && row.agent_name !== agentFilter) return false;
       if (moverFilter && row.mover_id !== moverFilter) return false;
       if (dateFrom && row.submitted_at < dateFrom) return false;
       if (dateTo && row.submitted_at > `${dateTo}T23:59:59`) return false;
+      if (orderNumberQuery && !row.order_number.toLowerCase().includes(orderNumberQuery)) return false;
       return true;
     });
-  }, [localResponses, branchFilter, agentFilter, moverFilter, dateFrom, dateTo]);
+  }, [localResponses, branchFilter, agentFilter, moverFilter, dateFrom, dateTo, orderNumberFilter]);
 
   // Reset the feed to page 1 whenever the filters change — adjusted during
   // render (not an effect) per React's "resetting state on prop/derived
   // change" pattern, to avoid an extra cascading render.
-  const filterKey = `${branchFilter}|${agentFilter}|${moverFilter}|${dateFrom}|${dateTo}`;
+  const filterKey = `${branchFilter}|${agentFilter}|${moverFilter}|${dateFrom}|${dateTo}|${orderNumberFilter}`;
   const [lastFilterKey, setLastFilterKey] = useState(filterKey);
   if (filterKey !== lastFilterKey) {
     setLastFilterKey(filterKey);
@@ -457,6 +463,14 @@ export function SurveysOverview({
           value={moverFilter}
           onChange={setMoverFilter}
           options={movers.map((mover) => ({ value: mover.id, label: mover.name }))}
+        />
+        <input
+          type="text"
+          placeholder="מספר הזמנה"
+          value={orderNumberFilter}
+          onChange={(event) => setOrderNumberFilter(event.target.value)}
+          className="h-10 w-36 rounded-lg border px-2 text-sm"
+          style={{ borderColor: "var(--line)", color: "var(--ink)" }}
         />
         <div className="flex items-center gap-1.5 text-sm" style={{ color: "var(--muted)" }}>
           <span>מ-</span>
