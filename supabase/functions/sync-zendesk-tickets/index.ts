@@ -70,6 +70,21 @@ Deno.serve(async (request) => {
     // Empty body is the normal cron invocation.
   }
 
+  // One-off, read-only lookup for a single ticket's private notes — does not
+  // touch zendesk_sync_state or call sync() at all, so it cannot affect the
+  // live cursor (account owner, 2026-09-22: checking whether specific stuck
+  // tickets are the WhatsApp-template case, without another full-history
+  // rewind that would stall real-time processing again).
+  if (typeof body.check_ticket === "string" && body.check_ticket) {
+    try {
+      const result = await checkTicketTemplateNotes(body.check_ticket);
+      return jsonResponse(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return jsonResponse({ error: message }, 500);
+    }
+  }
+
   try {
     const result = await sync(supabase, body);
     return jsonResponse({ ok: true, ...result });
@@ -732,6 +747,41 @@ function isWhatsappTemplateSentNote(child: Record<string, unknown>): boolean {
   if (child.public === true) return false;
   const body = String(child.plain_body ?? child.body ?? "");
   return body.startsWith(TEMPLATE_SENT_PREFIX);
+}
+
+/**
+ * Isolated, read-only check: does this one ticket have a WhatsApp-template
+ * private note, and is it already reflected in zendesk_whatsapp_messages?
+ * Uses the per-ticket comments endpoint, not the incremental export, so it
+ * touches no shared cursor and cannot affect live sync.
+ */
+async function checkTicketTemplateNotes(ticketId: string) {
+  const email = Deno.env.get("mail_Zendesk")?.trim();
+  const token = Deno.env.get("API_Zendesk")?.trim();
+  const subdomain = (Deno.env.get("ZENDESK_SUBDOMAIN") ?? "rcity").trim();
+  if (!email || !token) throw new Error("mail_Zendesk / API_Zendesk not set");
+  const auth = `Basic ${btoa(`${email}/token:${token}`)}`;
+  const base = `https://${subdomain}.zendesk.com/api/v2`;
+
+  const response = await fetch(`${base}/tickets/${ticketId}/comments.json`, {
+    headers: { Authorization: auth, Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(`zendesk_${response.status}:${(await response.text()).slice(0, 200)}`);
+  }
+  const page = await response.json() as {
+    comments?: Array<Record<string, unknown>>;
+  };
+  const templateNotes = (page.comments ?? [])
+    .filter((comment) => isWhatsappTemplateSentNote(comment))
+    .map((comment) => ({
+      comment_id: String(comment.id ?? ""),
+      created_at: comment.created_at,
+      preview: String(comment.plain_body ?? comment.body ?? "").slice(0, 90),
+    }));
+
+  return { ticket_id: ticketId, template_notes: templateNotes };
 }
 
 /** First instant of the current month, Asia/Jerusalem, as an ISO string. */
