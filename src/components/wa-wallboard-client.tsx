@@ -50,7 +50,9 @@ import {
   type WaitingTierMinutes,
 } from "@/lib/wa-dashboard";
 
-const REFRESH_MS = 30_000;
+// 10s, not 30: the account owner asked to shrink the gap between an agent
+// picking up a ticket and it disappearing from the screen (2026-09-22).
+const REFRESH_MS = 10_000;
 const DEFAULT_DEPARTMENT_ID = "customer-service";
 
 function seconds(value: number | null): string {

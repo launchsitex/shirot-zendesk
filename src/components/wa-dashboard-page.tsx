@@ -44,7 +44,9 @@ import { agentKey, readExcludedAgents, writeExcludedAgents } from "@/lib/wa-agen
 import { businessClockLabel } from "@/lib/business-clock";
 import { dayLabel } from "@/lib/wa-history";
 
-const REFRESH_MS = 30_000;
+// 10s, not 30: the account owner asked to shrink the gap between an agent
+// picking up a ticket and it disappearing from the screen (2026-09-22).
+const REFRESH_MS = 10_000;
 const DEFAULT_DEPARTMENT_ID = "customer-service";
 // Which agents the viewer has taken out of the figures, per department. Kept
 // per browser so a manager who only follows their own team does not re-tick
