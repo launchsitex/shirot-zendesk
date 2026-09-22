@@ -46,6 +46,7 @@ function ticket(overrides: Partial<WaTicketRow>): WaTicketRow {
     lastAgentMessageAt: null,
     lastCustomerMessageAt: null,
     waitingSince: null,
+    excludedFromAverages: false,
     ...overrides,
   };
 }
@@ -337,6 +338,58 @@ describe("summarizeTickets / summarizeByAgent with extra activity", () => {
     expect(b.ticketCount).toBe(0);
     expect(b.respondedCount).toBe(1);
     expect(b.avgFirstResponseSeconds).toBe(60);
+  });
+});
+
+describe("excludedFromAverages", () => {
+  it("summarizeTickets drops an excluded ticket from every time average but keeps it in ticketCount/closedCount", () => {
+    const rows = [
+      ticket({ id: "1", firstResponseSeconds: 60, agentResponseSeconds: 30, closed: true, timeToCloseSeconds: 300 }),
+      ticket({
+        id: "2",
+        firstResponseSeconds: 18000, // 5h outlier
+        agentResponseSeconds: 18000,
+        closed: true,
+        timeToCloseSeconds: 20000,
+        excludedFromAverages: true,
+      }),
+    ];
+    const totals = summarizeTickets(rows);
+    expect(totals.ticketCount).toBe(2);
+    expect(totals.closedCount).toBe(2);
+    expect(totals.respondedCount).toBe(1);
+    expect(totals.avgFirstResponseSeconds).toBe(60);
+    expect(totals.avgAgentResponseSeconds).toBe(30);
+    expect(totals.avgTimeToCloseSeconds).toBe(300);
+  });
+
+  it("summarizeByAgent drops an excluded ticket from that agent's averages but keeps ticketCount", () => {
+    const rows = [
+      ticket({ id: "1", agentId: "a", agentName: "א", firstResponseSeconds: 60, firstResponseAgentId: "a" }),
+      ticket({
+        id: "2",
+        agentId: "a",
+        agentName: "א",
+        firstResponseSeconds: 18000,
+        firstResponseAgentId: "a",
+        excludedFromAverages: true,
+      }),
+    ];
+    const summary = summarizeByAgent(rows).find((s) => s.agentId === "a")!;
+    expect(summary.ticketCount).toBe(2);
+    expect(summary.respondedCount).toBe(1);
+    expect(summary.avgFirstResponseSeconds).toBe(60);
+  });
+
+  it("firstResponseTierCounts ignores an excluded ticket even though it crossed every tier", () => {
+    const rows = [
+      ticket({ id: "1", firstResponseSeconds: 60 }),
+      ticket({ id: "2", firstResponseSeconds: 18000, excludedFromAverages: true }),
+    ];
+    const counts = firstResponseTierCounts(rows, NOW);
+    expect(counts[3]).toBe(0);
+    expect(counts[7]).toBe(0);
+    expect(counts[10]).toBe(0);
   });
 });
 

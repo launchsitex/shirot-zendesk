@@ -46,7 +46,7 @@ const DEFAULT_DEPARTMENT_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,custom_status_id,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,assigned_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,agents!agent_id(name,departments!department_id(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,custom_status_id,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,assigned_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,excluded_from_wa_averages,agents!agent_id(name,departments!department_id(id,name))";
 
 type Row = {
   id: string;
@@ -68,6 +68,7 @@ type Row = {
   solved_at: string | null;
   first_response_agent_id: string | null;
   solved_by_agent_id: string | null;
+  excluded_from_wa_averages: boolean | null;
   agents: unknown;
 };
 
@@ -208,6 +209,7 @@ function mapTicketRow(
     lastAgentMessageAt: lastAgent,
     lastCustomerMessageAt: lastCustomer,
     waitingSince,
+    excludedFromAverages: row.excluded_from_wa_averages === true,
   };
 }
 
@@ -443,7 +445,8 @@ export async function GET(request: NextRequest) {
   // columns above don't carry. Scoped to today's own tickets, same as
   // ticketCount, so this is a second round trip rather than folded into the
   // Promise.all above (its ticket ids aren't known until `rows` exists).
-  const ticketIds = rows.map((row) => row.id);
+  const timedRows = rows.filter((row) => !row.excludedFromAverages);
+  const ticketIds = timedRows.map((row) => row.id);
   const messagesResult = ticketIds.length
     ? await supabase
         .from("zendesk_whatsapp_messages")
@@ -457,7 +460,7 @@ export async function GET(request: NextRequest) {
     );
   }
   const agentByTicket: Record<string, string | null> = {};
-  for (const row of rows) agentByTicket[row.id] = row.agentId;
+  for (const row of timedRows) agentByTicket[row.id] = row.agentId;
   const messageResponseByAgent = averageMessageResponseByAgent(
     (messagesResult.data ?? []) as WhatsappMessageRow[],
     agentByTicket,

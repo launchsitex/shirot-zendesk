@@ -119,6 +119,16 @@ export type WaTicketRow = {
    * the customer is not waiting.
    */
   waitingSince: string | null;
+  /**
+   * Manually confirmed anomaly (e.g. never routed/offered to any agent) —
+   * excluded from every response-time/close-time average and tier count,
+   * account owner's per-ticket call, not an automatic rule (2026-09-22, the
+   * 13 שירות-לקוחות tickets from that day that sat fully unassigned for
+   * hours despite near-instant pickup on everything else). Still counted in
+   * ticketCount/closedCount/awaitingReply — it is a real ticket, just not a
+   * fair timing sample.
+   */
+  excludedFromAverages: boolean;
 };
 
 /**
@@ -496,6 +506,7 @@ export function firstResponseTierCounts(
   clock: BusinessClock = null,
 ): Record<WaitingTierMinutes, number> {
   const elapsed = rows
+    .filter((row) => !row.excludedFromAverages)
     .map((row) => firstResponseElapsed(row, now, clock))
     .filter((value): value is number => value != null);
   const counts = {} as Record<WaitingTierMinutes, number>;
@@ -512,6 +523,7 @@ export function firstResponseUnderCount(
 ): number {
   return rows.filter(
     (row) =>
+      !row.excludedFromAverages &&
       row.firstResponseSeconds != null && row.firstResponseSeconds < minutes * 60,
   ).length;
 }
@@ -553,13 +565,19 @@ export function summarizeTickets(
   rows: WaTicketRow[],
   extra: WaExtraActivity = NO_EXTRA_ACTIVITY,
 ): WaGroupStats {
-  const responseTimes = [...rows, ...extra.respondedToday]
+  const timedRows = [...rows, ...extra.respondedToday].filter(
+    (row) => !row.excludedFromAverages,
+  );
+  const responseTimes = timedRows
     .map((row) => row.firstResponseSeconds)
     .filter((value): value is number => value != null);
-  const agentResponseTimes = [...rows, ...extra.respondedToday]
+  const agentResponseTimes = timedRows
     .map((row) => row.agentResponseSeconds)
     .filter((value): value is number => value != null);
-  const closeTimes = [...rows.filter((row) => row.closed), ...extra.closedToday]
+  const closeTimes = [
+    ...rows.filter((row) => row.closed && !row.excludedFromAverages),
+    ...extra.closedToday.filter((row) => !row.excludedFromAverages),
+  ]
     .map((row) => row.timeToCloseSeconds)
     .filter((value): value is number => value != null);
   return {
@@ -627,12 +645,21 @@ export function summarizeByAgent(
       const responded = rows
         .filter(
           (row) =>
+            !row.excludedFromAverages &&
             row.firstResponseSeconds != null && row.firstResponseAgentId === key,
         )
-        .concat(extra.respondedToday.filter((row) => row.firstResponseAgentId === key));
+        .concat(
+          extra.respondedToday.filter(
+            (row) => !row.excludedFromAverages && row.firstResponseAgentId === key,
+          ),
+        );
       const closed = rows
-        .filter((row) => row.closed && row.solvedByAgentId === key)
-        .concat(extra.closedToday.filter((row) => row.solvedByAgentId === key));
+        .filter((row) => row.closed && !row.excludedFromAverages && row.solvedByAgentId === key)
+        .concat(
+          extra.closedToday.filter(
+            (row) => !row.excludedFromAverages && row.solvedByAgentId === key,
+          ),
+        );
       const sample = current[0] ??
         extra.respondedToday.find((row) => row.firstResponseAgentId === key) ??
         extra.closedToday.find((row) => row.solvedByAgentId === key);
