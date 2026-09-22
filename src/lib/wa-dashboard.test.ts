@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentStatusLabel,
+  averageMessageResponseByAgent,
   currentlyWaiting,
   firstResponseElapsed,
   firstResponseTierCounts,
@@ -336,6 +337,56 @@ describe("summarizeTickets / summarizeByAgent with extra activity", () => {
     expect(b.ticketCount).toBe(0);
     expect(b.respondedCount).toBe(1);
     expect(b.avgFirstResponseSeconds).toBe(60);
+  });
+});
+
+describe("averageMessageResponseByAgent", () => {
+  it("pairs a customer turn with the next agent reply, not the first with the last", () => {
+    const messages = [
+      { ticket_id: "1", direction: "handoff" as const, at: "2026-09-06T08:00:00.000Z" },
+      { ticket_id: "1", direction: "agent" as const, at: "2026-09-06T08:02:00.000Z" }, // 120s
+      { ticket_id: "1", direction: "customer" as const, at: "2026-09-06T08:10:00.000Z" },
+      { ticket_id: "1", direction: "agent" as const, at: "2026-09-06T08:11:30.000Z" }, // 90s
+    ];
+    const result = averageMessageResponseByAgent(messages, { "1": "a" });
+    expect(result["a"]).toEqual({ avgSeconds: 105, count: 2 });
+  });
+
+  it("credits the ticket's current agent, not whoever was assigned when a given message was sent", () => {
+    const messages = [
+      { ticket_id: "1", direction: "handoff" as const, at: "2026-09-06T08:00:00.000Z" },
+      { ticket_id: "1", direction: "agent" as const, at: "2026-09-06T08:05:00.000Z" }, // 300s
+    ];
+    const result = averageMessageResponseByAgent(messages, { "1": "b" });
+    expect(result["a"]).toBeUndefined();
+    expect(result["b"]).toEqual({ avgSeconds: 300, count: 1 });
+  });
+
+  it("does not double-count a burst of consecutive customer rows before any reply", () => {
+    const messages = [
+      { ticket_id: "1", direction: "customer" as const, at: "2026-09-06T08:00:00.000Z" },
+      { ticket_id: "1", direction: "customer" as const, at: "2026-09-06T08:01:00.000Z" },
+      { ticket_id: "1", direction: "agent" as const, at: "2026-09-06T08:04:00.000Z" }, // from the first, 240s
+    ];
+    const result = averageMessageResponseByAgent(messages, { "1": "a" });
+    expect(result["a"]).toEqual({ avgSeconds: 240, count: 1 });
+  });
+
+  it("falls back to the unassigned bucket for a ticket with no known agent", () => {
+    const messages = [
+      { ticket_id: "1", direction: "customer" as const, at: "2026-09-06T08:00:00.000Z" },
+      { ticket_id: "1", direction: "agent" as const, at: "2026-09-06T08:01:00.000Z" },
+    ];
+    const result = averageMessageResponseByAgent(messages, { "1": null });
+    expect(result["unassigned"]).toEqual({ avgSeconds: 60, count: 1 });
+  });
+
+  it("is empty for a ticket with no completed pair yet (customer message still unanswered)", () => {
+    const messages = [
+      { ticket_id: "1", direction: "customer" as const, at: "2026-09-06T08:00:00.000Z" },
+    ];
+    const result = averageMessageResponseByAgent(messages, { "1": "a" });
+    expect(result).toEqual({});
   });
 });
 

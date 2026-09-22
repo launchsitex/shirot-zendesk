@@ -870,6 +870,10 @@ export function WaDashboardPageClient() {
                 פניות היום ו&quot;ממתינים כרגע&quot; — לפי מי משויכת עכשיו. תגובה
                 ראשונה וסגירה נזקפות לנציגה שהייתה משויכת באותו רגע, גם אם
                 הפנייה עברה מאז לנציגה אחרת. זמן הסגירה — עד רגע ה&quot;פתורה&quot;.
+                &quot;מענה ממוצע לכלל ההודעות&quot; — ממוצע על כל הודעה של לקוח בפנייה
+                (לא רק הראשונה), נזקף למי שמשויכת לפנייה עכשיו. &quot;מעל 10
+                דק&apos;&quot; — כמה מהפניות של הנציגה חיכו (או עדיין מחכות)
+                מעל 10 דקות לתגובה ראשונה.
               </p>
             </header>
 
@@ -881,7 +885,7 @@ export function WaDashboardPageClient() {
               </p>
             ) : (
               <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] border-collapse text-sm">
+              <table className="w-full min-w-[1080px] border-collapse text-sm">
                 <thead>
                   <tr className="bg-[#fbfcfd] text-xs text-[#5d6d75]">
                     <th className="w-8 px-3 py-2.5" aria-label="פתיחה" />
@@ -892,6 +896,8 @@ export function WaDashboardPageClient() {
                     <th className="px-3 py-2.5 text-center font-semibold">ממתינים לתגובה כרגע</th>
                     <th className="px-3 py-2.5 text-center font-semibold">תגובה מוקד ממוצעת</th>
                     <th className="px-3 py-2.5 text-center font-semibold">תגובה נציגה ממוצעת</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">מענה ממוצע לכלל ההודעות</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">מעל 10 דק&apos;</th>
                     <th className="px-3 py-2.5 text-center font-semibold">זמן סגירה ממוצע</th>
                   </tr>
                 </thead>
@@ -900,6 +906,7 @@ export function WaDashboardPageClient() {
                   const key = row.agentId ?? "unassigned";
                   const isOpen = expanded === key;
                   const tickets = ticketsByAgent[key] ?? [];
+                  const over10 = firstResponseTierCounts(tickets, now, clock)[10];
                   return (
                     <Fragment key={key}>
                       <tr
@@ -943,6 +950,25 @@ export function WaDashboardPageClient() {
                         <td className="px-3 py-3.5 text-center font-mono text-[#17242d]">
                           {seconds(row.avgAgentResponseSeconds)}
                         </td>
+                        <td className="px-3 py-3.5 text-center">
+                          <span className="font-mono text-[#17242d]">
+                            {seconds(row.avgPerMessageResponseSeconds)}
+                          </span>
+                          {row.perMessageResponseCount > 0 && (
+                            <span className="mr-1 text-[11px] text-[#a3adb1]">
+                              ({row.perMessageResponseCount})
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3.5 text-center">
+                          {over10 > 0 ? (
+                            <span className="inline-block min-w-[2.5rem] rounded-lg bg-[#fdebed] px-2.5 py-1 text-sm font-bold text-[#c8434c]">
+                              {over10}
+                            </span>
+                          ) : (
+                            <span className="text-[#a3adb1]">0</span>
+                          )}
+                        </td>
                         <td className="px-3 py-3.5 text-center font-mono text-[#5d6d75]">
                           {seconds(row.avgTimeToCloseSeconds)}
                         </td>
@@ -950,7 +976,7 @@ export function WaDashboardPageClient() {
 
                       {isOpen && (
                         <tr>
-                        <td colSpan={9} className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-4">
+                        <td colSpan={11} className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-4">
                           {tickets.length > 0 ? (
                             <div className="overflow-x-auto">
                               <table className="w-full min-w-[820px] border-collapse text-sm">

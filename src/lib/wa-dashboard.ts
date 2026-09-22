@@ -161,6 +161,17 @@ export type WaAgentSummary = WaGroupStats & {
   agentId: string | null;
   agentName: string;
   departmentName: string | null;
+  /**
+   * Average seconds from every customer WhatsApp turn (not just the first,
+   * unlike avgFirstResponseSeconds) to the agent's next reply, pooled across
+   * every ticket currently assigned to this agent. See
+   * `averageMessageResponseByAgent` for how it is computed and its one
+   * caveat: a burst of consecutive customer messages before any agent reply
+   * counts once, not once per WhatsApp bubble. Null with no such pairs yet.
+   */
+  avgPerMessageResponseSeconds: number | null;
+  /** How many customer-turn → agent-reply pairs the average above is over. */
+  perMessageResponseCount: number;
 };
 
 export type WaDepartmentSummary = WaGroupStats & {
@@ -647,10 +658,74 @@ export function summarizeByAgent(
             .map((row) => row.timeToCloseSeconds)
             .filter((value): value is number => value != null),
         ),
+        // Filled in by the API route from zendesk_whatsapp_messages, which
+        // this function does not have access to; defaults keep this pure
+        // and independently testable.
+        avgPerMessageResponseSeconds: null,
+        perMessageResponseCount: 0,
       };
     })
     .filter((row) => row.ticketCount > 0 || row.respondedCount > 0 || row.closedCount > 0)
     .sort(worstFirst);
+}
+
+export type WhatsappMessageRow = {
+  ticket_id: string;
+  direction: "handoff" | "agent" | "customer";
+  at: string;
+};
+
+/**
+ * Average seconds from every unanswered customer turn to the agent's next
+ * reply, pooled per agent (the ticket's current assignee) from raw
+ * zendesk_whatsapp_messages rows — the same table the sync uses to derive
+ * first/last message timestamps (see the file header). "handoff" counts as
+ * a turn start too: it is the bot handing over a customer who has not had a
+ * person reply yet, the same moment "תגובה מוקד" already starts its clock
+ * from. Consecutive rows of the same direction cannot happen — each row is
+ * already a turn switch (whatsappFlip in the sync function only fires on a
+ * tag *change*) — so this pairs each customer/handoff row with the next
+ * agent row after it, one pair per turn, not one per WhatsApp bubble.
+ */
+export function averageMessageResponseByAgent(
+  messages: WhatsappMessageRow[],
+  agentByTicket: Record<string, string | null>,
+): Record<string, { avgSeconds: number | null; count: number }> {
+  const byTicket = new Map<string, WhatsappMessageRow[]>();
+  for (const row of messages) {
+    const bucket = byTicket.get(row.ticket_id);
+    if (bucket) bucket.push(row);
+    else byTicket.set(row.ticket_id, [row]);
+  }
+  const sums = new Map<string, { sum: number; count: number }>();
+  for (const [ticketId, ticketRows] of byTicket) {
+    const key = agentByTicket[ticketId] ?? "unassigned";
+    const sorted = [...ticketRows].sort(
+      (a, b) => Date.parse(a.at) - Date.parse(b.at),
+    );
+    let waitingSinceMs: number | null = null;
+    for (const row of sorted) {
+      if (row.direction === "agent") {
+        if (waitingSinceMs != null) {
+          const deltaSeconds = (Date.parse(row.at) - waitingSinceMs) / 1000;
+          if (deltaSeconds >= 0) {
+            const entry = sums.get(key) ?? { sum: 0, count: 0 };
+            entry.sum += deltaSeconds;
+            entry.count += 1;
+            sums.set(key, entry);
+          }
+          waitingSinceMs = null;
+        }
+      } else if (waitingSinceMs == null) {
+        waitingSinceMs = Date.parse(row.at);
+      }
+    }
+  }
+  const result: Record<string, { avgSeconds: number | null; count: number }> = {};
+  for (const [key, { sum, count }] of sums) {
+    result[key] = { avgSeconds: count > 0 ? sum / count : null, count };
+  }
+  return result;
 }
 
 export function summarizeByDepartment(

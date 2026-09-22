@@ -13,6 +13,7 @@ import {
 } from "@/lib/supabase/server";
 import { CLOSED_STATUSES } from "@/lib/tickets";
 import {
+  averageMessageResponseByAgent,
   hourlyBuckets,
   summarizeByAgent,
   summarizeByDepartment,
@@ -24,6 +25,7 @@ import {
   type WaPendingTicket,
   type WaQueueTicket,
   type WaTicketRow,
+  type WhatsappMessageRow,
 } from "@/lib/wa-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -435,6 +437,31 @@ export async function GET(request: NextRequest) {
     .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
     .filter((row) => row.departmentId === departmentId);
   const extraActivity: WaExtraActivity = { respondedToday, closedToday };
+
+  // Per-agent "average response to every customer message" (not just the
+  // first) — needs the raw message-level rows, which the ticket-level
+  // columns above don't carry. Scoped to today's own tickets, same as
+  // ticketCount, so this is a second round trip rather than folded into the
+  // Promise.all above (its ticket ids aren't known until `rows` exists).
+  const ticketIds = rows.map((row) => row.id);
+  const messagesResult = ticketIds.length
+    ? await supabase
+        .from("zendesk_whatsapp_messages")
+        .select("ticket_id,direction,at")
+        .in("ticket_id", ticketIds)
+    : { data: [] as WhatsappMessageRow[], error: null };
+  if (messagesResult.error) {
+    return NextResponse.json(
+      { error: "wa_dashboard_query_failed", details: messagesResult.error.message },
+      { status: 500, headers: NO_STORE_HEADERS },
+    );
+  }
+  const agentByTicket: Record<string, string | null> = {};
+  for (const row of rows) agentByTicket[row.id] = row.agentId;
+  const messageResponseByAgent = averageMessageResponseByAgent(
+    (messagesResult.data ?? []) as WhatsappMessageRow[],
+    agentByTicket,
+  );
   const pendingReplies: WaPendingTicket[] = ((pendingResult.data ?? []) as Row[])
     .map((row) => mapTicketRow(row, clock, defaultOpenCustomStatusId))
     .filter((row) => row.departmentId === departmentId)
@@ -501,7 +528,15 @@ export async function GET(request: NextRequest) {
     date,
     businessHours: clock,
     totals: summarizeTickets(rows, extraActivity),
-    byAgent: summarizeByAgent(rows, agents, extraActivity),
+    byAgent: summarizeByAgent(rows, agents, extraActivity).map((agent) => {
+      const key = agent.agentId ?? "unassigned";
+      const extra = messageResponseByAgent[key];
+      return {
+        ...agent,
+        avgPerMessageResponseSeconds: extra?.avgSeconds ?? null,
+        perMessageResponseCount: extra?.count ?? 0,
+      };
+    }),
     byDepartment: summarizeByDepartment(rows),
     hourly: hourlyBuckets(rows),
     rows,
