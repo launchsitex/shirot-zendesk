@@ -56,6 +56,9 @@
   בדיוק את `mapTicketRow`'s `waitingSince` ב-
   `src/app/api/wa-dashboard/route.ts` + עבודה על שעון העבודה דרך
   `public.business_seconds` + cron job).
+- **עדכון (עוד באותו יום)**: הוגבל **רק** למחלקת שירות לקוחות (בקשת בעל
+  החשבון) - `supabase/migrations/20260922170000_wa_waiting_alert_customer_service_only.sql`
+  (מחליף את `find_wa_waiting_alerts` עם סינון `d.id = 'customer-service'`).
 
 ---
 
