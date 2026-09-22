@@ -525,6 +525,27 @@ async function syncComments(
             created_at: at,
           });
           touched.add(ticketId);
+
+          // Sending a WhatsApp template does not go through the live
+          // Messaging chat (no last_whatsapp_reply_agent tag flip) — Zendesk
+          // instead leaves a private, auto-generated note on the ticket, "X
+          // הודעת WhatsApp עם תבנית: Y", via.channel "api". Without this the
+          // customer's wait clock never stopped and the agent's own response
+          // time never counted a template as a reply at all (account owner,
+          // 2026-09-22, ticket #78940 sat "unanswered" for 5 days despite a
+          // template having been sent). via.channel alone is not a reliable
+          // signal — Aircall's own call-log notes are also "api" — so this
+          // matches on the fixed body prefix Zendesk generates for the
+          // template-send action specifically.
+          if (isWhatsappTemplateSentNote(child)) {
+            messages.push({
+              id: String(child.id ?? `${event.id}-template`),
+              ticket_id: ticketId,
+              direction: "agent",
+              at,
+            });
+            touchedWhatsapp.add(ticketId);
+          }
           continue;
         }
         // WhatsApp runs on Zendesk Messaging, where messages are not comments
@@ -699,6 +720,18 @@ function whatsappFlip(
     if (added.includes(WHATSAPP_FLIP_TAGS[direction])) return direction;
   }
   return null;
+}
+
+// Zendesk's own generated text for a WhatsApp template send, e.g.
+// "נשלחה הודעת WhatsApp עם תבנית: שירות" — the template name after the colon
+// varies, the prefix does not (confirmed live on ticket #79061, 2026-09-22).
+const TEMPLATE_SENT_PREFIX = "נשלחה הודעת WhatsApp עם תבנית:";
+
+/** Whether this private Comment child event is Zendesk's auto-note for a WhatsApp template send. */
+function isWhatsappTemplateSentNote(child: Record<string, unknown>): boolean {
+  if (child.public === true) return false;
+  const body = String(child.plain_body ?? child.body ?? "");
+  return body.startsWith(TEMPLATE_SENT_PREFIX);
 }
 
 /** First instant of the current month, Asia/Jerusalem, as an ISO string. */
