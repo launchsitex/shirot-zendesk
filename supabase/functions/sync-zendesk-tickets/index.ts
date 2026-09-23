@@ -85,6 +85,35 @@ Deno.serve(async (request) => {
     }
   }
 
+  // One-off, read-only transcript pull for a handful of tickets — same
+  // isolation as check_ticket above (per-ticket comments endpoint, no
+  // touch to zendesk_sync_state, cannot affect live sync). Built for the
+  // account owner's manual conversation-quality review, 2026-09-22; a
+  // small delay between tickets avoids bursting Zendesk's rate limit.
+  if (Array.isArray(body.get_transcripts) && body.get_transcripts.length > 0) {
+    try {
+      const ids = body.get_transcripts
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+        .slice(0, 40);
+      const results = [];
+      for (const id of ids) {
+        try {
+          results.push(await getTicketTranscript(id));
+        } catch (error) {
+          results.push({
+            ticket_id: id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      return jsonResponse({ results });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return jsonResponse({ error: message }, 500);
+    }
+  }
+
   try {
     const result = await sync(supabase, body);
     return jsonResponse({ ok: true, ...result });
@@ -782,6 +811,39 @@ async function checkTicketTemplateNotes(ticketId: string) {
     }));
 
   return { ticket_id: ticketId, template_notes: templateNotes };
+}
+
+/**
+ * Every comment on a ticket, public and private, trimmed to what a
+ * conversation-quality read needs. Same read-only per-ticket endpoint as
+ * checkTicketTemplateNotes — no sync-state involvement.
+ */
+async function getTicketTranscript(ticketId: string) {
+  const email = Deno.env.get("mail_Zendesk")?.trim();
+  const token = Deno.env.get("API_Zendesk")?.trim();
+  const subdomain = (Deno.env.get("ZENDESK_SUBDOMAIN") ?? "rcity").trim();
+  if (!email || !token) throw new Error("mail_Zendesk / API_Zendesk not set");
+  const auth = `Basic ${btoa(`${email}/token:${token}`)}`;
+  const base = `https://${subdomain}.zendesk.com/api/v2`;
+
+  const response = await fetch(`${base}/tickets/${ticketId}/comments.json`, {
+    headers: { Authorization: auth, Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(`zendesk_${response.status}:${(await response.text()).slice(0, 200)}`);
+  }
+  const page = await response.json() as {
+    comments?: Array<Record<string, unknown>>;
+  };
+  const comments = (page.comments ?? []).map((comment) => ({
+    author_id: comment.author_id != null ? String(comment.author_id) : null,
+    created_at: comment.created_at,
+    public: comment.public === true,
+    body: String(comment.plain_body ?? comment.body ?? "").slice(0, 4000),
+  }));
+
+  return { ticket_id: ticketId, comments };
 }
 
 /** First instant of the current month, Asia/Jerusalem, as an ISO string. */
