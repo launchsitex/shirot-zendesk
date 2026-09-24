@@ -56,6 +56,15 @@ function seconds(value: number | null): string {
   return value != null ? formatSecondsLabel(value) : "—";
 }
 
+/** "11:50", Israel time — for "הועברה מ-X ב-HH:MM". */
+function timeLabel(iso: string): string {
+  return new Date(iso).toLocaleTimeString("he-IL", {
+    timeZone: "Asia/Jerusalem",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function tierClasses(minutes: WaitingTierMinutes | null): string {
   switch (minutes) {
     case 10:
@@ -614,6 +623,11 @@ export function WaDashboardPageClient() {
                               נפתחה {dayLabel(formatIsraelDate(ticket.createdAt))}
                             </span>
                           )}
+                          {ticket.enteredDepartmentAt && (
+                            <span dir="rtl" className="mt-0.5 block font-sans font-normal text-[#7a5a0f]">
+                              הועברה{ticket.transferredFromDepartmentName ? ` מ${ticket.transferredFromDepartmentName}` : ""} ב-{timeLabel(ticket.enteredDepartmentAt)}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5 text-[#17242d]">
                           {ticket.customerName ?? "—"}
@@ -685,6 +699,11 @@ export function WaDashboardPageClient() {
                           {formatIsraelDate(ticket.createdAt) !== date && (
                             <span dir="rtl" className="mt-0.5 block font-sans font-normal text-[#2c4a7a]">
                               נפתחה {dayLabel(formatIsraelDate(ticket.createdAt))}
+                            </span>
+                          )}
+                          {ticket.enteredDepartmentAt && (
+                            <span dir="rtl" className="mt-0.5 block font-sans font-normal text-[#7a5a0f]">
+                              הועברה{ticket.transferredFromDepartmentName ? ` מ${ticket.transferredFromDepartmentName}` : ""} ב-{timeLabel(ticket.enteredDepartmentAt)}
                             </span>
                           )}
                         </td>

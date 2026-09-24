@@ -129,6 +129,16 @@ export type WaTicketRow = {
    * fair timing sample.
    */
   excludedFromAverages: boolean;
+  /**
+   * When this ticket was transferred between Zendesk groups into its
+   * current agent's department after having started in a different one
+   * (e.g. אספקות → שירות לקוחות) — the moment "תגובה מוקד" actually starts
+   * counting from for a transferred ticket, instead of the original
+   * handoff/creation (2026-09-24). Null when it was never transferred.
+   */
+  enteredDepartmentAt: string | null;
+  /** The department the ticket came from, display only ("הועברה מ-X"). Null unless enteredDepartmentAt is set. */
+  transferredFromDepartmentName: string | null;
 };
 
 /**

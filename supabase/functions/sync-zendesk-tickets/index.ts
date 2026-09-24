@@ -114,6 +114,37 @@ Deno.serve(async (request) => {
     }
   }
 
+  // One-off, read-only audit-trail pull for a handful of tickets — same
+  // isolation as check_ticket/get_transcripts above. Built 2026-09-24 to
+  // check whether "never touched for hours" tickets were actually sitting
+  // in a *different* department's queue and only transferred into
+  // שירות לקוחות later — group_id changes are not currently captured by
+  // the normal sync (only status/assignee are), so this reads Zendesk's
+  // full audit trail directly instead.
+  if (Array.isArray(body.get_group_history) && body.get_group_history.length > 0) {
+    try {
+      const ids = body.get_group_history
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+        .slice(0, 40);
+      const results = [];
+      for (const id of ids) {
+        try {
+          results.push(await getTicketGroupHistory(id));
+        } catch (error) {
+          results.push({
+            ticket_id: id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      return jsonResponse({ results });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return jsonResponse({ error: message }, 500);
+    }
+  }
+
   try {
     const result = await sync(supabase, body);
     return jsonResponse({ ok: true, ...result });
@@ -628,6 +659,22 @@ async function syncComments(
           });
           touchedTransitions.add(ticketId);
         }
+        // Routing (department) changes — a ticket moved between groups, e.g.
+        // אספקות → שירות לקוחות. Not otherwise captured; recompute_ticket_transitions
+        // uses this to fix "תגובה מוקד" to the moment it entered its current
+        // department instead of its original bot handoff (account owner,
+        // 2026-09-24 — ticket #82582 e.g. sat in another department's queue
+        // for hours, then got a real reply 8 minutes after this transfer).
+        if ("group_id" in child) {
+          transitions.push({
+            id: `${child.id ?? event.id}-group`,
+            ticket_id: ticketId,
+            at,
+            kind: "group",
+            value: child.group_id == null ? "" : String(child.group_id),
+          });
+          touchedTransitions.add(ticketId);
+        }
 
         const direction =
           child.status === "new" && child.previous_value === "open"
@@ -844,6 +891,46 @@ async function getTicketTranscript(ticketId: string) {
   }));
 
   return { ticket_id: ticketId, comments };
+}
+
+/**
+ * Every group_id (department-routing) change on a ticket's full audit
+ * trail, oldest first — Zendesk's /audits endpoint, not the incremental
+ * export, so it sees group changes even though the normal sync does not
+ * store them. Read-only, no sync-state involvement.
+ */
+async function getTicketGroupHistory(ticketId: string) {
+  const email = Deno.env.get("mail_Zendesk")?.trim();
+  const token = Deno.env.get("API_Zendesk")?.trim();
+  const subdomain = (Deno.env.get("ZENDESK_SUBDOMAIN") ?? "rcity").trim();
+  if (!email || !token) throw new Error("mail_Zendesk / API_Zendesk not set");
+  const auth = `Basic ${btoa(`${email}/token:${token}`)}`;
+  const base = `https://${subdomain}.zendesk.com/api/v2`;
+
+  const response = await fetch(`${base}/tickets/${ticketId}/audits.json?sort_order=asc`, {
+    headers: { Authorization: auth, Accept: "application/json" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) {
+    throw new Error(`zendesk_${response.status}:${(await response.text()).slice(0, 200)}`);
+  }
+  const page = await response.json() as {
+    audits?: Array<{
+      created_at?: string;
+      events?: Array<Record<string, unknown>>;
+    }>;
+  };
+  const groupChanges = (page.audits ?? []).flatMap((audit) =>
+    (audit.events ?? [])
+      .filter((event) => event.field_name === "group_id")
+      .map((event) => ({
+        at: audit.created_at ?? null,
+        from: event.previous_value != null ? String(event.previous_value) : null,
+        to: event.value != null ? String(event.value) : null,
+      }))
+  );
+
+  return { ticket_id: ticketId, group_changes: groupChanges };
 }
 
 /** First instant of the current month, Asia/Jerusalem, as an ISO string. */

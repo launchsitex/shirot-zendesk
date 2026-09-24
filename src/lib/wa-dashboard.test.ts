@@ -47,6 +47,8 @@ function ticket(overrides: Partial<WaTicketRow>): WaTicketRow {
     lastCustomerMessageAt: null,
     waitingSince: null,
     excludedFromAverages: false,
+    enteredDepartmentAt: null,
+    transferredFromDepartmentName: null,
     ...overrides,
   };
 }

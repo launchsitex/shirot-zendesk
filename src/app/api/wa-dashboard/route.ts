@@ -46,7 +46,7 @@ const DEFAULT_DEPARTMENT_ID = "customer-service";
 // The *_message_at columns come from the Messaging trigger's tag flips, not
 // from ticket comments — see src/lib/wa-dashboard.ts for why.
 const SELECT =
-  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,custom_status_id,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,assigned_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,excluded_from_wa_averages,agents!agent_id(name,departments!department_id(id,name))";
+  "id,subject,requester_name,requester_phone,agent_id,assignee_name,status,custom_status_id,zendesk_created_at,zendesk_updated_at,handed_to_agent_at,assigned_to_agent_at,first_agent_message_at,last_agent_message_at,last_customer_message_at,customer_waiting_since,solved_at,first_response_agent_id,solved_by_agent_id,excluded_from_wa_averages,entered_department_at,transferred_from_department_name,agents!agent_id(name,departments!department_id(id,name))";
 
 type Row = {
   id: string;
@@ -69,6 +69,8 @@ type Row = {
   first_response_agent_id: string | null;
   solved_by_agent_id: string | null;
   excluded_from_wa_averages: boolean | null;
+  entered_department_at: string | null;
+  transferred_from_department_name: string | null;
   agents: unknown;
 };
 
@@ -147,8 +149,15 @@ function mapTicketRow(
   const lastCustomer = row.last_customer_message_at;
   // The first-response clock starts when the bot hands the customer to
   // the agents; a ticket with no recorded handoff falls back to its start
-  // and says so.
-  const clockStart = row.handed_to_agent_at ?? row.zendesk_created_at;
+  // and says so. But a ticket that started in a *different* department's
+  // queue and was only transferred into this one later starts from that
+  // transfer instead (entered_department_at) — otherwise "תגובה מוקד"
+  // blames this department for a wait it never owned (account owner,
+  // 2026-09-24: tickets that sat hours in אספקות's queue, then answered
+  // within minutes of landing in שירות לקוחות, were showing as if the
+  // department itself had ignored them for hours).
+  const clockStart =
+    row.entered_department_at ?? row.handed_to_agent_at ?? row.zendesk_created_at;
   // The customer is waiting when nobody from the team has written yet, or
   // when they wrote again after the agent's last message. The wait is
   // counted from their first message that is still unanswered: the
@@ -210,6 +219,10 @@ function mapTicketRow(
     lastCustomerMessageAt: lastCustomer,
     waitingSince,
     excludedFromAverages: row.excluded_from_wa_averages === true,
+    transferredFromDepartmentName: row.entered_department_at
+      ? row.transferred_from_department_name
+      : null,
+    enteredDepartmentAt: row.entered_department_at,
   };
 }
 
