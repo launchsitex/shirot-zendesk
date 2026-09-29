@@ -49,3 +49,6 @@ verify_jwt = false
 
 [functions.survey-public]
 verify_jwt = false
+
+[functions.sales-transfer-webhook]
+verify_jwt = false

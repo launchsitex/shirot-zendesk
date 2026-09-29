@@ -18,6 +18,7 @@ import {
   MonitorSmartphone,
   Moon,
   PhoneCall,
+  PhoneForwarded,
   PanelRightClose,
   ScrollText,
   Settings,
@@ -133,6 +134,12 @@ const items: {
     pageId: "wa-dashboard-history",
     icon: CalendarRange,
     child: true,
+  },
+  {
+    href: "/sales-transfers",
+    label: "העברות מהמכירות",
+    pageId: "sales-transfers",
+    icon: PhoneForwarded,
   },
   {
     href: "/ai-analysis",

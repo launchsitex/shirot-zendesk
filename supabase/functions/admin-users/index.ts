@@ -22,6 +22,7 @@ const ALL_PAGES = [
   "wa-dashboard",
   "wa-dashboard-tv",
   "wa-dashboard-history",
+  "sales-transfers",
   "ai-analysis",
   "agent-ai-analysis",
   "surveys",
@@ -427,6 +428,8 @@ function pageLabel(id: PageKey) {
       return "דשבורד TV WA";
     case "wa-dashboard-history":
       return "ביצועי WA";
+    case "sales-transfers":
+      return "העברות מהמכירות";
     case "ai-analysis":
       return "ניתוח AI";
     case "agent-ai-analysis":

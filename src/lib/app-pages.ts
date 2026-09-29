@@ -29,6 +29,11 @@ export const APP_PAGES = [
     href: "/wa-dashboard/history",
     label: "ביצועי WA",
   },
+  {
+    id: "sales-transfers",
+    href: "/sales-transfers",
+    label: "העברות מהמכירות",
+  },
   { id: "ai-analysis", href: "/ai-analysis", label: "ניתוח AI" },
   {
     id: "agent-ai-analysis",

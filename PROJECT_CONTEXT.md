@@ -73,6 +73,7 @@ Living document for agents and developers. Update this file when architecture, i
 | `/wa-dashboard` | WhatsApp (Zendesk Messaging) dashboard — one day, tabs per department, agent picker |
 | `/wa-dashboard/tv?department=…` | WhatsApp wallboard (today only, full screen) |
 | `/wa-dashboard/history` | "ביצועי WA" — stored daily record per agent, ranges, previous-period deltas, CSV |
+| `/sales-transfers` | "העברות מהמכירות" — live list of service calls the national sales centre (CallMarker, CRM-RC project) transferred on to service, each stamped with the customer's state with us at that moment (`sales_service_transfers`); per-category / per-seller counts, 14-day trend (2026-09-29) |
 | `/settings` | Integrations, webhook URL, flags |
 | `/users` | User management (admin) |
 | `/system-logs` | System event logs |
@@ -183,6 +184,7 @@ Agent pay and bonuses are computed from these figures; every definition below is
 | `zendesk-probe` | off | Diagnostic only (deployed, no local copy): ticket audits, events since, allow-listed GET; `x-sync-secret` |
 | `notify-missed-call` | off | Trigger-fired (`calls` → status `missed`): Resend email to `missed_call_notification_recipients` |
 | `notify-wa-waiting` | off | Polled every 5 min (pg_cron `wa-waiting-alert-every-5-minutes`): Resend email when a WhatsApp ticket crosses "מעל 10 דק'" unanswered (2026-09-22, see WhatsApp dashboards section) |
+| `sales-transfer-webhook` | off | Receives one CallMarker `שיחה שהועברה` row from a trigger on `call_logs` in the CRM-RC project (`nwurpaoflarjwcgpdmew`); header `x-transfer-secret` = vault `sales_transfer_secret` (dedicated, not the sync secret). Calls `ingest_sales_service_transfer`; pg_cron `sales-transfer-finalize-every-minute` re-classifies after 3 min and freezes. Every CallMarker transfer lands on the Aircall "שירות" line ~2s later — classification ignores those landings (2026-09-29) |
 | `sync-live` / `sync-history` / `sync-recordings` | off | Legacy/Zendesk-era sync helpers (Talk path largely replaced by Aircall) |
 
 Deploy via Supabase MCP or CLI with project access. Local CLI may 403 if the logged-in org lacks privileges on this project — use MCP `deploy_edge_function` then.
