@@ -9,6 +9,25 @@
 
 ---
 
+## [2026-09-29] — פריסה: חיבור GitHub ל-Hostinger נותק, ו-build עם webpack
+
+- **מה קרה**: ב-hPanel הופיע "Git provider is not connected" ו-Auto-deployment
+  היה כבוי. הפריסה האחרונה הייתה 23.09 (381462d), כך שכל push מאז **לא עלה
+  לאתר**, כולל החלק של תיקון "תגובה מוקד" לפניות שהועברו בין מחלקות (24.09),
+  שמשפיע על שכר.
+- **תיקון 1**: חיבור מחדש של GitHub (launchsitex/shirot-zendesk, main) ב-hPanel.
+- **תיקון 2**: אחרי החיבור, `next build` (Turbopack) נכשל ב-Hostinger פעמיים ברצף:
+  `TurbopackInternalError ... globals.css ... node process exited before we could
+  connect to it`. זה לא קשור לקוד: package-lock לא השתנה מאז יולי, ואותו build
+  עובר מקומית. Turbopack מפעיל תהליך node נפרד ל-PostCSS/Tailwind, וסביבת
+  ה-build של Hostinger לא נותנת לו לעלות. `build` עבר ל-`next build --webpack`,
+  שמריץ PostCSS באותו תהליך. `dev` נשאר עם Turbopack.
+- **לקח**: אחרי כל push לבדוק שהאתר באמת התעדכן (למשל chunk חדש מחזיר 200
+  באתר), ולא להניח ש-push = פריסה.
+- **קבצים**: `package.json`.
+
+---
+
 ## [2026-09-29] — עמוד חדש: "העברות מהמכירות" (לקוחות שירות שהגיעו למוקד המכירות)
 
 - **מה**: עמוד חדש `/sales-transfers`. הוא מציג בזמן אמת כל שיחה שמוקד המכירות

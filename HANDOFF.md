@@ -69,7 +69,7 @@ Edge-function secret **values** cannot be read back from Supabase; only names. I
 
 ## 5. Deploying
 
-- **App:** commit, `gh auth status` (switch to `launchsitex` if needed), `git push origin main`. Hostinger builds (`next build`, type-checked — a TS error fails the build and the previous version stays live) and swaps in ~1 min.
+- **App:** commit, `gh auth status` (switch to `launchsitex` if needed), `git push origin main`. Hostinger builds (`npm run build` = `next build --webpack`, type-checked — a TS error fails the build and the previous version stays live) and swaps in ~1 min. **Verify it actually deployed**: on 2026-09-29 we found the Git link had silently disconnected (last deploy 23.09), and Turbopack builds crash on Hostinger (`node process exited before we could connect to it` on `globals.css`) — hence `--webpack`. Check hPanel → zend-shirot → Deployments, or HEAD a new `/_next/static/chunks/*.js` on the live site.
 - **Migration:** write `supabase/migrations/<timestamp>_<name>.sql`, apply with MCP `apply_migration` (name = the snake_case part), commit the file. Before any migration that adds a table or FK between existing tables, read `docs/agent-memory/postgrest-embed-ambiguity.md`.
 - **Edge function:** edit `supabase/functions/<name>/index.ts`, deploy with MCP `deploy_edge_function` (pass the full file; `verify_jwt` as listed in `PROJECT_CONTEXT.md`), commit. `zendesk-probe` exists only on Supabase (no local copy) — fetch it with `get_edge_function` before touching.
 - **Cron:** pg_cron jobs live in migrations (`select cron.schedule(...)`); current list in `PROJECT_CONTEXT.md` / `select jobname, schedule from cron.job`.
