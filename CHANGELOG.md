@@ -9,6 +9,23 @@
 
 ---
 
+## [2026-09-29] — "העברות מהמכירות": פתיחת קטגוריה, נציגה, קישורים לזנדסק
+
+- **מה**:
+  - לחיצה על שורה ב"למה הגיעו למכירות" פותחת את ההעברות של הקטגוריה: שעה,
+    מוכר, לקוח, מספר פנייה, אצל איזו נציגה הפנייה (או "ללא שיוך") ומתי
+    הלקוח פתח וואטסאפ אחרי ההעברה.
+  - מספרי הפניות לחיצים ופותחים את הפנייה בזנדסק (`rcity.zendesk.com`).
+  - גם בטבלה הראשית מוצגת הנציגה של הפנייה.
+- **נציגה**: המשייך הנוכחי של הפנייה (`agents.name`, ואם אין אז
+  `zendesk_tickets.assignee_name`), ולא מי שהייתה משויכת ברגע ההעברה.
+- **קבצים**:
+  - `supabase/migrations/20260929120000_sales_transfers_ticket_agent.sql`
+  - `src/components/sales-transfers-page.tsx`, `src/lib/sales-transfers.ts`,
+    `src/app/api/sales-transfers/route.ts`
+
+---
+
 ## [2026-09-29] — פריסה: חיבור GitHub ל-Hostinger נותק, ו-build עם webpack
 
 - **מה קרה**: ב-hPanel הופיע "Git provider is not connected" ו-Auto-deployment

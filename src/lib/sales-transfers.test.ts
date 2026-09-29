@@ -17,6 +17,7 @@ function row(overrides: Partial<SalesTransferRow> = {}): SalesTransferRow {
     ticketId: null,
     ticketDepartment: null,
     ticketStatus: null,
+    ticketAgentName: null,
     customerName: null,
     lastCustomerMessageAt: null,
     lastAgentMessageAt: null,

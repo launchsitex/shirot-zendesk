@@ -58,6 +58,8 @@ export type SalesTransferRow = {
   ticketId: string | null;
   ticketDepartment: string | null;
   ticketStatus: string | null;
+  /** Current assignee of the linked ticket. */
+  ticketAgentName: string | null;
   customerName: string | null;
   lastCustomerMessageAt: string | null;
   lastAgentMessageAt: string | null;

@@ -1,6 +1,12 @@
 "use client";
 
-import { LoaderCircle, PhoneForwarded, RefreshCw } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  LoaderCircle,
+  PhoneForwarded,
+  RefreshCw,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { jerusalemToday } from "@/lib/israel-time";
 import {
@@ -17,6 +23,7 @@ import {
 import { formatPhone, STATUS_LABELS } from "@/lib/tickets";
 
 const REFRESH_MS = 15_000;
+const ZENDESK_TICKET_URL = "https://rcity.zendesk.com/agent/tickets/";
 
 const timeFormatter = new Intl.DateTimeFormat("he-IL", {
   timeZone: "Asia/Jerusalem",
@@ -104,6 +111,9 @@ export function SalesTransfersPageClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [openCategory, setOpenCategory] = useState<SalesTransferCategory | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     setError("");
@@ -249,24 +259,50 @@ export function SalesTransfersPageClient() {
                   {SALES_TRANSFER_CATEGORIES.map((category) => {
                     const count = summary.byCategory[category];
                     const share = summary.episodes ? count / summary.episodes : 0;
+                    const isOpen = openCategory === category;
                     return (
-                      <li key={category} className="px-5 py-3">
-                        <div className="flex items-center gap-3">
-                          <CategoryChip category={category} />
-                          <span className="flex-1 text-xs text-[#718087]">
-                            {CATEGORY_META[category].hint}
-                          </span>
-                          <strong className="text-sm text-[#17242d]">{count}</strong>
-                          <span className="w-10 text-left text-xs text-[#a3adb1]">
-                            {percent(count, summary.episodes)}
-                          </span>
-                        </div>
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#f1f4f5]">
-                          <div
-                            className="h-full rounded-full bg-[#158f83]"
-                            style={{ width: `${Math.round(share * 100)}%` }}
+                      <li key={category}>
+                        <button
+                          type="button"
+                          onClick={() => setOpenCategory(isOpen ? null : category)}
+                          aria-expanded={isOpen}
+                          disabled={count === 0}
+                          className={`block w-full px-5 py-3 text-right transition ${
+                            isOpen ? "bg-[#f8fafb]" : "hover:bg-[#f8fafb]"
+                          } disabled:cursor-default disabled:hover:bg-transparent`}
+                        >
+                          <div className="flex items-center gap-3">
+                            {isOpen ? (
+                              <ChevronDown size={16} className="text-[#5d6d75]" />
+                            ) : (
+                              <ChevronLeft
+                                size={16}
+                                className={count ? "text-[#a3adb1]" : "text-transparent"}
+                              />
+                            )}
+                            <CategoryChip category={category} />
+                            <span className="flex-1 text-xs text-[#718087]">
+                              {CATEGORY_META[category].hint}
+                            </span>
+                            <strong className="text-sm text-[#17242d]">{count}</strong>
+                            <span className="w-10 text-left text-xs text-[#a3adb1]">
+                              {percent(count, summary.episodes)}
+                            </span>
+                          </div>
+                          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#f1f4f5]">
+                            <div
+                              className="h-full rounded-full bg-[#158f83]"
+                              style={{ width: `${Math.round(share * 100)}%` }}
+                            />
+                          </div>
+                        </button>
+                        {isOpen && (
+                          <CategoryTransfers
+                            rows={rows.filter(
+                              (row) => !row.isRepeat && row.category === category,
+                            )}
                           />
-                        </div>
+                        )}
                       </li>
                     );
                   })}
@@ -425,6 +461,97 @@ export function SalesTransfersPageClient() {
   );
 }
 
+function TicketLink({ id }: { id: string }) {
+  return (
+    <a
+      href={`${ZENDESK_TICKET_URL}${encodeURIComponent(id)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      dir="ltr"
+      className="font-mono text-xs font-bold text-[#158f83] underline-offset-2 hover:underline"
+    >
+      #{id}
+    </a>
+  );
+}
+
+function CategoryTransfers({ rows }: { rows: SalesTransferRow[] }) {
+  return (
+    <div className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-3">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-xs">
+          <thead>
+            <tr className="text-[#5d6d75]">
+              <th className="px-2 py-1.5 text-right font-semibold">שעה</th>
+              <th className="px-2 py-1.5 text-right font-semibold">מוכר</th>
+              <th className="px-2 py-1.5 text-right font-semibold">לקוח</th>
+              <th className="px-2 py-1.5 text-right font-semibold">פנייה</th>
+              <th className="px-2 py-1.5 text-right font-semibold">אצל נציגה</th>
+              <th className="px-2 py-1.5 text-right font-semibold">וואטסאפ אחרי</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const waited = waitingMinutesAtTransfer(row);
+              return (
+                <tr key={row.id} className="border-t border-[#edf1f3]">
+                  <td className="whitespace-nowrap px-2 py-1.5 font-semibold text-[#17242d]">
+                    {timeLabel(row.transferredAt)}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-[#17242d]">
+                    {row.salesAgent ?? "—"}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <span className="text-[#17242d]">{row.customerName ?? ""}</span>{" "}
+                    <span dir="ltr" className="text-[#718087]">
+                      {formatPhone(row.phone)}
+                    </span>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5">
+                    {row.ticketId ? (
+                      <>
+                        <TicketLink id={row.ticketId} />
+                        {waited !== null && (
+                          <span className="mr-1.5 text-[#c8434c]">
+                            ממתין {formatWait(waited)}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="text-[#a3adb1]">—</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-[#17242d]">
+                    {row.ticketId ? (
+                      (row.ticketAgentName ?? (
+                        <span className="text-[#c8434c]">ללא שיוך</span>
+                      ))
+                    ) : (
+                      <span className="text-[#a3adb1]">—</span>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5">
+                    {row.waAfterTicketId ? (
+                      <>
+                        <TicketLink id={row.waAfterTicketId} />
+                        <span className="mr-1.5 text-[#718087]">
+                          {timeLabel(row.waAfterAt)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[#a3adb1]">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function TransferRow({ row }: { row: SalesTransferRow }) {
   const waited = waitingMinutesAtTransfer(row);
   const notes: string[] = [];
@@ -460,11 +587,12 @@ function TransferRow({ row }: { row: SalesTransferRow }) {
       <td className="px-3 py-2.5">
         {row.ticketId ? (
           <>
-            <span dir="ltr" className="block text-right font-mono text-xs font-bold text-[#17242d]">
-              #{row.ticketId}
+            <span className="block">
+              <TicketLink id={row.ticketId} />
             </span>
             <span className="block text-xs text-[#718087]">
               {[
+                row.ticketAgentName ?? "ללא שיוך",
                 row.ticketDepartment,
                 row.ticketStatus ? (STATUS_LABELS[row.ticketStatus] ?? row.ticketStatus) : null,
               ]

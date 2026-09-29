@@ -29,6 +29,7 @@ type BetweenRow = {
   ticket_id: string | null;
   ticket_department: string | null;
   ticket_status: string | null;
+  ticket_agent_name: string | null;
   customer_name: string | null;
   last_customer_message_at: string | null;
   last_agent_message_at: string | null;
@@ -117,6 +118,7 @@ export async function GET(request: NextRequest) {
       ticketId: row.ticket_id,
       ticketDepartment: row.ticket_department,
       ticketStatus: row.ticket_status,
+      ticketAgentName: row.ticket_agent_name,
       customerName: row.customer_name,
       lastCustomerMessageAt: row.last_customer_message_at,
       lastAgentMessageAt: row.last_agent_message_at,
