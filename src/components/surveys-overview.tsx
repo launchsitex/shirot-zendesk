@@ -306,14 +306,20 @@ export function SurveysOverview({
   }
 
   const filteredResponses = useMemo(() => {
-    const orderNumberQuery = orderNumberFilter.trim().toLowerCase();
+    const searchQuery = orderNumberFilter.trim().toLowerCase();
     return localResponses.filter((row) => {
       if (branchFilter && row.branch_id !== branchFilter) return false;
       if (agentFilter && row.agent_name !== agentFilter) return false;
       if (moverFilter && row.mover_id !== moverFilter) return false;
       if (dateFrom && row.submitted_at < dateFrom) return false;
       if (dateTo && row.submitted_at > `${dateTo}T23:59:59`) return false;
-      if (orderNumberQuery && !row.order_number.toLowerCase().includes(orderNumberQuery)) return false;
+      if (searchQuery) {
+        const matchesOrderNumber = row.order_number.toLowerCase().includes(searchQuery);
+        const matchesCustomerName = (row.survey_pending_sends?.customer_name ?? "")
+          .toLowerCase()
+          .includes(searchQuery);
+        if (!matchesOrderNumber && !matchesCustomerName) return false;
+      }
       return true;
     });
   }, [localResponses, branchFilter, agentFilter, moverFilter, dateFrom, dateTo, orderNumberFilter]);
@@ -466,10 +472,10 @@ export function SurveysOverview({
         />
         <input
           type="text"
-          placeholder="מספר הזמנה"
+          placeholder="חיפוש לפי שם או מס' הזמנה"
           value={orderNumberFilter}
           onChange={(event) => setOrderNumberFilter(event.target.value)}
-          className="h-10 w-36 rounded-lg border px-2 text-sm"
+          className="h-10 w-48 rounded-lg border px-2 text-sm"
           style={{ borderColor: "var(--line)", color: "var(--ink)" }}
         />
         <div className="flex items-center gap-1.5 text-sm" style={{ color: "var(--muted)" }}>
