@@ -1,6 +1,11 @@
 export const SALES_TRANSFER_CATEGORIES = [
-  "waiting_on_us",
+  "waiting_assignment",
+  "waiting_agent",
   "in_progress",
+  "open_deliveries",
+  "open_movers",
+  "open_branches",
+  "other_department",
   "recently_solved",
   "called_service_line",
   "old_history",
@@ -9,19 +14,50 @@ export const SALES_TRANSFER_CATEGORIES = [
 
 export type SalesTransferCategory = (typeof SALES_TRANSFER_CATEGORIES)[number];
 
+export function isSalesTransferCategory(
+  value: string | null | undefined,
+): value is SalesTransferCategory {
+  return (SALES_TRANSFER_CATEGORIES as readonly string[]).includes(value ?? "");
+}
+
 export const CATEGORY_META: Record<
   SalesTransferCategory,
   { label: string; hint: string; tone: string }
 > = {
-  waiting_on_us: {
-    label: "ממתין לתגובה שלנו",
-    hint: "כתב בוואטסאפ ועוד לא ענינו לו",
+  waiting_assignment: {
+    label: "ממתין לשיוך נציגה",
+    hint: "כתב בוואטסאפ, והפנייה ישבה בתור בלי נציגה",
+    tone: "bg-[#fdebed] text-[#c8434c]",
+  },
+  waiting_agent: {
+    label: "ממתין לתשובת נציגה",
+    hint: "הפנייה אצל נציגה, והיא עוד לא ענתה לו",
     tone: "bg-[#fdebed] text-[#c8434c]",
   },
   in_progress: {
     label: "בטיפול – ענינו לו",
     hint: "יש פנייה פתוחה וכבר ענינו, ובכל זאת התקשר",
     tone: "bg-[#fff4e0] text-[#a86a00]",
+  },
+  open_deliveries: {
+    label: "פנייה פתוחה באספקות",
+    hint: "הפנייה הפתוחה שלו הייתה באספקות, לא בשירות",
+    tone: "bg-[#f1ecfb] text-[#6b46c1]",
+  },
+  open_movers: {
+    label: "פנייה פתוחה במובילים",
+    hint: "הפנייה הפתוחה שלו הייתה במובילים, לא בשירות",
+    tone: "bg-[#f1ecfb] text-[#6b46c1]",
+  },
+  open_branches: {
+    label: "פנייה פתוחה בסניפים",
+    hint: "הפנייה הפתוחה שלו הייתה בסניפים, לא בשירות",
+    tone: "bg-[#f1ecfb] text-[#6b46c1]",
+  },
+  other_department: {
+    label: "פנייה פתוחה במחלקה אחרת",
+    hint: "הפנייה הפתוחה שלו הייתה ברכש, בשימור או אצל המנהלים",
+    tone: "bg-[#f1ecfb] text-[#6b46c1]",
   },
   recently_solved: {
     label: "נסגרה לאחרונה",
@@ -56,10 +92,18 @@ export type SalesTransferRow = {
   isRepeat: boolean;
   category: SalesTransferCategory | null;
   ticketId: string | null;
+  /** Department the ticket was in at the moment of the transfer. */
   ticketDepartment: string | null;
   ticketStatus: string | null;
-  /** Current assignee of the linked ticket. */
+  /** Who the ticket is with now. */
   ticketAgentName: string | null;
+  /** Who the ticket was with at the moment of the transfer (null = nobody). */
+  assigneeAtTransfer: string | null;
+  waitingSince: string | null;
+  /** Business seconds unassigned in the service queue before the call. */
+  queueWaitSeconds: number | null;
+  /** Business seconds with the assigned agent, unanswered, before the call. */
+  agentWaitSeconds: number | null;
   customerName: string | null;
   lastCustomerMessageAt: string | null;
   lastAgentMessageAt: string | null;
@@ -86,15 +130,9 @@ export type SalesTransfersPayload = {
 export type CategoryCounts = Record<SalesTransferCategory | "pending", number>;
 
 function emptyCounts(): CategoryCounts {
-  return {
-    waiting_on_us: 0,
-    in_progress: 0,
-    recently_solved: 0,
-    called_service_line: 0,
-    old_history: 0,
-    no_history: 0,
-    pending: 0,
-  };
+  const counts = { pending: 0 } as CategoryCounts;
+  for (const category of SALES_TRANSFER_CATEGORIES) counts[category] = 0;
+  return counts;
 }
 
 export type SalesAgentSummary = {
@@ -155,12 +193,14 @@ export function summarizeTransfers(rows: SalesTransferRow[]): SalesTransfersSumm
   };
 }
 
-/** Minutes the customer had been waiting on our WhatsApp reply at the transfer. */
-export function waitingMinutesAtTransfer(row: SalesTransferRow): number | null {
-  if (row.category !== "waiting_on_us" || !row.lastCustomerMessageAt) return null;
-  const minutes =
-    (Date.parse(row.transferredAt) - Date.parse(row.lastCustomerMessageAt)) / 60_000;
-  return Number.isFinite(minutes) ? Math.max(0, Math.round(minutes)) : null;
+/** Business-hours wait as "14 דק'" / "8 ש' 36 דק'"; null when there is none. */
+export function formatWaitSeconds(seconds: number | null | undefined): string | null {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds)) return null;
+  const minutes = Math.max(0, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} דק'`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} ש' ${rest} דק'` : `${hours} ש'`;
 }
 
 export function percent(part: number, total: number): string {

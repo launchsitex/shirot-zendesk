@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   percent,
+  formatWaitSeconds,
+  isSalesTransferCategory,
   summarizeTransfers,
-  waitingMinutesAtTransfer,
   type SalesTransferRow,
 } from "./sales-transfers";
 
@@ -18,6 +19,10 @@ function row(overrides: Partial<SalesTransferRow> = {}): SalesTransferRow {
     ticketDepartment: null,
     ticketStatus: null,
     ticketAgentName: null,
+    assigneeAtTransfer: null,
+    waitingSince: null,
+    queueWaitSeconds: null,
+    agentWaitSeconds: null,
     customerName: null,
     lastCustomerMessageAt: null,
     lastAgentMessageAt: null,
@@ -75,28 +80,39 @@ describe("summarizeTransfers", () => {
   });
 });
 
-describe("waitingMinutesAtTransfer", () => {
-  it("measures from the customer's last message to the transfer", () => {
-    expect(
-      waitingMinutesAtTransfer(
-        row({
-          category: "waiting_on_us",
-          lastCustomerMessageAt: "2026-09-29T06:45:56Z",
-          transferredAt: "2026-09-29T07:02:51Z",
-        }),
-      ),
-    ).toBe(17);
+describe("formatWaitSeconds", () => {
+  it("shows minutes, then hours and minutes", () => {
+    expect(formatWaitSeconds(14 * 60)).toBe("14 דק'");
+    expect(formatWaitSeconds(516 * 60)).toBe("8 ש' 36 דק'");
+    expect(formatWaitSeconds(2 * 3600)).toBe("2 ש'");
   });
 
-  it("is null for other categories", () => {
-    expect(
-      waitingMinutesAtTransfer(
-        row({ category: "in_progress", lastCustomerMessageAt: "2026-09-29T06:45:56Z" }),
-      ),
-    ).toBeNull();
+  it("is null when there is no wait to show", () => {
+    expect(formatWaitSeconds(null)).toBeNull();
+    expect(formatWaitSeconds(undefined)).toBeNull();
   });
 });
 
+describe("isSalesTransferCategory", () => {
+  it("rejects the retired waiting_on_us category", () => {
+    expect(isSalesTransferCategory("waiting_assignment")).toBe(true);
+    expect(isSalesTransferCategory("waiting_on_us")).toBe(false);
+    expect(isSalesTransferCategory(null)).toBe(false);
+  });
+});
+
+describe("summarizeTransfers split waits", () => {
+  it("counts the two waiting categories separately", () => {
+    const summary = summarizeTransfers([
+      row({ id: "a", category: "waiting_assignment" }),
+      row({ id: "b", phone: "0544956118", category: "waiting_agent" }),
+      row({ id: "c", phone: "0544956119", category: "other_department" }),
+    ]);
+    expect(summary.byCategory.waiting_assignment).toBe(1);
+    expect(summary.byCategory.waiting_agent).toBe(1);
+    expect(summary.byCategory.other_department).toBe(1);
+  });
+});
 describe("percent", () => {
   it("rounds and handles an empty total", () => {
     expect(percent(1, 3)).toBe("33%");

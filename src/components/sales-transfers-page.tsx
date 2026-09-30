@@ -12,9 +12,9 @@ import { jerusalemToday } from "@/lib/israel-time";
 import {
   CATEGORY_META,
   SALES_TRANSFER_CATEGORIES,
+  formatWaitSeconds,
   percent,
   summarizeTransfers,
-  waitingMinutesAtTransfer,
   type SalesTransferCategory,
   type SalesTransferDailyRow,
   type SalesTransferRow,
@@ -47,13 +47,6 @@ function dayLabel(day: string) {
   const [year, month, date] = day.split("-").map(Number);
   const weekday = weekdayFormatter.format(new Date(Date.UTC(year, month - 1, date)));
   return `${String(date).padStart(2, "0")}.${String(month).padStart(2, "0")} ${weekday}`;
-}
-
-function formatWait(minutes: number) {
-  if (minutes < 60) return `${minutes} דק'`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours} ש' ${rest} דק'` : `${hours} ש'`;
 }
 
 function CategoryChip({ category }: { category: SalesTransferCategory | null }) {
@@ -211,12 +204,12 @@ export function SalesTransfersPageClient() {
                 </span>
               </div>
               <div className="card p-5">
-                <span className="text-sm text-[#718087]">ממתינים לתגובה שלנו</span>
+                <span className="text-sm text-[#718087]">ממתינים לנו בוואטסאפ</span>
                 <strong className="mt-1 block text-3xl font-bold text-[#c8434c]">
-                  {summary.byCategory.waiting_on_us}
+                  {summary.byCategory.waiting_assignment + summary.byCategory.waiting_agent}
                 </strong>
                 <span className="text-xs text-[#a3adb1]">
-                  {percent(summary.byCategory.waiting_on_us, summary.episodes)} מהפניות
+                  {`${summary.byCategory.waiting_assignment} לשיוך נציגה · ${summary.byCategory.waiting_agent} לתשובת נציגה`}
                 </span>
               </div>
               <div className="card p-5">
@@ -348,7 +341,8 @@ export function SalesTransfersPageClient() {
                             </td>
                             <td className="px-3 py-2.5 text-center">{agent.transfers}</td>
                             <td className="px-3 py-2.5 text-center text-[#c8434c]">
-                              {agent.byCategory.waiting_on_us}
+                              {agent.byCategory.waiting_assignment +
+                              agent.byCategory.waiting_agent}
                             </td>
                             <td className="px-3 py-2.5 text-center">
                               {agent.byCategory.in_progress +
@@ -408,7 +402,7 @@ export function SalesTransfersPageClient() {
                 </h2>
               </header>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px] border-collapse text-sm">
+                <table className="w-full min-w-[1240px] border-collapse text-sm">
                   <thead>
                     <tr className="text-[#5d6d75]">
                       <th className="px-4 py-2.5 text-right font-semibold">יום</th>
@@ -475,24 +469,48 @@ function TicketLink({ id }: { id: string }) {
   );
 }
 
+/** Who had the ticket when the customer called, and who has it now if that changed. */
+function AgentAtTransfer({ row }: { row: SalesTransferRow }) {
+  if (!row.ticketId) return <span className="text-[#a3adb1]">—</span>;
+  const now = row.ticketAgentName;
+  return (
+    <>
+      {row.assigneeAtTransfer ?? <span className="text-[#c8434c]">ללא שיוך</span>}
+      {now && now !== row.assigneeAtTransfer && (
+        <span className="block text-[11px] text-[#a3adb1]">עכשיו: {now}</span>
+      )}
+    </>
+  );
+}
+
+function WaitCell({ seconds }: { seconds: number | null }) {
+  const label = formatWaitSeconds(seconds);
+  return label ? (
+    <span className="font-semibold text-[#c8434c]">{label}</span>
+  ) : (
+    <span className="text-[#a3adb1]">—</span>
+  );
+}
+
 function CategoryTransfers({ rows }: { rows: SalesTransferRow[] }) {
   return (
     <div className="border-t border-[#edf1f3] bg-[#fbfcfd] px-5 py-3">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse text-xs">
+        <table className="w-full min-w-[760px] border-collapse text-xs">
           <thead>
             <tr className="text-[#5d6d75]">
               <th className="px-2 py-1.5 text-right font-semibold">שעה</th>
               <th className="px-2 py-1.5 text-right font-semibold">מוכר</th>
               <th className="px-2 py-1.5 text-right font-semibold">לקוח</th>
               <th className="px-2 py-1.5 text-right font-semibold">פנייה</th>
-              <th className="px-2 py-1.5 text-right font-semibold">אצל נציגה</th>
+              <th className="px-2 py-1.5 text-right font-semibold">נציגה בזמן השיחה</th>
+              <th className="px-2 py-1.5 text-right font-semibold">המתנה לשיוך</th>
+              <th className="px-2 py-1.5 text-right font-semibold">המתנה לתשובת נציגה</th>
               <th className="px-2 py-1.5 text-right font-semibold">וואטסאפ אחרי</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
-              const waited = waitingMinutesAtTransfer(row);
               return (
                 <tr key={row.id} className="border-t border-[#edf1f3]">
                   <td className="whitespace-nowrap px-2 py-1.5 font-semibold text-[#17242d]">
@@ -511,10 +529,8 @@ function CategoryTransfers({ rows }: { rows: SalesTransferRow[] }) {
                     {row.ticketId ? (
                       <>
                         <TicketLink id={row.ticketId} />
-                        {waited !== null && (
-                          <span className="mr-1.5 text-[#c8434c]">
-                            ממתין {formatWait(waited)}
-                          </span>
+                        {row.ticketDepartment && (
+                          <span className="mr-1.5 text-[#718087]">{row.ticketDepartment}</span>
                         )}
                       </>
                     ) : (
@@ -522,13 +538,13 @@ function CategoryTransfers({ rows }: { rows: SalesTransferRow[] }) {
                     )}
                   </td>
                   <td className="whitespace-nowrap px-2 py-1.5 text-[#17242d]">
-                    {row.ticketId ? (
-                      (row.ticketAgentName ?? (
-                        <span className="text-[#c8434c]">ללא שיוך</span>
-                      ))
-                    ) : (
-                      <span className="text-[#a3adb1]">—</span>
-                    )}
+                    <AgentAtTransfer row={row} />
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5">
+                    <WaitCell seconds={row.queueWaitSeconds} />
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5">
+                    <WaitCell seconds={row.agentWaitSeconds} />
                   </td>
                   <td className="whitespace-nowrap px-2 py-1.5">
                     {row.waAfterTicketId ? (
@@ -553,9 +569,11 @@ function CategoryTransfers({ rows }: { rows: SalesTransferRow[] }) {
 }
 
 function TransferRow({ row }: { row: SalesTransferRow }) {
-  const waited = waitingMinutesAtTransfer(row);
+  const queueWait = formatWaitSeconds(row.queueWaitSeconds);
+  const agentWait = formatWaitSeconds(row.agentWaitSeconds);
   const notes: string[] = [];
-  if (waited !== null) notes.push(`ממתין ${formatWait(waited)} לתגובה`);
+  if (queueWait) notes.push(`בתור לשיוך ${queueWait}`);
+  if (agentWait) notes.push(`אצל נציגה בלי תשובה ${agentWait}`);
   if (row.calledDeliveries24h) notes.push("התקשר לאספקות ב-24 שעות");
   if (row.waAfterTicketId) {
     notes.push(`פתח וואטסאפ ב-${timeLabel(row.waAfterAt)} (#${row.waAfterTicketId})`);
@@ -592,13 +610,18 @@ function TransferRow({ row }: { row: SalesTransferRow }) {
             </span>
             <span className="block text-xs text-[#718087]">
               {[
-                row.ticketAgentName ?? "ללא שיוך",
+                row.assigneeAtTransfer ?? "ללא שיוך",
                 row.ticketDepartment,
                 row.ticketStatus ? (STATUS_LABELS[row.ticketStatus] ?? row.ticketStatus) : null,
               ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>
+            {row.ticketAgentName && row.ticketAgentName !== row.assigneeAtTransfer && (
+              <span className="block text-[11px] text-[#a3adb1]">
+                עכשיו: {row.ticketAgentName}
+              </span>
+            )}
           </>
         ) : (
           <span className="text-[#a3adb1]">—</span>

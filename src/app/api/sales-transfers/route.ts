@@ -4,7 +4,7 @@ import { getCurrentProfile } from "@/lib/auth/access";
 import { jerusalemDayBounds, jerusalemToday } from "@/lib/israel-time";
 import {
   EXCLUDED_SALES_AGENTS,
-  type SalesTransferCategory,
+  isSalesTransferCategory,
   type SalesTransferDailyRow,
   type SalesTransferRow,
   type SalesTransfersPayload,
@@ -30,6 +30,10 @@ type BetweenRow = {
   ticket_department: string | null;
   ticket_status: string | null;
   ticket_agent_name: string | null;
+  assignee_at_transfer?: string | null;
+  waiting_since?: string | null;
+  queue_wait_seconds?: number | null;
+  agent_wait_seconds?: number | null;
   customer_name: string | null;
   last_customer_message_at: string | null;
   last_agent_message_at: string | null;
@@ -114,11 +118,15 @@ export async function GET(request: NextRequest) {
       salesAgent: row.sales_agent,
       transferredAt: row.transferred_at,
       isRepeat: row.is_repeat === true,
-      category: row.category as SalesTransferCategory | null,
+      category: isSalesTransferCategory(row.category) ? row.category : null,
       ticketId: row.ticket_id,
       ticketDepartment: row.ticket_department,
       ticketStatus: row.ticket_status,
       ticketAgentName: row.ticket_agent_name,
+      assigneeAtTransfer: row.assignee_at_transfer ?? null,
+      waitingSince: row.waiting_since ?? null,
+      queueWaitSeconds: row.queue_wait_seconds ?? null,
+      agentWaitSeconds: row.agent_wait_seconds ?? null,
       customerName: row.customer_name,
       lastCustomerMessageAt: row.last_customer_message_at,
       lastAgentMessageAt: row.last_agent_message_at,
@@ -132,7 +140,7 @@ export async function GET(request: NextRequest) {
   const daily: SalesTransferDailyRow[] = ((dailyResult.data ?? []) as DailyRow[]).map(
     (row) => ({
       day: row.day,
-      category: row.category as SalesTransferCategory | null,
+      category: isSalesTransferCategory(row.category) ? row.category : null,
       transfers: Number(row.transfers ?? 0),
       episodes: Number(row.episodes ?? 0),
       customers: Number(row.customers ?? 0),
